@@ -30,10 +30,10 @@ codex-ollama-proxy
 
 ## Install
 
-From npm:
+From the GitHub release tarball:
 
 ```bash
-npm install -g codex-ollama-proxy
+npm install -g https://github.com/bharat2808/codex-ollama-proxy/releases/download/v0.1.0/codex-ollama-proxy-0.1.0.tgz
 ```
 
 From a local checkout:
@@ -174,7 +174,7 @@ codex-ollama-proxy switch openai
 codex-ollama-proxy uninstall
 ```
 
-Remove the globally linked package:
+Remove the globally installed package:
 
 ```bash
 npm uninstall -g codex-ollama-proxy

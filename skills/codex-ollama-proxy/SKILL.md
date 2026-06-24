@@ -15,10 +15,10 @@ https://github.com/bharat2808/codex-ollama-proxy
 
 ## Minimal Install
 
-Prefer npm:
+Prefer the GitHub release tarball:
 
 ```bash
-npm install -g codex-ollama-proxy
+npm install -g https://github.com/bharat2808/codex-ollama-proxy/releases/download/v0.1.0/codex-ollama-proxy-0.1.0.tgz
 codex-ollama-proxy init
 codex-ollama-proxy install
 codex-ollama-proxy status
