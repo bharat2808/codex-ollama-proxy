@@ -2,7 +2,7 @@
 
 Unofficial experimental local compatibility proxy for testing Ollama-compatible Responses API shapes with local Codex config.
 
-Not affiliated with, endorsed by, or supported by OpenAI. Codex local config behavior may change.
+This will Let you use ollama model with the codex app and use the codex plugins in codex app environment.
 
 ## Install
 
