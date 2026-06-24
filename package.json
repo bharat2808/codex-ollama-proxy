@@ -2,7 +2,7 @@
   "name": "codex-ollama-proxy",
   "version": "0.1.0",
   "description": "Unofficial local compatibility proxy for testing Ollama-compatible Responses API shapes with Codex config.",
-  "author": "bharat2808 <vermabharat642@gmail.com>",
+  "author": "bharat2808",
   "license": "MIT",
   "homepage": "https://github.com/bharat2808/codex-ollama-proxy#readme",
   "repository": {
