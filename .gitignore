@@ -7,3 +7,4 @@ node_modules/
 .DS_Store
 proxy-models.toml
 proxy-models.toml.local
+generated-images/

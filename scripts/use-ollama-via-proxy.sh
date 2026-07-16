@@ -22,7 +22,7 @@
 #   use-ollama-via-proxy.sh status                # just print current status
 #   use-ollama-via-proxy.sh refresh               # refresh ollama model catalog (re-syncs vision flags)
 #   use-ollama-via-proxy.sh route                 # switch to text_model from proxy-models.toml
-#                                                  (proxy auto-routes image turns to image_model)
+#                                                  (proxy auto-routes explicit image generation to image_model)
 #   use-ollama-via-proxy.sh openai                # restore Codex App default profile
 #
 # proxy-models.toml (in this dir) sets text_model + image_model and enables
@@ -215,7 +215,7 @@ case "$MODE" in
     say "route mode: switching config.toml to the configured TEXT model..."
     MODEL_SLUG="$(resolve_route_model text)"
     MODEL_ARGS=(--model "$MODEL_SLUG")
-    say "text model -> $MODEL_SLUG (proxy auto-routes image turns to image_model if auto_route_image=true)"
+    say "text model -> $MODEL_SLUG (proxy auto-routes explicit image generation to image_model if auto_route_image=true)"
     ;;
 esac
 

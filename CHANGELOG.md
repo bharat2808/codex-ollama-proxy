@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Replaced attachment-based image-model routing with deterministic latest-user
+  generation intent classification.
+- Explicit generation now calls the configured model through
+  `/v1/images/generations`; screenshots, image attachments, vision questions,
+  tool-produced files, and ordinary follow-ups remain on the text model.
+- Added `image_output_dir`; relative paths resolve from the proxy package root.
+
 ## 0.3.3
 
 - Fixed newer Codex/Desktop `tool_search` exposure where the tool arrives as a native `type: "tool_search"` managed tool instead of a plain function definition.

@@ -66,7 +66,8 @@ codex-ollama-proxy upstream --status
 Separate text and image models:
 
 ```bash
-codex-ollama-proxy route --text-model "TEXT_MODEL" --image-model "IMAGE_MODEL" --auto-image
+codex-ollama-proxy route --text-model "TEXT_MODEL" --image-model "IMAGE_MODEL" \
+  --output-dir "./generated-images" --auto-image
 codex-ollama-proxy switch ollama --model "TEXT_MODEL"
 ```
 
