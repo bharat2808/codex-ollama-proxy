@@ -25,7 +25,7 @@ function usage() {
   codex-ollama-proxy status
   codex-ollama-proxy switch openai
   codex-ollama-proxy switch ollama [--model MODEL]
-  codex-ollama-proxy route --text-model MODEL --image-model MODEL [--auto-image|--no-auto-image]
+  codex-ollama-proxy route --text-model MODEL --image-model MODEL [--output-dir PATH] [--auto-image|--no-auto-image]
   codex-ollama-proxy upstream [--url URL] [--api-key KEY] [--status]
   codex-ollama-proxy logs [--tail N]
   codex-ollama-proxy install
@@ -126,6 +126,7 @@ function route(flags) {
   let text = readRouteConfig();
   if (flags.textModel) text = writeRouteValue(text, 'text_model', flags.textModel);
   if (flags.imageModel) text = writeRouteValue(text, 'image_model', flags.imageModel);
+  if (flags.outputDir) text = writeRouteValue(text, 'image_output_dir', flags.outputDir);
   if (flags.autoImage) text = writeRouteValue(text, 'auto_route_image', true);
   if (flags.noAutoImage) text = writeRouteValue(text, 'auto_route_image', false);
   fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');

@@ -180,6 +180,41 @@ function httpsRequest(url, options, bodyBuf) {
   });
 }
 
+function upstreamRequest(upstream, clientPath, body) {
+  return new Promise((resolve, reject) => {
+    const url = upstreamLib.urlForClientPath(upstream, clientPath);
+    const payload = JSON.stringify(body);
+    const req = upstreamLib.transport(url).request({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      port: url.port || undefined,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: Object.assign({
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+      }, upstreamLib.authHeaders(upstream)),
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try { json = JSON.parse(raw); } catch {}
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(json);
+          return;
+        }
+        const error = json && json.error ? json.error : raw.slice(0, 500);
+        reject(new Error('HTTP ' + res.statusCode + ': ' +
+          (typeof error === 'object' ? JSON.stringify(error) : error)));
+      });
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
 function extractTextFromResponse(response) {
   if (!response || !Array.isArray(response.output)) return null;
   for (const item of response.output) {
@@ -432,6 +467,85 @@ async function parseOpenAIImageResponse(res, model, prompt, inputImageProvided, 
       inputImageProvided: inputImageProvided,
       ...(firstImage.revised_prompt && { revisedPrompt: firstImage.revised_prompt }),
     },
+  };
+}
+
+function aspectRatioSize(aspectRatio) {
+  switch (aspectRatio) {
+    case '16:9':
+    case '4:3':
+      return '1536x1024';
+    case '9:16':
+    case '3:4':
+      return '1024x1536';
+    default:
+      return '1024x1024';
+  }
+}
+
+async function generateCompatibleImage(upstream, prompt, options, log) {
+  const model = String(options.model || '').trim();
+  if (!model) throw new Error('image_model is not configured');
+  const size = aspectRatioSize(options.aspectRatio);
+  const payload = {
+    model,
+    prompt,
+    size,
+    response_format: 'b64_json',
+    n: 1,
+  };
+  const response = await upstreamRequest(upstream, '/v1/images/generations', payload);
+  const first = response && Array.isArray(response.data) ? response.data[0] : null;
+  if (!first || !first.b64_json) {
+    throw new Error('image generation response did not contain data[0].b64_json');
+  }
+  const imageData = Buffer.from(first.b64_json, 'base64');
+  log('image endpoint: generated ' + imageData.length + ' bytes with model ' + model);
+  return {
+    imageData,
+    payload,
+    metadata: {
+      model,
+      prompt,
+      mimeType: 'image/png',
+      revisedPrompt: first.revised_prompt,
+    },
+  };
+}
+
+async function runDirectImageGeneration(upstream, prompt, config, log) {
+  const result = await generateCompatibleImage(upstream, prompt, {
+    model: config.image_model,
+    aspectRatio: config.imagine_aspect_ratio || '1:1',
+  }, log);
+  const configuredDir = String(config.image_output_dir || '').trim();
+  const outputDir = configuredDir
+    ? (path.isAbsolute(configuredDir)
+      ? configuredDir
+      : path.resolve(__dirname, '..', configuredDir))
+    : os.tmpdir();
+  fs.mkdirSync(outputDir, { recursive: true });
+  const filepath = path.join(
+    outputDir,
+    'ollama-image-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.png'
+  );
+  fs.writeFileSync(filepath, result.imageData);
+  log('image endpoint: saved to ' + filepath);
+  const id = 'img_' + Date.now().toString(36);
+  return {
+    id: 'resp_' + id,
+    object: 'response',
+    created_at: Math.floor(Date.now() / 1000),
+    status: 'completed',
+    model: result.metadata.model,
+    output: [{
+      type: 'image_generation_call',
+      id,
+      status: 'completed',
+      revised_prompt: result.metadata.revisedPrompt || prompt,
+      result: 'data:image/png;base64,' + result.imageData.toString('base64'),
+      saved_path: filepath,
+    }],
   };
 }
 
@@ -728,6 +842,9 @@ module.exports = {
   checkHealth,
   validateInputImagePath,
   buildGeminiGenerationConfig,
+  aspectRatioSize,
+  generateCompatibleImage,
+  runDirectImageGeneration,
   PROXY_STATUS,
   PROXY_STATUS_FN,
   hasProxyStatusTool,
