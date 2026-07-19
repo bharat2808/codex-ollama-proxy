@@ -49,11 +49,10 @@ log_upstream_body = false
 # and gets back the top 5 (configurable via the `limit` arg) matching SKILL.md
 # paths. web_search is not affected by this flag.
 #
-# Trade-off: while enabled, the proxy fulfills find_skill calls itself, so
-# /v1/responses turns are completed by the proxy (non-streaming) before being
-# returned to the app-server, mirroring how the web_search path already works.
-# Set to false to restore the normal streaming passthrough when you do not need
-# skill lookup. Can also be forced via env: PROXY_FIND_SKILL=1 / =0.
+# Startup makes the filesystem index available immediately and refreshes the
+# exact Codex app-server inventory asynchronously. find_skill calls are
+# fulfilled by the proxy; other streamed output remains live when
+# stream_proxy_loop is enabled. Env: PROXY_FIND_SKILL=1 / =0.
 enable_find_skill = true
 
 # When true, streamed /v1/responses turns are piped to the Codex app live

@@ -100,6 +100,14 @@ function fulfillFindSkill(call, log) {
   }
 }
 
+function prewarmSkillIndex(log) {
+  const started = Date.now();
+  return skillIndex.prewarmEntries().then((entries) => {
+    if (log) log('find_skill index ready: ' + entries.length + ' skill(s) in ' + (Date.now() - started) + 'ms');
+    return entries;
+  });
+}
+
 // Mirror of web_search.runResponsesLoop, but only for find_skill calls.
 async function runFindSkillLoop(upstream, originalBody, options) {
   const log = options.log || (() => {});
@@ -137,5 +145,6 @@ module.exports = {
   hasFindSkillTool,
   findSkillCalls,
   fulfillFindSkill,
+  prewarmSkillIndex,
   runFindSkillLoop,
 };

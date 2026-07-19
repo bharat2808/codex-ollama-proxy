@@ -7,6 +7,7 @@
 - Added registry-driven `tool_search` aliases, generic skill placeholder resolution, and concise discovered-tool argument examples.
 - Documented oMLX and other Responses-compatible inference servers as proxy upstreams alongside Ollama and OpenRouter.
 - Aligned the direct server's default port with the CLI and made compatibility-skill failures non-fatal during startup.
+- Removed the multi-second cold `find_skill` stall by serving an immediate filesystem index while the exact Codex app-server inventory is refreshed asynchronously.
 
 - Replaced attachment-based image-model routing with deterministic latest-user
   generation intent classification.

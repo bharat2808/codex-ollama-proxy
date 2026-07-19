@@ -31,6 +31,8 @@ const CONFIG_TOML = path.join(CODEX_DIR, 'config.toml');
 
 const CACHE_TTL_MS = 60000;
 let _cache = null; // { entries, builtAt, configMtime }
+let _backgroundRefresh = false;
+let _refreshPromise = null;
 
 function readTextSafe(file) {
   try { return fs.readFileSync(file, 'utf8'); } catch { return null; }
@@ -270,16 +272,50 @@ function indexPluginSkills(entries) {
   }
 }
 
-function buildEntries() {
-  const appServerEntries = codexAppServerSkills.buildEntriesFromAppServer();
-  if (appServerEntries.length > 0) return appServerEntries;
-
+function buildFallbackEntries() {
   const entries = [];
   indexUserSkills(entries);
   indexAgentSkills(entries);
   indexSystemSkills(entries);
   indexPluginSkills(entries);
   return filterDisabledSkills(entries);
+}
+
+function buildEntries() {
+  const appServerEntries = codexAppServerSkills.buildEntriesFromAppServer();
+  if (appServerEntries.length > 0) return appServerEntries;
+  return buildFallbackEntries();
+}
+
+function cacheEntries(entries, source) {
+  _cache = {
+    entries,
+    builtAt: Date.now(),
+    configMtime: statMtimeSafe(CONFIG_TOML),
+    source,
+  };
+  return entries;
+}
+
+function refreshEntriesInBackground() {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = codexAppServerSkills.buildEntriesFromAppServerAsync()
+    .then((entries) => {
+      if (Array.isArray(entries) && entries.length > 0) cacheEntries(entries, 'app_server');
+      return _cache ? _cache.entries : [];
+    })
+    .catch(() => (_cache ? _cache.entries : []))
+    .finally(() => { _refreshPromise = null; });
+  return _refreshPromise;
+}
+
+// Seed a usable filesystem index immediately, then replace it with Codex's
+// exact enabled-skill inventory without blocking request handling.
+function prewarmEntries() {
+  _backgroundRefresh = true;
+  const cfgMtime = statMtimeSafe(CONFIG_TOML);
+  if (!_cache || _cache.configMtime !== cfgMtime) cacheEntries(buildFallbackEntries(), 'filesystem');
+  return refreshEntriesInBackground();
 }
 
 function getEntries(force) {
@@ -290,9 +326,13 @@ function getEntries(force) {
       _cache.configMtime === cfgMtime) {
     return _cache.entries;
   }
+  if (_backgroundRefresh && !force) {
+    if (!_cache || _cache.configMtime !== cfgMtime) cacheEntries(buildFallbackEntries(), 'filesystem');
+    refreshEntriesInBackground();
+    return _cache.entries;
+  }
   const entries = buildEntries();
-  _cache = { entries, builtAt: now, configMtime: cfgMtime };
-  return entries;
+  return cacheEntries(entries, 'synchronous');
 }
 
 const STOPWORDS = new Set([
@@ -453,6 +493,8 @@ module.exports = {
   AGENTS_SKILLS_DIR,
   getEntries,
   buildEntries,
+  buildFallbackEntries,
+  prewarmEntries,
   searchSkills,
   listSkills,
   formatSkillMatches,

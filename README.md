@@ -129,6 +129,8 @@ During `init` and proxy startup, the proxy also creates `~/.codex/skills/compute
 
 Bundled-plugin compatibility facts live in a central registry so more identifier-to-discovery, search-alias, and bootstrap mappings can be added without one-off proxy logic. The proxy resolves registered skill placeholders into safe generated user skills without modifying plugin caches. Discovery output includes exact callable names, required arguments, and minimal examples. It also recovers common malformed calls: registered plugin links become the correct deferred `tool_search`, dotted namespace calls become exact flattened names, and unambiguous bare tool names are qualified automatically. Ambiguous bare names are never guessed.
 
+When `find_skill` is enabled, startup builds a fast filesystem index immediately and refreshes it against Codex's exact enabled-skill inventory in the background. The first response and first skill lookup do not wait for the Codex app-server scan.
+
 ## How apply_patch Translation Works
 
 Codex may expose `apply_patch` as a custom/freeform tool. The proxy preserves the freeform custom tool behavior for Codex while making the surrounding tool list easier for local or custom Responses API providers to handle.

@@ -1716,6 +1716,11 @@ const server = http.createServer((clientReq, clientRes) => {
 function startServer(port = LISTEN_PORT) {
   server.listen(port, '127.0.0.1', () => {
     log('listening on 127.0.0.1:' + port + ' -> ' + upstreamLib.displayUrl(getUpstream()));
+    if (ROUTE_CFG.enable_find_skill) {
+      skillFind.prewarmSkillIndex(debugLog).catch((error) => {
+        debugLog('find_skill background prewarm failed: ' + error.message);
+      });
+    }
   });
   return server;
 }

@@ -101,6 +101,24 @@ function getResponseResult(messages, id) {
   return msg.result || {};
 }
 
+function enabledPluginSkillRoots(result) {
+  if (!result) return [];
+  const marketplaces = Array.isArray(result.marketplaces) ? result.marketplaces : [];
+  const roots = [];
+  const seen = new Set();
+  for (const marketplace of marketplaces) {
+    const plugins = Array.isArray(marketplace.plugins) ? marketplace.plugins : [];
+    for (const plugin of plugins) {
+      if (!plugin || plugin.installed !== true || plugin.enabled !== true) continue;
+      const root = findPluginSkillRoot(plugin);
+      if (!root || seen.has(root)) continue;
+      seen.add(root);
+      roots.push(root);
+    }
+  }
+  return roots;
+}
+
 function findPluginSkillRoot(plugin) {
   if (!plugin || !plugin.id) return null;
   const parts = splitPluginId(plugin.id);
@@ -131,21 +149,7 @@ function getEnabledPluginSkillRoots() {
     },
   ]);
   const result = getResponseResult(messages, 2);
-  if (!result) return [];
-  const marketplaces = Array.isArray(result.marketplaces) ? result.marketplaces : [];
-  const roots = [];
-  const seen = new Set();
-  for (const marketplace of marketplaces) {
-    const plugins = Array.isArray(marketplace.plugins) ? marketplace.plugins : [];
-    for (const plugin of plugins) {
-      if (!plugin || plugin.installed !== true || plugin.enabled !== true) continue;
-      const root = findPluginSkillRoot(plugin);
-      if (!root || seen.has(root)) continue;
-      seen.add(root);
-      roots.push(root);
-    }
-  }
-  return roots;
+  return enabledPluginSkillRoots(result);
 }
 
 function pluginNameFromSkill(skill) {
@@ -207,7 +211,97 @@ function buildEntriesFromAppServer() {
   return entriesFromSkillsList(getResponseResult(messages, listId));
 }
 
+// Query plugin state and skills through one live app-server process. Unlike the
+// legacy synchronous helper, this does not use fixed sleeps and never blocks
+// the proxy event loop while Codex builds its effective skill inventory.
+function buildEntriesFromAppServerAsync(options = {}) {
+  if (!CODEX_APP_SERVER || !fs.existsSync(CODEX_APP_SERVER)) return Promise.resolve([]);
+  const configuredTimeout = Number(options.timeoutMs || process.env.CODEX_APP_SERVER_SKILLS_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 10000;
+
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = childProcess.spawn(CODEX_APP_SERVER, ['app-server', '--stdio'], {
+        cwd: getSkillCwds()[0] || process.cwd(),
+        env: process.env,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+    } catch {
+      resolve([]);
+      return;
+    }
+
+    let settled = false;
+    let stdout = '';
+    let listId = null;
+    const finish = (entries) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.stdin.end(); } catch {}
+      try { child.kill(); } catch {}
+      resolve(Array.isArray(entries) ? entries : []);
+    };
+    const send = (request) => {
+      if (settled || !child.stdin || child.stdin.destroyed) return;
+      try { child.stdin.write(JSON.stringify(request) + '\n'); } catch { finish([]); }
+    };
+    const requestSkills = (id) => {
+      listId = id;
+      send({
+        id,
+        method: 'skills/list',
+        params: { cwds: getSkillCwds(), forceReload: true },
+      });
+    };
+    const handleMessage = (message) => {
+      if (!message || message.error) {
+        if (message && (message.id === 2 || message.id === 3 || message.id === listId)) finish([]);
+        return;
+      }
+      if (message.id === 2) {
+        const roots = enabledPluginSkillRoots(message.result);
+        if (roots.length === 0) {
+          requestSkills(3);
+        } else {
+          send({ id: 3, method: 'skills/extraRoots/set', params: { extraRoots: roots } });
+        }
+        return;
+      }
+      if (message.id === 3 && listId === null) {
+        requestSkills(4);
+        return;
+      }
+      if (message.id === listId) finish(entriesFromSkillsList(message.result));
+    };
+    const consumeStdout = (chunk) => {
+      stdout += chunk.toString('utf8');
+      let newline;
+      while ((newline = stdout.indexOf('\n')) >= 0) {
+        const line = stdout.slice(0, newline).trim();
+        stdout = stdout.slice(newline + 1);
+        if (!line) continue;
+        try { handleMessage(JSON.parse(line)); } catch { /* ignore app-server noise */ }
+      }
+    };
+    const timer = setTimeout(() => finish([]), timeoutMs);
+    child.once('error', () => finish([]));
+    child.once('close', () => finish([]));
+    if (child.stdin && typeof child.stdin.once === 'function') child.stdin.once('error', () => finish([]));
+    if (child.stdout && typeof child.stdout.once === 'function') child.stdout.once('error', () => finish([]));
+    child.stdout.on('data', consumeStdout);
+    send(initializeRequest(1));
+    send({
+      id: 2,
+      method: 'plugin/list',
+      params: { cwds: getSkillCwds(), marketplaceKinds: null },
+    });
+  });
+}
+
 module.exports = {
   buildEntriesFromAppServer,
+  buildEntriesFromAppServerAsync,
   getEnabledPluginSkillRoots,
 };
