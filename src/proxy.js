@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const webSearch = require('./web-search');
@@ -113,6 +114,7 @@ const WEB_SEARCH = 'web_search';
 const FIND_SKILL_NAME = skillFind.FIND_SKILL;
 const INTERCEPT_NAMES = new Set([WEB_SEARCH, FIND_SKILL_NAME, imagine.GENERATE_IMAGE, imagine.PROXY_STATUS]);
 const MAX_STREAM_LOOPS = 6;
+const MAX_TOOL_NAME_LENGTH = 64;
 
 // Synthetic function-tool definition for web_search. The native tool arrives as
 // type:"web_search" (a managed tool), which Ollama/GLM cannot reliably invoke.
@@ -171,11 +173,22 @@ function walkToolDefinitions(tools, visit) {
 // the request tools array) can still be split back into namespace + name.
 const knownNamespaces = new Map();
 
+function flatCallableName(namespace, name) {
+  const full = namespace + '__' + name;
+  if (full.length <= MAX_TOOL_NAME_LENGTH) return full;
+  const digest = crypto.createHash('sha256').update(full).digest('hex').slice(0, 12);
+  return full.slice(0, MAX_TOOL_NAME_LENGTH - digest.length - 2) + '__' + digest;
+}
+
 function ingestNamespaces(tools) {
   walkToolDefinitions(tools, (t) => {
     if (t.type === 'namespace' && t.name && Array.isArray(t.tools)) {
       for (const sub of t.tools) {
-        if (sub && sub.name) knownNamespaces.set(t.name + '__' + sub.name, { namespace: t.name, name: sub.name, parameters: sub.parameters });
+        if (sub && sub.name) {
+          const info = { namespace: t.name, name: sub.name, parameters: sub.parameters };
+          knownNamespaces.set(t.name + '__' + sub.name, info);
+          knownNamespaces.set(flatCallableName(t.name, sub.name), info);
+        }
       }
     }
   });
@@ -185,7 +198,7 @@ function flattenNamespaceTool(namespace, tool) {
   if (!namespace || !tool || !tool.name) return null;
   return {
     type: 'function',
-    name: namespace + '__' + tool.name,
+    name: flatCallableName(namespace, tool.name),
     description: tool.description || '',
     strict: tool.strict === true,
     ...(tool.defer_loading !== undefined ? { defer_loading: tool.defer_loading } : {}),
@@ -309,7 +322,7 @@ function translateInputItem(item) {
       // Ollama only understands a flat function_call{name}, so join them.
       const ns = item.namespace;
       if (ns && ns !== '' && item.name) {
-        const flat = ns + '__' + item.name;
+        const flat = flatCallableName(ns, item.name);
         return {
           type: 'function_call',
           call_id: item.call_id,
@@ -530,7 +543,7 @@ async function retryChatAsImage(upstream, body, error) {
     }),
     (...args) => debugLog(...args)
   );
-  modelDiscovery.markImageModel(model, transport);
+  modelDiscovery.markImageModel(model, transport, upstream);
   return response;
 }
 
@@ -616,8 +629,19 @@ function translateRequestBody(body) {
       mapped.push(imagine.PROXY_STATUS_FN);
       toolsChanged = true;
     }
+    const seenFunctions = new Set();
+    const deduped = mapped.filter((tool) => {
+      if (!tool || tool.type !== 'function' || !tool.name) return true;
+      if (seenFunctions.has(tool.name)) return false;
+      seenFunctions.add(tool.name);
+      return true;
+    });
+    if (deduped.length !== mapped.length) {
+      debugLog('removed ' + (mapped.length - deduped.length) + ' duplicate function tool definition(s)');
+      toolsChanged = true;
+    }
     if (toolsChanged) {
-      body.tools = mapped;
+      body.tools = deduped;
       debugLog('rewrote request tools for Ollama-compatible function surface');
     }
   }
@@ -687,7 +711,17 @@ function parseArgsObject(argsStr) {
   if (typeof argsStr !== 'string') return argsStr;
   const s = argsStr.trim();
   if (s === '') return {};
-  try { return JSON.parse(s); } catch { return {}; }
+  try { return JSON.parse(s); } catch {}
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(s);
+  if (fenced) {
+    try { return JSON.parse(fenced[1]); } catch {}
+  }
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(s.slice(start, end + 1)); } catch {}
+  }
+  return {};
 }
 
 function coerceArgsForSchema(args, schema) {
@@ -1592,6 +1626,15 @@ const server = http.createServer((clientReq, clientRes) => {
   const chunks = [];
   clientReq.on('data', (c) => chunks.push(c));
   clientReq.on('end', async () => {
+    const upstream = getUpstream();
+    const shouldRefreshMetadata = !ROUTE_CFG.text_model ||
+      (ROUTE_CFG.auto_route_image && !ROUTE_CFG.image_model);
+    const metadataPromise = isResponses && shouldRefreshMetadata
+      ? modelDiscovery.prewarm(upstream).catch((error) => {
+          debugLog('model metadata refresh failed: ' + error.message);
+          return modelDiscovery.snapshot();
+        })
+      : null;
     let bodyBuf = Buffer.concat(chunks);
     let info = { customNames: new Set(), callableNames: new Set() };
     let body = null;
@@ -1604,7 +1647,7 @@ const server = http.createServer((clientReq, clientRes) => {
         const preliminaryRoute = imageRouting.classifyImageRouting(body);
         if (preliminaryRoute.route === 'image_generation' && !ROUTE_CFG.image_model &&
             !modelDiscovery.snapshot().complete) {
-          await modelDiscovery.prewarm(getUpstream());
+          await (metadataPromise || modelDiscovery.prewarm(upstream));
         }
         translateRequestBody(body);
         routingDecision = getRoutingDecision(body);
@@ -1625,7 +1668,6 @@ const server = http.createServer((clientReq, clientRes) => {
         log('request body parse/translate failed: ' + e.message + ' (passing through)');
       }
     }
-    const upstream = getUpstream();
     if (isResponses && body && routingDecision && routingDecision.route === 'image_generation') {
       try {
         debugLog('image generation route: POST /v1/images/generations model="' + body.model + '"');

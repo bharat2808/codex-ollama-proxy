@@ -101,3 +101,57 @@ test('generic image input metadata is not confused with image generation', () =>
   assert.equal(vision.textGeneration, true);
   assert.equal(embedding.textGeneration, false);
 });
+
+test('metadata refresh is deduplicated and preserves stale capabilities on failure', async () => {
+  let fail = false;
+  let advertiseImage = true;
+  let tagsRequests = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/api/tags') {
+      tagsRequests += 1;
+      res.writeHead(fail ? 503 : 200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(fail ? { error: 'temporarily unavailable' } : {
+        models: [{ name: 'cached-image', capabilities: advertiseImage ? ['image'] : ['completion'] }],
+      }));
+      return;
+    }
+    res.writeHead(503, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'temporarily unavailable' }));
+  });
+  const port = await listen(server);
+  const upstream = upstreamLib.createUpstream('http://127.0.0.1:' + port + '/v1');
+
+  try {
+    modelDiscovery.replaceSnapshot({ complete: false, models: [], fetchedAt: 0, checkedAt: 0, upstream: '' });
+    const [first, second] = await Promise.all([
+      modelDiscovery.prewarm(upstream),
+      modelDiscovery.prewarm(upstream),
+    ]);
+    assert.strictEqual(first, second);
+    assert.equal(tagsRequests, 1);
+    assert.equal(first.models[0].imageGeneration, true);
+
+    fail = true;
+    modelDiscovery.replaceSnapshot(Object.assign({}, first, {
+      checkedAt: 0,
+      fetchedAt: Date.now() - modelDiscovery.CACHE_TTL_MS - 1,
+    }));
+    const stale = await modelDiscovery.prewarm(upstream);
+    assert.equal(tagsRequests, 2);
+    assert.equal(stale.models[0].name, 'cached-image');
+
+    await modelDiscovery.prewarm(upstream);
+    assert.equal(tagsRequests, 2);
+
+    fail = false;
+    advertiseImage = false;
+    modelDiscovery.markImageModel('cached-image', 'ollama_native', upstream);
+    modelDiscovery.replaceSnapshot(Object.assign({}, modelDiscovery.snapshot(), { checkedAt: 0 }));
+    const learned = await modelDiscovery.prewarm(upstream);
+    assert.equal(tagsRequests, 3);
+    assert.equal(learned.models[0].imageGeneration, true);
+    assert.equal(learned.models[0].inferredImageGeneration, true);
+  } finally {
+    await close(server);
+  }
+});

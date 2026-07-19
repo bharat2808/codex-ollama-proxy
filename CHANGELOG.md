@@ -10,6 +10,8 @@
 - Removed the multi-second cold `find_skill` stall by serving an immediate filesystem index while the exact Codex app-server inventory is refreshed asynchronously.
 - Added metadata-driven model routing: explicit Codex text-model selections are preserved, a unique image generator is auto-selected, ambiguous image choices require configuration, and local Ollama image models use the native `/api/generate` contract.
 - Added a guarded retry that redirects provider-confirmed image-only model errors from the Responses chat endpoint to image generation and caches the learned capability.
+- Added non-blocking model metadata refresh with request deduplication and stale-capability preservation during provider failures.
+- Deduplicated translated function definitions, added deterministic aliases for tool names over 64 characters, and recovered fenced JSON tool arguments.
 
 - Replaced attachment-based image-model routing with deterministic latest-user
   generation intent classification.

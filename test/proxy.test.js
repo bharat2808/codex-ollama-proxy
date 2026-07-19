@@ -420,6 +420,24 @@ test('request translation injects tool_search when Codex omits it', () => {
   );
 });
 
+test('request translation removes duplicate function definitions', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const duplicate = {
+    type: 'function',
+    name: 'duplicate_tool',
+    parameters: { type: 'object', properties: {} },
+  };
+  const body = {
+    model: 'test-model',
+    input: 'use a tool',
+    tools: [duplicate, JSON.parse(JSON.stringify(duplicate))],
+  };
+
+  translateRequestBody(body);
+
+  assert.equal(body.tools.filter((tool) => tool.name === 'duplicate_tool').length, 1);
+});
+
 test('proxy recovers a plugin link call into the registered deferred tool search', async () => {
   await withProxy((req, res) => {
     req.resume();
@@ -543,6 +561,89 @@ test('proxy recovers dotted namespace calls to the exact discovered callable', a
     assert.equal(body.output[0].namespace, 'mcp__node_repl');
     assert.equal(body.output[0].name, 'js');
     assert.equal(body.output[0].arguments, '{"code":"1 + 1"}');
+  });
+});
+
+test('proxy shortens long namespace tools and restores their exact names', async () => {
+  const namespace = 'mcp__' + 'long_namespace_'.repeat(4);
+  const toolName = 'perform_' + 'long_operation_'.repeat(4);
+  let callableName = null;
+  await withProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      callableName = body.tools.find((tool) =>
+        tool.type === 'function' && tool.description === 'long tool test'
+      ).name;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_long_tool',
+        status: 'completed',
+        output: [{
+          type: 'function_call',
+          id: 'item_long_tool',
+          call_id: 'call_long_tool',
+          name: callableName,
+          arguments: '{"count":"2"}',
+          status: 'completed',
+        }],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'use the long tool',
+      tools: [{
+        type: 'namespace',
+        name: namespace,
+        tools: [{
+          type: 'function',
+          name: toolName,
+          description: 'long tool test',
+          parameters: {
+            type: 'object',
+            properties: { count: { type: 'integer' } },
+            required: ['count'],
+          },
+        }],
+      }],
+      stream: false,
+    });
+    const output = JSON.parse(response.body).output[0];
+    assert.ok(callableName.length <= 64);
+    assert.match(callableName, /__[a-f0-9]{12}$/);
+    assert.equal(output.namespace, namespace);
+    assert.equal(output.name, toolName);
+    assert.equal(output.arguments, '{"count":2}');
+  });
+});
+
+test('proxy recovers fenced JSON tool arguments', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_fenced_args',
+        status: 'completed',
+        output: [{
+          type: 'function_call',
+          id: 'item_fenced_args',
+          call_id: 'call_fenced_args',
+          name: 'tool_search',
+          arguments: '```json\n{"query":"computer use","limit":"3"}\n```',
+          status: 'completed',
+        }],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model', input: 'find Computer Use', tools: [], stream: false,
+    });
+    const output = JSON.parse(response.body).output[0];
+    assert.equal(output.type, 'tool_search_call');
+    assert.deepEqual(output.arguments, { query: 'node_repl', limit: 3 });
   });
 });
 

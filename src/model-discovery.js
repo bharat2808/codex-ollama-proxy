@@ -2,8 +2,11 @@
 
 const upstreamLib = require('./upstream');
 
-let current = { source: 'none', complete: false, models: [], fetchedAt: 0, upstream: '' };
-let pending = null;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const NEGATIVE_CACHE_TTL_MS = 15 * 1000;
+
+let current = { source: 'none', complete: false, models: [], fetchedAt: 0, checkedAt: 0, upstream: '' };
+const pending = new Map();
 
 function requestJson(url, options = {}) {
   return new Promise((resolve, reject) => {
@@ -143,12 +146,33 @@ async function discoverOpenAI(upstream) {
 async function discover(upstream) {
   const upstreamKey = upstreamLib.displayUrl(upstream);
   const ollamaModels = await discoverOllama(upstream);
-  const models = ollamaModels || await discoverOpenAI(upstream);
+  const discoveredModels = ollamaModels || await discoverOpenAI(upstream);
+  const inferredModels = current.upstream === upstreamKey
+    ? current.models.filter((model) => model.inferredImageGeneration)
+    : [];
+  const models = discoveredModels.map((model) => {
+    const inferred = inferredModels.find((entry) => namesEqual(entry.name, model.name));
+    return inferred ? Object.assign({}, model, {
+      imageGeneration: true,
+      textGeneration: false,
+      transport: inferred.transport,
+      inferredImageGeneration: true,
+    }) : model;
+  });
+  for (const inferred of inferredModels) {
+    if (!models.some((model) => namesEqual(model.name, inferred.name))) models.push(inferred);
+  }
+  const now = Date.now();
+  if (models.length === 0 && current.models.length > 0 && current.upstream === upstreamKey) {
+    current = Object.assign({}, current, { checkedAt: now });
+    return current;
+  }
   current = {
     source: ollamaModels ? 'ollama' : 'openai',
     complete: models.length > 0,
     models,
-    fetchedAt: Date.now(),
+    fetchedAt: models.length > 0 ? now : 0,
+    checkedAt: now,
     upstream: upstreamKey,
   };
   return current;
@@ -156,10 +180,15 @@ async function discover(upstream) {
 
 function prewarm(upstream) {
   const upstreamKey = upstreamLib.displayUrl(upstream);
-  if (current.complete && current.upstream === upstreamKey) return Promise.resolve(current);
-  if (pending) return pending;
-  pending = discover(upstream).finally(() => { pending = null; });
-  return pending;
+  const checkedAt = current.checkedAt || current.fetchedAt || 0;
+  const ttl = current.complete ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS;
+  if (current.upstream === upstreamKey && Date.now() - checkedAt < ttl) {
+    return Promise.resolve(current);
+  }
+  if (pending.has(upstreamKey)) return pending.get(upstreamKey);
+  const request = discover(upstream).finally(() => { pending.delete(upstreamKey); });
+  pending.set(upstreamKey, request);
+  return request;
 }
 
 function snapshot() {
@@ -199,31 +228,41 @@ function chooseImageModel(requested, configured, state = current) {
   return null;
 }
 
-function markImageModel(name, transport = 'openai_images') {
+function markImageModel(name, transport = 'openai_images', upstream) {
   const modelName = String(name || '').trim();
   if (!modelName) return null;
-  const existing = findModel(modelName);
+  const upstreamKey = upstream ? upstreamLib.displayUrl(upstream) : current.upstream;
+  const sameUpstream = !upstreamKey || current.upstream === upstreamKey;
+  const existing = sameUpstream ? findModel(modelName) : null;
   const inferred = Object.assign({}, existing || {}, {
     name: existing ? existing.name : modelName,
     source: existing ? existing.source : 'provider_error',
     imageGeneration: true,
     textGeneration: false,
     transport,
+    inferredImageGeneration: true,
   });
   current = Object.assign({}, current, {
+    source: sameUpstream ? current.source : 'provider_error',
+    complete: sameUpstream ? current.complete : false,
+    fetchedAt: sameUpstream ? current.fetchedAt : 0,
+    checkedAt: Date.now(),
+    upstream: upstreamKey || current.upstream,
     models: existing
       ? current.models.map((model) => model === existing ? inferred : model)
-      : [...current.models, inferred],
+      : [...(sameUpstream ? current.models : []), inferred],
   });
   return inferred;
 }
 
 function replaceSnapshot(state) {
-  current = Object.assign({ source: 'test', complete: true, models: [], fetchedAt: Date.now(), upstream: '' }, state);
-  pending = null;
+  current = Object.assign({ source: 'test', complete: true, models: [], fetchedAt: Date.now(), checkedAt: Date.now(), upstream: '' }, state);
+  pending.clear();
 }
 
 module.exports = {
+  CACHE_TTL_MS,
+  NEGATIVE_CACHE_TTL_MS,
   chooseImageModel,
   discover,
   findModel,

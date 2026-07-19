@@ -79,6 +79,8 @@ codex-ollama-proxy route --auto-models --auto-image
 codex-ollama-proxy switch ollama --model "TEXT_MODEL"
 ```
 
+Model metadata is cached and refreshed in the background every five minutes. A temporary refresh failure keeps the last known capabilities, so normal requests do not wait or lose routing information.
+
 When multiple image models are installed, select the image model explicitly. A text-model override is optional and acts only as a fallback:
 
 ```bash
@@ -138,6 +140,8 @@ When `tool_search` returns deferred MCP/plugin namespace tools, the proxy also e
 During `init` and proxy startup, the proxy also creates `~/.codex/skills/computer-use/SKILL.md` from the installed bundled Computer Use skill. Its bootstrap import is rewritten to the runtime's resolved absolute `computer-use-client.mjs` path. Existing user-owned skills at that path are preserved. No duplicate Computer Use MCP server is installed.
 
 Bundled-plugin compatibility facts live in a central registry so more identifier-to-discovery, search-alias, and bootstrap mappings can be added without one-off proxy logic. The proxy resolves registered skill placeholders into safe generated user skills without modifying plugin caches. Discovery output includes exact callable names, required arguments, and minimal examples. It also recovers common malformed calls: registered plugin links become the correct deferred `tool_search`, dotted namespace calls become exact flattened names, and unambiguous bare tool names are qualified automatically. Ambiguous bare names are never guessed.
+
+Translated function definitions are deduplicated to reduce request size. Flattened namespace names longer than 64 characters receive a deterministic short alias and are restored before Codex sees the call. The proxy also accepts JSON tool arguments wrapped in Markdown fences or brief explanatory text, which some local models emit despite the tool schema.
 
 When `find_skill` is enabled, startup builds a fast filesystem index immediately and refreshes it against Codex's exact enabled-skill inventory in the background. The first response and first skill lookup do not wait for the Codex app-server scan.
 
