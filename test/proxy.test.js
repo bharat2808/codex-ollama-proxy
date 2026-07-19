@@ -341,6 +341,8 @@ test('request translation unwraps additional_tools returned by tool_search', () 
   assert.equal(body.input[0].type, 'function_call_output');
   assert.match(body.input[0].output, /Invoke its exact returned name: node_repl/);
   assert.match(body.input[0].output, /computer-use@openai-bundled.*plugin identifier/);
+  assert.match(body.input[0].output, /required: code/);
+  assert.match(body.input[0].output, /arguments example: \{"code":"<string>"\}/);
 });
 
 test('request translation does not expose node_repl before discovery', () => {
@@ -424,6 +426,35 @@ test('proxy recovers a plugin link call into the registered deferred tool search
           call_id: 'call_plugin_recovery',
           name: 'plugin://computer-use@openai-bundled/',
           arguments: '{}',
+          status: 'completed',
+        }],
+        status: 'completed',
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model', input: 'use Computer Use', tools: [], stream: false,
+    });
+    const body = JSON.parse(response.body);
+
+    assert.equal(body.output[0].type, 'tool_search_call');
+    assert.equal(body.output[0].arguments.query, 'node_repl');
+  });
+});
+
+test('proxy normalizes tool_search aliases through the compatibility registry', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_search_alias',
+        output: [{
+          type: 'function_call',
+          id: 'item_search_alias',
+          call_id: 'call_search_alias',
+          name: 'tool_search',
+          arguments: '{"query":"computer use"}',
           status: 'completed',
         }],
         status: 'completed',

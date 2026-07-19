@@ -4,6 +4,8 @@
 
 - Added a Computer Use compatibility bridge: model-facing `tool_search` guidance now distinguishes the plugin identifier from the deferred `node_repl` tool, discovered results include the exact callable name, and startup installs a stable user skill with a resolved absolute bootstrap import.
 - Added a central bundled-plugin compatibility registry and recovery for plugin-link, dotted namespace, and unambiguous bare tool calls.
+- Added registry-driven `tool_search` aliases, generic skill placeholder resolution, and concise discovered-tool argument examples.
+- Documented oMLX and other Responses-compatible inference servers as proxy upstreams alongside Ollama and OpenRouter.
 
 - Replaced attachment-based image-model routing with deterministic latest-user
   generation intent classification.

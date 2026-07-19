@@ -43,6 +43,15 @@ codex-ollama-proxy restart
 
 The proxy flattens Codex namespace/plugin tools into model-callable functions, then maps the resulting calls back to the format Codex expects.
 
+The same proxy can use other OpenAI Responses-compatible inference servers. For example, recent [oMLX](https://github.com/jundot/omlx) releases provide Apple Silicon inference, tool calling, and a `/v1/responses` endpoint:
+
+```bash
+codex-ollama-proxy upstream --url "http://127.0.0.1:8000/v1"
+codex-ollama-proxy restart
+```
+
+Ollama, oMLX, OpenRouter, and other providers still depend on the selected model supporting reliable function/tool calling.
+
 ## Use Codex Plugins With OpenRouter
 
 Point the upstream at a Responses-compatible OpenRouter endpoint and provide a bearer token:
@@ -118,7 +127,7 @@ When `tool_search` returns deferred MCP/plugin namespace tools, the proxy also e
 
 During `init` and proxy startup, the proxy also creates `~/.codex/skills/computer-use/SKILL.md` from the installed bundled Computer Use skill. Its bootstrap import is rewritten to the runtime's resolved absolute `computer-use-client.mjs` path. Existing user-owned skills at that path are preserved. No duplicate Computer Use MCP server is installed.
 
-Bundled-plugin compatibility facts live in a central registry so more identifier-to-discovery and bootstrap mappings can be added without one-off proxy logic. The proxy also recovers common malformed calls: registered plugin links become the correct deferred `tool_search`, dotted namespace calls become exact flattened names, and unambiguous bare tool names are qualified automatically. Ambiguous bare names are never guessed.
+Bundled-plugin compatibility facts live in a central registry so more identifier-to-discovery, search-alias, and bootstrap mappings can be added without one-off proxy logic. The proxy resolves registered skill placeholders into safe generated user skills without modifying plugin caches. Discovery output includes exact callable names, required arguments, and minimal examples. It also recovers common malformed calls: registered plugin links become the correct deferred `tool_search`, dotted namespace calls become exact flattened names, and unambiguous bare tool names are qualified automatically. Ambiguous bare names are never guessed.
 
 ## How apply_patch Translation Works
 
@@ -127,6 +136,7 @@ Codex may expose `apply_patch` as a custom/freeform tool. The proxy preserves th
 ## Supported Providers
 
 - Ollama-compatible Responses API servers
+- oMLX on Apple Silicon with its Responses API enabled
 - OpenRouter or other custom providers that expose a compatible Responses API
 - Local shims that accept `POST /v1/responses`
 

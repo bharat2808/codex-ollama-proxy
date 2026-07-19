@@ -39,3 +39,12 @@ test('ambiguous bare calls are not guessed', () => {
   const names = new Set(['mcp__one__list', 'mcp__two__list']);
   assert.equal(pluginCompat.recoverToolCall('list', names), null);
 });
+
+test('tool_search aliases normalize to registered discovery queries', () => {
+  assert.equal(pluginCompat.normalizeDiscoveryQuery('computer use'), 'node_repl');
+  assert.equal(
+    pluginCompat.normalizeDiscoveryQuery('computer-use@openai-bundled'),
+    'node_repl'
+  );
+  assert.equal(pluginCompat.normalizeDiscoveryQuery('calendar events'), 'calendar events');
+});

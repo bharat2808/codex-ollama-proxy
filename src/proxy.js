@@ -211,6 +211,33 @@ function flattenDiscoveredTools(tools) {
   return out;
 }
 
+function exampleValueForSchema(schema) {
+  if (!schema || typeof schema !== 'object') return null;
+  if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  if (types.includes('string')) return '<string>';
+  if (types.includes('integer') || types.includes('number')) return 0;
+  if (types.includes('boolean')) return false;
+  if (types.includes('array')) return [];
+  if (types.includes('object') || schema.properties) {
+    const out = {};
+    const required = Array.isArray(schema.required) ? schema.required : [];
+    for (const key of required) out[key] = exampleValueForSchema((schema.properties || {})[key]);
+    return out;
+  }
+  return null;
+}
+
+function formatDiscoveredToolHelp(tools) {
+  return flattenDiscoveredTools(tools).map((tool) => {
+    const schema = tool.parameters || {};
+    const required = Array.isArray(schema.required) ? schema.required : [];
+    const example = exampleValueForSchema(schema) || {};
+    return '- ' + tool.name + ' | required: ' + (required.length ? required.join(', ') : 'none') +
+      ' | arguments example: ' + JSON.stringify(example);
+  }).join('\n');
+}
+
 function log(...args) {
   process.stderr.write('[shape-proxy] ' + args.join(' ') + '\n');
 }
@@ -326,6 +353,7 @@ function translateInputItem(item) {
       let out = tools == null ? '[]' : JSON.stringify(tools);
       if (callAs.length) {
         out += '\n\nInvoke each tool by its exact name: ' + callAs.join(', ');
+        out += '\n\nCallable details:\n' + formatDiscoveredToolHelp(tools);
       }
       const compatGuidance = pluginCompat.discoveredGuidance(callAs);
       if (compatGuidance) out += '\n\n' + compatGuidance;
@@ -696,6 +724,7 @@ function translateOutputItem(item, state) {
     // which drops the tool_search output ("Tool search output is missing").
     // Coerce numeric-string fields back to numbers before handing to the app-server.
     const args = parseArgsObject(item.arguments);
+    if (args.query !== undefined) args.query = pluginCompat.normalizeDiscoveryQuery(args.query);
     for (const k of ['limit']) {
       if (args[k] !== undefined && typeof args[k] === 'string' && /^-?\d+$/.test(args[k])) {
         args[k] = Number(args[k]);
