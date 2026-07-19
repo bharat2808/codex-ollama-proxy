@@ -54,3 +54,30 @@ test('generic bridge resolves registered placeholders without modifying plugin f
     fs.rmSync(codexDir, { recursive: true, force: true });
   }
 });
+
+test('compatibility bridge isolates a broken plugin so startup can continue', () => {
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-skill-bridge-error-'));
+  const plugin = {
+    pluginId: 'broken@openai-bundled',
+    discoveryQuery: 'broken_repl',
+    runtimeRoots: [['plugins', 'broken']],
+    bootstrapRelativePath: ['client.mjs'],
+    sourceSkillRelativePath: ['SKILL.md'],
+    stableSkillRelativePath: ['skills', 'broken', 'SKILL.md'],
+    generatedMarker: '<!-- generated broken bridge -->',
+    sourceRootPlaceholders: ['<plugin root>'],
+  };
+  const pluginRoot = path.join(codexDir, 'plugins', 'broken');
+  fs.mkdirSync(pluginRoot, { recursive: true });
+  fs.writeFileSync(path.join(pluginRoot, 'client.mjs'), 'export {}\n', 'utf8');
+  fs.writeFileSync(path.join(pluginRoot, 'SKILL.md'), 'missing frontmatter\n', 'utf8');
+
+  try {
+    const [result] = bridge.installCompatibilitySkills({ codexDir, plugins: [plugin] });
+    assert.equal(result.status, 'error');
+    assert.equal(result.pluginId, plugin.pluginId);
+    assert.match(result.error, /no valid frontmatter/);
+  } finally {
+    fs.rmSync(codexDir, { recursive: true, force: true });
+  }
+});

@@ -29,7 +29,7 @@ The proxy listens on `127.0.0.1:11436` and forwards to the configured upstream R
 To pin a specific release, install from the npm tarball:
 
 ```bash
-npm install -g https://registry.npmjs.org/codex-ollama-proxy/-/codex-ollama-proxy-0.3.3.tgz
+npm install -g https://registry.npmjs.org/codex-ollama-proxy/-/codex-ollama-proxy-0.3.4.tgz
 ```
 
 ## Use Codex Plugins With Ollama

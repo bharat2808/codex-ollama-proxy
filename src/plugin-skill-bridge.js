@@ -96,9 +96,20 @@ function installPluginSkill(plugin, options = {}) {
 }
 
 function installCompatibilitySkills(options = {}) {
-  return pluginCompat.PLUGINS
+  const plugins = options.plugins || pluginCompat.PLUGINS;
+  return plugins
     .filter((plugin) => plugin.runtimeRoots && plugin.bootstrapRelativePath && plugin.sourceSkillRelativePath)
-    .map((plugin) => installPluginSkill(plugin, options));
+    .map((plugin) => {
+      try {
+        return installPluginSkill(plugin, options);
+      } catch (error) {
+        return {
+          status: 'error',
+          pluginId: plugin.pluginId,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
 }
 
 module.exports = {

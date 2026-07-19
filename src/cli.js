@@ -112,6 +112,8 @@ function reportPluginSkillBridges(results) {
       console.log(`${label}_skill_${result.status}=${result.destination}`);
     } else if (result.status === 'conflict') {
       console.log(`${label}_skill_preserved=${result.destination}`);
+    } else if (result.status === 'error') {
+      console.error(`${label}_skill_error=${result.error}`);
     }
   }
 }

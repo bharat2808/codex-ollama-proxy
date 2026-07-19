@@ -101,7 +101,7 @@ function forceImageCapabilityForTextModel() {
 }
 forceImageCapabilityForTextModel();
 
-const LISTEN_PORT = parseInt(process.env.PROXY_PORT || '11435', 10);
+const LISTEN_PORT = parseInt(process.env.PROXY_PORT || '11436', 10);
 
 const TOOL_SEARCH = 'tool_search';
 const WEB_SEARCH = 'web_search';
@@ -769,11 +769,8 @@ function translateOutputItem(item, state) {
     // non-streaming path where the function_call appears in the final response.
     // Fields match ResponseItem::ImageGenerationCall in the Rust server:
     // id, status, revised_prompt, result, saved_path.
-    let parsedOutput = {};
-    try {
-      // The output was fed back as function_call_output in the loop; we can't
-      // access it here, so we build a minimal item from the call args.
-    } catch {}
+    // The output was fed back as function_call_output in the loop and is not
+    // available here, so build a minimal item from the call arguments.
     const args = parseArgsObject(item.arguments);
     const out = {
       type: 'image_generation_call',
