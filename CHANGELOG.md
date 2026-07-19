@@ -8,6 +8,7 @@
 - Documented oMLX and other Responses-compatible inference servers as proxy upstreams alongside Ollama and OpenRouter.
 - Aligned the direct server's default port with the CLI and made compatibility-skill failures non-fatal during startup.
 - Removed the multi-second cold `find_skill` stall by serving an immediate filesystem index while the exact Codex app-server inventory is refreshed asynchronously.
+- Added metadata-driven model routing: explicit Codex text-model selections are preserved, a unique image generator is auto-selected, ambiguous image choices require configuration, and local Ollama image models use the native `/api/generate` contract.
 
 - Replaced attachment-based image-model routing with deterministic latest-user
   generation intent classification.

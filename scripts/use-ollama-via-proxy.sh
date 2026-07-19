@@ -21,12 +21,12 @@
 #   use-ollama-via-proxy.sh --setup               # one-time: make skill proxy-aware
 #   use-ollama-via-proxy.sh status                # just print current status
 #   use-ollama-via-proxy.sh refresh               # refresh ollama model catalog (re-syncs vision flags)
-#   use-ollama-via-proxy.sh route                 # switch to text_model from proxy-models.toml
-#                                                  (proxy auto-routes explicit image generation to image_model)
+#   use-ollama-via-proxy.sh route                 # switch to configured text_model, or the default
+#                                                  when metadata-driven overrides are empty
 #   use-ollama-via-proxy.sh openai                # restore Codex App default profile
 #
-# proxy-models.toml (in this dir) sets text_model + image_model and enables
-# per-request image auto-routing in the shape proxy.
+# proxy-models.toml can override text_model + image_model; empty values use
+# request/provider metadata for per-request routing.
 set -euo pipefail
 
 CODEX_DIR="$HOME/.codex"
@@ -212,17 +212,17 @@ case "$MODE" in
     exit 0
     ;;
   route|text)
-    say "route mode: switching config.toml to the configured TEXT model..."
+    say "route mode: switching config.toml to the configured or default text model..."
     MODEL_SLUG="$(resolve_route_model text)"
     MODEL_ARGS=(--model "$MODEL_SLUG")
-    say "text model -> $MODEL_SLUG (proxy auto-routes explicit image generation to image_model if auto_route_image=true)"
+    say "text model -> $MODEL_SLUG (proxy auto-selects a unique image model when auto_route_image=true)"
     ;;
 esac
 
 if [[ "$MODE" == "ollama" && "$EXPLICIT_MODEL" -eq 0 && "$(route_cfg_bool auto_route_image)" == "true" ]]; then
   MODEL_SLUG="$(resolve_route_model text)"
   MODEL_ARGS=(--model "$MODEL_SLUG")
-  say "auto_route_image=true; config.toml active model -> text_model ($MODEL_SLUG)"
+  say "auto_route_image=true; config.toml active model -> $MODEL_SLUG"
 fi
 
 ensure_proxy_running

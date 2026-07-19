@@ -231,6 +231,13 @@ test('request translation converts replayed image_generation_call items for Olla
   assert.doesNotMatch(JSON.stringify(body), /"image_generation_call"/);
 });
 
+test('request translation preserves an explicitly selected text model', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = { model: 'user-selected-model', input: 'hello', tools: [] };
+  translateRequestBody(body);
+  assert.equal(body.model, 'user-selected-model');
+});
+
 test('request translation exposes deferred tool_search namespace tools as callable functions', () => {
   const { translateRequestBody } = require('../src/proxy');
   const body = {

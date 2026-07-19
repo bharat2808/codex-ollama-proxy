@@ -10,6 +10,7 @@ const imageRouting = require('./image-routing');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
 const pluginCompat = require('./plugin-compat');
+const modelDiscovery = require('./model-discovery');
 
 // proxy-models.toml drives per-request model auto-routing.
 // Loaded once at startup; editable without restart by re-running apply script.
@@ -439,10 +440,14 @@ const routingDecisions = new WeakMap();
 // text-to-image model.
 function applyModelRouting(body) {
   if (!body || typeof body !== 'object') return body;
+  const requestedModel = String(body.model || '').trim();
+  const modelState = modelDiscovery.snapshot();
+  const requestedInfo = modelDiscovery.findModel(requestedModel, modelState);
   const classified = imageRouting.classifyImageRouting(body);
   let decision = classified;
   if (!ROUTE_CFG.auto_route_image) {
-    if (ROUTE_CFG.image_model && body.model === ROUTE_CFG.image_model) {
+    if ((requestedInfo && requestedInfo.imageGeneration) ||
+        (ROUTE_CFG.image_model && requestedModel === ROUTE_CFG.image_model)) {
       decision = Object.assign({}, classified, {
         route: 'image_generation',
         reason: 'manual_image_generation',
@@ -459,17 +464,25 @@ function applyModelRouting(body) {
       });
     }
   }
-  if (decision.route === 'image_generation' && !ROUTE_CFG.image_model) {
-    decision = Object.assign({}, decision, {
-      route: 'text',
-      reason: 'default_text',
-      prompt: null,
-    });
-  }
-  if (decision.route === 'image_generation' && ROUTE_CFG.image_model) {
-    body.model = ROUTE_CFG.image_model;
-  } else if (ROUTE_CFG.text_model) {
-    body.model = ROUTE_CFG.text_model;
+  if (decision.route === 'image_generation') {
+    const selected = modelDiscovery.chooseImageModel(requestedModel, ROUTE_CFG.image_model, modelState);
+    if (selected) {
+      body.model = selected.name;
+      decision = Object.assign({}, decision, { transport: selected.transport });
+    } else {
+      body.model = null;
+      const available = (modelState.models || [])
+        .filter((model) => model.imageGeneration)
+        .map((model) => model.name);
+      decision = Object.assign({}, decision, {
+        error: available.length > 1
+          ? 'multiple image models are available; configure image_model'
+          : 'no image generation model is available',
+      });
+    }
+  } else if (!requestedModel || (requestedInfo && !requestedInfo.textGeneration) ||
+             (ROUTE_CFG.image_model && requestedModel === ROUTE_CFG.image_model)) {
+    if (ROUTE_CFG.text_model) body.model = ROUTE_CFG.text_model;
   }
   decision = Object.assign({}, decision, { model: body.model });
   routingDecisions.set(body, decision);
@@ -1531,6 +1544,11 @@ const server = http.createServer((clientReq, clientRes) => {
       try {
         body = JSON.parse(bodyBuf.toString('utf8'));
         originalStream = body && body.stream === true;
+        const preliminaryRoute = imageRouting.classifyImageRouting(body);
+        if (preliminaryRoute.route === 'image_generation' && !ROUTE_CFG.image_model &&
+            !modelDiscovery.snapshot().complete) {
+          await modelDiscovery.prewarm(getUpstream());
+        }
         translateRequestBody(body);
         routingDecision = getRoutingDecision(body);
         info = collectCustomToolInfo(body.tools);
@@ -1557,7 +1575,11 @@ const server = http.createServer((clientReq, clientRes) => {
         const response = await imagine.runDirectImageGeneration(
           upstream,
           routingDecision.prompt,
-          ROUTE_CFG,
+          Object.assign({}, ROUTE_CFG, {
+            image_model: routingDecision.model,
+            image_transport: routingDecision.transport,
+            image_routing_error: routingDecision.error,
+          }),
           (...args) => debugLog(...args)
         );
         if (originalStream) sendSseCompleted(clientRes, response);
@@ -1716,6 +1738,11 @@ const server = http.createServer((clientReq, clientRes) => {
 function startServer(port = LISTEN_PORT) {
   server.listen(port, '127.0.0.1', () => {
     log('listening on 127.0.0.1:' + port + ' -> ' + upstreamLib.displayUrl(getUpstream()));
+    if (!ROUTE_CFG.text_model || (ROUTE_CFG.auto_route_image && !ROUTE_CFG.image_model)) {
+      modelDiscovery.prewarm(getUpstream()).then((state) => {
+        debugLog('model metadata ready: ' + state.models.length + ' model(s) from ' + state.source);
+      }).catch((error) => debugLog('model metadata discovery failed: ' + error.message));
+    }
     if (ROUTE_CFG.enable_find_skill) {
       skillFind.prewarmSkillIndex(debugLog).catch((error) => {
         debugLog('find_skill background prewarm failed: ' + error.message);

@@ -416,10 +416,20 @@ async function fetchJson(url, timeoutMs = 5000, body = null) {
 async function localOllamaModels() {
   const tags = (await fetchJson(`${OLLAMA_BASE_URL}/api/tags`)) || {};
   const out = {};
-  for (const m of Array.isArray(tags.models) ? tags.models : []) {
+  await Promise.all((Array.isArray(tags.models) ? tags.models : []).map(async (m) => {
     const name = m.name || m.model;
-    if (name) out[name] = Array.isArray(m.capabilities) ? m.capabilities : [];
-  }
+    if (!name) return;
+    if (Array.isArray(m.capabilities)) {
+      out[name] = m.capabilities;
+      return;
+    }
+    const show = (await fetchJson(
+      `${OLLAMA_BASE_URL}/api/show`,
+      8000,
+      JSON.stringify({ model: name }),
+    )) || {};
+    out[name] = Array.isArray(show.capabilities) ? show.capabilities : [];
+  }));
   if (exists(MODEL_CATALOG)) {
     let catalog = {};
     try {
@@ -433,7 +443,7 @@ async function localOllamaModels() {
         const show = (await fetchJson(
           `${OLLAMA_BASE_URL}/api/show`,
           8000,
-          JSON.stringify({ name: slug }),
+          JSON.stringify({ model: slug }),
         )) || {};
         if (Array.isArray(show.capabilities)) out[slug] = show.capabilities;
       }

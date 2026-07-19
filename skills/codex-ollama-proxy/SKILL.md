@@ -46,10 +46,17 @@ codex-ollama-proxy status
 
 ## Minimal Model Setup
 
-Separate text/image models:
+Use the model selected by Codex and auto-select a unique discovered image model:
 
 ```bash
-codex-ollama-proxy route --text-model "TEXT_MODEL" --image-model "IMAGE_MODEL" --auto-image
+codex-ollama-proxy route --auto-models --auto-image
+codex-ollama-proxy switch ollama --model "TEXT_MODEL"
+```
+
+If more than one image model is available, select it explicitly:
+
+```bash
+codex-ollama-proxy route --image-model "IMAGE_MODEL" --auto-image
 codex-ollama-proxy switch ollama --model "TEXT_MODEL"
 ```
 

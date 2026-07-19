@@ -48,7 +48,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "check": "node --check src/cli.js && node --check src/proxy.js && node --check src/codex-config.js && node --check src/codex-app-server-skills.js && node --check src/computer-use-bridge.js && node --check src/plugin-compat.js && node --check src/plugin-skill-bridge.js && node --check src/skill-find.js && node --check src/skill-index.js",
+    "check": "node --check src/cli.js && node --check src/proxy.js && node --check src/codex-config.js && node --check src/codex-app-server-skills.js && node --check src/computer-use-bridge.js && node --check src/model-discovery.js && node --check src/plugin-compat.js && node --check src/plugin-skill-bridge.js && node --check src/skill-find.js && node --check src/skill-index.js",
     "smoke": "scripts/smoke-test.sh"
   },
   "engines": {

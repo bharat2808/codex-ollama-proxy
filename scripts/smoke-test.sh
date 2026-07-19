@@ -9,7 +9,7 @@ const file = path.join(process.env.CODEX_HOME || path.join(process.env.HOME, '.c
 try {
   const text = fs.readFileSync(file, 'utf8');
   const match = text.match(/^\s*text_model\s*=\s*"([^"]+)"/m);
-  console.log(match ? match[1] : 'glm-5.2:cloud');
+  console.log(match && match[1] ? match[1] : 'glm-5.2:cloud');
 } catch {
   console.log('glm-5.2:cloud');
 }

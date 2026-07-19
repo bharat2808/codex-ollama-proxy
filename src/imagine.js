@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const upstreamLib = require('./upstream');
+const modelDiscovery = require('./model-discovery');
 
 const GENERATE_IMAGE = 'generate_image';
 const MAX_LOOPS = 4;
@@ -206,8 +207,10 @@ function upstreamRequest(upstream, clientPath, body) {
           return;
         }
         const error = json && json.error ? json.error : raw.slice(0, 500);
-        reject(new Error('HTTP ' + res.statusCode + ': ' +
-          (typeof error === 'object' ? JSON.stringify(error) : error)));
+        const requestError = new Error('HTTP ' + res.statusCode + ': ' +
+          (typeof error === 'object' ? JSON.stringify(error) : error));
+        requestError.statusCode = res.statusCode;
+        reject(requestError);
       });
     });
     req.on('error', reject);
@@ -483,9 +486,79 @@ function aspectRatioSize(aspectRatio) {
   }
 }
 
+function aspectRatioDimensions(aspectRatio) {
+  switch (aspectRatio) {
+    case '16:9': return { width: 1344, height: 768 };
+    case '9:16': return { width: 768, height: 1344 };
+    case '4:3': return { width: 1024, height: 768 };
+    case '3:4': return { width: 768, height: 1024 };
+    default: return { width: 1024, height: 1024 };
+  }
+}
+
+function requestJsonUrl(url, body, headers) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = upstreamLib.transport(url).request({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      port: url.port || undefined,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: Object.assign({
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+      }, headers || {}),
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try { json = JSON.parse(raw); } catch {}
+        if (res.statusCode >= 200 && res.statusCode < 300 && json) {
+          resolve(json);
+          return;
+        }
+        const error = new Error('HTTP ' + res.statusCode + ': ' + raw.slice(0, 500));
+        error.statusCode = res.statusCode;
+        reject(error);
+      });
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
+async function generateOllamaImage(upstream, prompt, options, log) {
+  const url = modelDiscovery.ollamaNativeUrl(upstream, '/api/generate');
+  if (!url) throw new Error('Ollama native image endpoint is unavailable for this upstream URL');
+  const dimensions = aspectRatioDimensions(options.aspectRatio);
+  const payload = {
+    model: options.model,
+    prompt,
+    width: dimensions.width,
+    height: dimensions.height,
+    stream: false,
+  };
+  const response = await requestJsonUrl(url, payload, upstreamLib.authHeaders(upstream));
+  const encoded = response && (response.image || (Array.isArray(response.images) && response.images[0]));
+  if (!encoded) throw new Error('Ollama image response did not contain image data');
+  const imageData = Buffer.from(encoded, 'base64');
+  log('ollama image endpoint: generated ' + imageData.length + ' bytes with model ' + options.model);
+  return {
+    imageData,
+    payload,
+    metadata: { model: options.model, prompt, mimeType: 'image/png' },
+  };
+}
+
 async function generateCompatibleImage(upstream, prompt, options, log) {
   const model = String(options.model || '').trim();
   if (!model) throw new Error('image_model is not configured');
+  if (options.transport === 'ollama_native') {
+    return generateOllamaImage(upstream, prompt, options, log);
+  }
   const size = aspectRatioSize(options.aspectRatio);
   const payload = {
     model,
@@ -494,7 +567,16 @@ async function generateCompatibleImage(upstream, prompt, options, log) {
     response_format: 'b64_json',
     n: 1,
   };
-  const response = await upstreamRequest(upstream, '/v1/images/generations', payload);
+  let response;
+  try {
+    response = await upstreamRequest(upstream, '/v1/images/generations', payload);
+  } catch (error) {
+    if ((error.statusCode === 404 || error.statusCode === 405) &&
+        modelDiscovery.ollamaNativeUrl(upstream, '/api/generate')) {
+      return generateOllamaImage(upstream, prompt, options, log);
+    }
+    throw error;
+  }
   const first = response && Array.isArray(response.data) ? response.data[0] : null;
   if (!first || !first.b64_json) {
     throw new Error('image generation response did not contain data[0].b64_json');
@@ -514,9 +596,13 @@ async function generateCompatibleImage(upstream, prompt, options, log) {
 }
 
 async function runDirectImageGeneration(upstream, prompt, config, log) {
+  if (!config.image_model) {
+    throw new Error(config.image_routing_error || 'image_model is not configured');
+  }
   const result = await generateCompatibleImage(upstream, prompt, {
     model: config.image_model,
     aspectRatio: config.imagine_aspect_ratio || '1:1',
+    transport: config.image_transport || 'openai_images',
   }, log);
   const configuredDir = String(config.image_output_dir || '').trim();
   const outputDir = configuredDir
@@ -807,7 +893,7 @@ function fulfillProxyStatus(call, config, log) {
       status: 'codex-ollama-proxy status',
       switch_openai: 'codex-ollama-proxy switch openai',
       switch_ollama: 'codex-ollama-proxy switch ollama [--model MODEL]',
-      route: 'codex-ollama-proxy route --text-model MODEL --image-model MODEL [--auto-image|--no-auto-image]',
+      route: 'codex-ollama-proxy route [--auto-models] [--text-model MODEL] [--image-model MODEL] [--auto-image|--no-auto-image]',
       logs: 'codex-ollama-proxy logs [--tail N]',
       install: 'codex-ollama-proxy install',
       uninstall: 'codex-ollama-proxy uninstall',
@@ -843,6 +929,7 @@ module.exports = {
   validateInputImagePath,
   buildGeminiGenerationConfig,
   aspectRatioSize,
+  aspectRatioDimensions,
   generateCompatibleImage,
   runDirectImageGeneration,
   PROXY_STATUS,

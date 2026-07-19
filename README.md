@@ -72,15 +72,23 @@ codex-ollama-proxy upstream --url "https://example.com/v1" --api-key "KEY"
 codex-ollama-proxy upstream --status
 ```
 
-Separate text and image models:
+By default, the proxy preserves the model selected by Codex. It discovers model capabilities from Ollama (`/api/tags` plus `/api/show`) or the provider's `/v1/models` response. If exactly one image-generation model is available, explicit image requests use it automatically:
 
 ```bash
-codex-ollama-proxy route --text-model "TEXT_MODEL" --image-model "IMAGE_MODEL" \
-  --output-dir "./generated-images" --auto-image
+codex-ollama-proxy route --auto-models --auto-image
 codex-ollama-proxy switch ollama --model "TEXT_MODEL"
 ```
 
-One model for both:
+When multiple image models are installed, select the image model explicitly. A text-model override is optional and acts only as a fallback:
+
+```bash
+codex-ollama-proxy route --image-model "IMAGE_MODEL" \
+  --output-dir "./generated-images" --auto-image
+```
+
+For Ollama image models, the proxy forwards generation through Ollama's native `/api/generate` endpoint. OpenAI-compatible image providers continue to use `/v1/images/generations`.
+
+One model advertised as supporting both text and image generation can still be selected explicitly:
 
 ```bash
 codex-ollama-proxy route --text-model "MODEL" --image-model "MODEL" --auto-image

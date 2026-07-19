@@ -1,16 +1,18 @@
 # proxy-models.toml — drives use-ollama-via-proxy.sh routing + proxy.js per-request
 # auto-rewrite of the `model` field.
 #
-# text_model  : default model Codex runs (good orchestrator, no vision needed).
-# image_model : text-to-image model used only for explicit image-generation
-#               requests. The proxy calls /v1/images/generations directly; this
-#               model does not need chat, Responses, or vision support.
+# text_model  : optional fallback when a request has no usable text model.
+# image_model : optional text-to-image override for explicit generation. Ollama
+#               models use /api/generate; other compatible providers use
+#               /v1/images/generations.
 #
-# text_model must exist in the Codex model catalog and support Responses.
-# image_model must be installed in Ollama and support /v1/images/generations.
+# Leave both empty for metadata-driven routing. The proxy preserves the model
+# selected by Codex for text. If exactly one image-generation model is exposed
+# by provider metadata, it is selected automatically. Configure image_model
+# only when multiple image models exist or metadata is unavailable.
 
-text_model  = "glm-5.2:cloud"
-image_model = "x/z-image-turbo:fp8"
+text_model  = ""
+image_model = ""
 
 # Directory for generated image files. Relative paths resolve from the proxy
 # package/repository root, so this writes to <repo>/generated-images.
@@ -26,8 +28,8 @@ upstream_url = "http://127.0.0.1:11434/v1"
 upstream_api_key = ""
 
 # When true, the shape proxy classifies the latest user request. Explicit image
-# generation goes to image_model through /v1/images/generations. Attachments,
-# screenshots, image inspection, and ordinary follow-ups stay on text_model.
+# generation goes to the selected image generator. Attachments, screenshots,
+# image inspection, and ordinary follow-ups stay on the requested text model.
 # When false, automatic classification is disabled (manual switching only).
 auto_route_image = true
 

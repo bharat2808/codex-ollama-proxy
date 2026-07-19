@@ -26,7 +26,7 @@ function usage() {
   codex-ollama-proxy status
   codex-ollama-proxy switch openai
   codex-ollama-proxy switch ollama [--model MODEL]
-  codex-ollama-proxy route --text-model MODEL --image-model MODEL [--output-dir PATH] [--auto-image|--no-auto-image]
+  codex-ollama-proxy route [--auto-models] [--text-model MODEL] [--image-model MODEL] [--output-dir PATH] [--auto-image|--no-auto-image]
   codex-ollama-proxy upstream [--url URL] [--api-key KEY] [--status]
   codex-ollama-proxy logs [--tail N]
   codex-ollama-proxy install
@@ -80,7 +80,7 @@ function parseFlags(argv) {
     const eq = arg.indexOf('=');
     const key = (eq >= 0 ? arg.slice(2, eq) : arg.slice(2)).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     if (eq >= 0) flags[key] = arg.slice(eq + 1);
-    else if (['force', 'auto-image', 'no-auto-image', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'status'].includes(arg.slice(2))) flags[key] = true;
+    else if (['force', 'auto-models', 'auto-image', 'no-auto-image', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'status'].includes(arg.slice(2))) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { flags, rest };
@@ -139,6 +139,10 @@ function writeRouteValue(text, key, value) {
 
 function route(flags) {
   let text = readRouteConfig();
+  if (flags.autoModels) {
+    text = writeRouteValue(text, 'text_model', '');
+    text = writeRouteValue(text, 'image_model', '');
+  }
   if (flags.textModel) text = writeRouteValue(text, 'text_model', flags.textModel);
   if (flags.imageModel) text = writeRouteValue(text, 'image_model', flags.imageModel);
   if (flags.outputDir) text = writeRouteValue(text, 'image_output_dir', flags.outputDir);
