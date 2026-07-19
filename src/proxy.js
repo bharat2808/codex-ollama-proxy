@@ -528,19 +528,27 @@ function upstreamResponseError(statusCode, raw) {
   return error;
 }
 
-function providerRejectedImageModelAsChat(error) {
+function looksLikeImageGenerationModel(model) {
+  return /(?:^|[\/_:.-])(?:flux\d*|stable[-_.]?diffusion|sdxl|z[-_.]?image|qwen[-_.]?image|imagen)(?:$|[\/_:.-])/i
+    .test(String(model || ''));
+}
+
+function providerRejectedImageModelAsChat(error, model) {
   const status = Number(error && error.statusCode);
   if (status < 400 || status >= 500 || status === 401 || status === 403 || status === 429) return false;
   const text = String((error && (error.responseBody || error.message)) || '').toLowerCase();
-  return [
+  const explicitImageError = [
     /(?:image|diffusion)(?:[- ]generation)? model.{0,160}(?:does not support|not supported|cannot be used|only supports?|requires?).{0,100}(?:chat|responses?|image generation)/,
     /(?:chat|responses?).{0,160}(?:not supported|unsupported|cannot be used).{0,100}(?:image|diffusion)/,
     /(?:use|call|requires?).{0,40}(?:images\/generations|image generation endpoint)/,
   ].some((pattern) => pattern.test(text));
+  if (explicitImageError) return true;
+  return looksLikeImageGenerationModel(model) &&
+    /(?:does not support|not supported|unsupported|cannot be used).{0,80}(?:chat|responses?)/.test(text);
 }
 
 async function retryChatAsImage(upstream, body, error) {
-  if (!body || !providerRejectedImageModelAsChat(error)) return null;
+  if (!body || !providerRejectedImageModelAsChat(error, body.model)) return null;
   const model = String(body.model || '').trim();
   const prompt = imageRouting.classifyImageRouting(body).userText;
   if (!model || !prompt) return null;

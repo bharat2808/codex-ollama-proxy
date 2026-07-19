@@ -1316,6 +1316,56 @@ test('provider-confirmed image model errors retry through image generation and c
   }
 });
 
+test('Flux model chat rejection retries through image generation', async () => {
+  const received = [];
+  const imageOutputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-flux-fallback-'));
+  try {
+    await withProxy((req, res) => {
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        received.push(req.url);
+        if (req.url === '/custom/responses') {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            error: {
+              message: '\"x/flux2-klein:9b\" does not support chat',
+              type: 'invalid_request_error',
+              param: null,
+              code: null,
+            },
+          }));
+          return;
+        }
+        assert.equal(req.url, '/custom/images/generations');
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          data: [{ b64_json: Buffer.from('flux-fallback-image').toString('base64') }],
+        }));
+      });
+    }, async (proxyPort) => {
+      const response = await postJson(proxyPort, {
+        model: 'x/flux2-klein:9b',
+        input: 'A green house on a green hill under blue sky.',
+        tools: [],
+        stream: false,
+      });
+      assert.equal(response.statusCode, 200);
+      const body = JSON.parse(response.body);
+      assert.equal(body.output[0].type, 'image_generation_call');
+      assert.equal(fs.readFileSync(body.output[0].saved_path, 'utf8'), 'flux-fallback-image');
+      fs.rmSync(body.output[0].saved_path, { force: true });
+    }, [
+      'image_model = ""',
+      `image_output_dir = "${imageOutputDir}"`,
+      'auto_route_image = false',
+    ]);
+    assert.deepEqual(received, ['/custom/responses', '/custom/images/generations']);
+  } finally {
+    fs.rmSync(imageOutputDir, { recursive: true, force: true });
+  }
+});
+
 test('streaming provider image-model errors retry through image generation', async () => {
   const received = [];
   const imageOutputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-stream-image-fallback-'));
