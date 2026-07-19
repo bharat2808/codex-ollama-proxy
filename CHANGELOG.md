@@ -11,6 +11,7 @@
 - Added metadata-driven model routing: explicit Codex text-model selections are preserved, a unique image generator is auto-selected, ambiguous image choices require configuration, and local Ollama image models use the native `/api/generate` contract.
 - Added a guarded retry that redirects provider-confirmed image-only model errors from the Responses chat endpoint to image generation and caches the learned capability.
 - Added non-blocking model metadata refresh with request deduplication and stale-capability preservation during provider failures.
+- Bounded Ollama `/api/show` capability discovery to a continuously refilled pool of 10 requests.
 - Deduplicated translated function definitions, added deterministic aliases for tool names over 64 characters, and recovered fenced JSON tool arguments.
 
 - Replaced attachment-based image-model routing with deterministic latest-user

@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { mapLimit } = require('./async-utils');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
@@ -22,6 +23,7 @@ const PROVIDER_NAME = 'ollama-launch-codex-app';
 const STOREFRONT_PLUGIN_PREFIX = '[plugins."storefront-builder@personal"';
 const OLLAMA_PROVIDER_HEADER = `[model_providers.${PROVIDER_NAME}]`;
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+const OLLAMA_SHOW_CONCURRENCY = 10;
 
 const TOOL_CAPABILITY_FIELDS = [
   'apply_patch_tool_type',
@@ -416,20 +418,24 @@ async function fetchJson(url, timeoutMs = 5000, body = null) {
 async function localOllamaModels() {
   const tags = (await fetchJson(`${OLLAMA_BASE_URL}/api/tags`)) || {};
   const out = {};
-  await Promise.all((Array.isArray(tags.models) ? tags.models : []).map(async (m) => {
-    const name = m.name || m.model;
-    if (!name) return;
-    if (Array.isArray(m.capabilities)) {
-      out[name] = m.capabilities;
-      return;
-    }
-    const show = (await fetchJson(
-      `${OLLAMA_BASE_URL}/api/show`,
-      8000,
-      JSON.stringify({ model: name }),
-    )) || {};
-    out[name] = Array.isArray(show.capabilities) ? show.capabilities : [];
-  }));
+  await mapLimit(
+    Array.isArray(tags.models) ? tags.models : [],
+    OLLAMA_SHOW_CONCURRENCY,
+    async (m) => {
+      const name = m.name || m.model;
+      if (!name) return;
+      if (Array.isArray(m.capabilities)) {
+        out[name] = m.capabilities;
+        return;
+      }
+      const show = (await fetchJson(
+        `${OLLAMA_BASE_URL}/api/show`,
+        8000,
+        JSON.stringify({ model: name }),
+      )) || {};
+      out[name] = Array.isArray(show.capabilities) ? show.capabilities : [];
+    },
+  );
   if (exists(MODEL_CATALOG)) {
     let catalog = {};
     try {
@@ -633,8 +639,10 @@ if (require.main === module) {
 
 module.exports = {
   FRESH_INSTRUCTION_FIELDS,
+  OLLAMA_SHOW_CONCURRENCY,
   canonicalInstructionValuesFromCache,
   applyFreshInstructionValues,
+  localOllamaModels,
   refreshCatalog,
   main,
 };

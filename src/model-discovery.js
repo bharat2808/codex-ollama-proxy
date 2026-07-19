@@ -1,5 +1,6 @@
 'use strict';
 
+const { mapLimit } = require('./async-utils');
 const upstreamLib = require('./upstream');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -82,19 +83,6 @@ function recordFor(name, metadata, source) {
     textGeneration: hasExplicitText || (capabilities.length === 0 && outputModalities.length === 0),
     transport: source === 'ollama' && imageGeneration ? 'ollama_native' : 'openai_images',
   };
-}
-
-async function mapLimit(values, limit, mapper) {
-  const output = new Array(values.length);
-  let next = 0;
-  async function worker() {
-    while (next < values.length) {
-      const index = next++;
-      output[index] = await mapper(values[index], index);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, worker));
-  return output;
 }
 
 async function discoverOllama(upstream) {
