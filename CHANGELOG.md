@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Stabilized streamed Responses lifecycles so `[DONE]`, EOF, and upstream completion produce one ordered `response.completed` event.
+- Upstream failures now produce a complete `response.created` → `response.in_progress` → `response.failed` lifecycle instead of closing silently.
+- Client disconnects now cancel the active upstream stream, and proxy-fulfilled multi-turn streams preserve one lifecycle through the final assistant response.
+
 ## 0.3.3
 
 - Fixed newer Codex/Desktop `tool_search` exposure where the tool arrives as a native `type: "tool_search"` managed tool instead of a plain function definition.

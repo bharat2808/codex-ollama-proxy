@@ -840,7 +840,7 @@ function processSseChunk(chunkBuf, clientRes, state) {
 // request. Everything else (text deltas, reasoning, MCP/apply_patch calls, the
 // native tool_search) passes through untouched and live.
 
-function postUpstreamStream(upstream, body) {
+function postUpstreamStream(upstream, body, signal) {
   return new Promise((resolve, reject) => {
     const url = upstreamLib.responsesUrl(upstream);
     const payload = JSON.stringify(body);
@@ -855,6 +855,7 @@ function postUpstreamStream(upstream, body) {
         'content-length': Buffer.byteLength(payload),
         accept: 'text/event-stream',
       }, upstreamLib.authHeaders(upstream)),
+      signal,
     }, (res) => {
       if (res.statusCode && res.statusCode >= 400) {
         let buf = '';
@@ -870,127 +871,376 @@ function postUpstreamStream(upstream, body) {
   });
 }
 
-// Pipe an upstream SSE stream to the client, suppressing intercepted
-// function_call items (web_search / find_skill) and buffering the terminal
-// response.completed event. Returns the intercepted calls and the buffered
-// completed event so the caller can fulfill + continue or finalize.
-function pipeAndCollect(upstreamRes, clientRes, customNames, allowLifecycle, outputIndexOffset, sequenceNumberOffset) {
+function responseSnapshot(response) {
+  if (!response || typeof response !== 'object') return {};
+  const snapshot = Object.assign({}, response);
+  delete snapshot.output;
+  return snapshot;
+}
+
+function rememberResponse(streamState, response) {
+  streamState.response = Object.assign({}, streamState.response, responseSnapshot(response));
+}
+
+function streamCanWrite(clientRes, streamState) {
+  return !streamState.clientClosed && !streamState.terminalEvent && !clientRes.destroyed && !clientRes.writableEnded;
+}
+
+function ensureStreamLifecycle(clientRes, streamState, response) {
+  if (!streamCanWrite(clientRes, streamState)) return false;
+  rememberResponse(streamState, response);
+  const base = Object.assign({}, streamState.response, { status: 'in_progress', output: [] });
+  if (!base.id) base.id = streamState.id;
+  if (!streamState.created) {
+    markers.writeSseEvent(clientRes, 'response.created', { type: 'response.created', response: base });
+    streamState.created = true;
+  }
+  if (!streamState.inProgress) {
+    markers.writeSseEvent(clientRes, 'response.in_progress', { type: 'response.in_progress', response: base });
+    streamState.inProgress = true;
+  }
+  return true;
+}
+
+function writeStreamTerminal(clientRes, streamState, type, event) {
+  if (!streamCanWrite(clientRes, streamState)) return false;
+  streamState.terminalEvent = type;
+  markers.writeSseEvent(clientRes, type, event);
+  clientRes.end();
+  return true;
+}
+
+function completeStream(clientRes, streamState, sourceEvent, output) {
+  ensureStreamLifecycle(clientRes, streamState, sourceEvent && sourceEvent.response);
+  const response = Object.assign(
+    {},
+    streamState.response,
+    responseSnapshot(sourceEvent && sourceEvent.response),
+    { id: (sourceEvent && sourceEvent.response && sourceEvent.response.id) || streamState.response.id || streamState.id,
+      status: 'completed',
+      output }
+  );
+  delete response.error;
+  delete response.incomplete_details;
+  return writeStreamTerminal(clientRes, streamState, 'response.completed', {
+    type: 'response.completed',
+    response,
+  });
+}
+
+function failStream(clientRes, streamState, message, sourceEvent, output) {
+  const sourceResponse = sourceEvent && sourceEvent.response;
+  rememberResponse(streamState, sourceResponse);
+  ensureStreamLifecycle(clientRes, streamState, sourceResponse);
+  const sourceError = (sourceResponse && sourceResponse.error) || (sourceEvent && sourceEvent.error) || {};
+  const response = Object.assign({}, streamState.response, responseSnapshot(sourceResponse), {
+    id: (sourceResponse && sourceResponse.id) || streamState.response.id || streamState.id,
+    status: 'failed',
+    output: output || [],
+    error: {
+      code: sourceError.code || 'proxy_stream_error',
+      message: sourceError.message || message,
+    },
+  });
+  return writeStreamTerminal(clientRes, streamState, 'response.failed', {
+    type: 'response.failed',
+    response,
+  });
+}
+
+function outputKey(obj) {
+  if (Number.isInteger(obj.output_index)) return 'index:' + obj.output_index;
+  if (obj.item && obj.item.id) return 'id:' + obj.item.id;
+  if (obj.item && obj.item.call_id) return 'call:' + obj.item.call_id;
+  return null;
+}
+
+// Pipe one upstream SSE turn while buffering terminal transport markers. The
+// caller owns the single downstream terminal event, including when the
+// upstream uses [DONE] or EOF instead of response.completed.
+function pipeAndCollect(upstreamRes, clientRes, streamState, customNames, interceptNames, outputIndexOffset, sequenceNumberOffset) {
   const state = { rewrittenIds: new Set(), customNames };
   const suppressed = new Set();          // item ids we are intercepting
   const pending = new Map();             // id -> { id, call_id, name, arguments }
   const interceptedCalls = [];
+  const allOutputItems = [];
+  const visibleOutputItems = [];
+  const openOutputItems = new Map();
+  const doneOutputKeys = new Set();
   let completedEvent = null;
+  let failureEvent = null;
   let leftover = '';
   let maxOutputIndex = -1;
   let maxSequenceNumber = -1;
 
   return new Promise((resolve, reject) => {
-    upstreamRes.on('error', reject);
-    upstreamRes.on('data', (chunk) => {
-      leftover += chunk.toString('utf8');
-      let idx;
-      while ((idx = leftover.indexOf('\n\n')) !== -1) {
-        const block = leftover.slice(0, idx);
-        leftover = leftover.slice(idx + 2);
-        const lines = block.split('\n');
-        let eventLine = null;
-        const dataLines = [];
-        for (const line of lines) {
-          if (line.startsWith('event:')) eventLine = line.slice(6).trim();
-          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
-        }
-        if (dataLines.length === 0) {
-          if (block.trim()) clientRes.write(block + '\n\n');
+    let settled = false;
+
+    function nextSequenceNumber() {
+      maxSequenceNumber = Math.max(maxSequenceNumber, (sequenceNumberOffset || 0) - 1) + 1;
+      return maxSequenceNumber;
+    }
+
+    function addInterceptedCall(item) {
+      if (!item || interceptedCalls.some((call) => call.call_id && call.call_id === item.call_id)) return;
+      interceptedCalls.push({
+        id: item.id,
+        call_id: item.call_id,
+        name: item.name,
+        arguments: item.arguments || '',
+        status: item.status || 'completed',
+      });
+    }
+
+    function reconcileCompletedOutput(event) {
+      const output = event && event.response && Array.isArray(event.response.output)
+        ? event.response.output : [];
+      for (let i = 0; i < output.length; i += 1) {
+        const item = output[i];
+        const outputIndex = (outputIndexOffset || 0) + i;
+        const key = 'index:' + outputIndex;
+        if (doneOutputKeys.has(key)) continue;
+        const isIntercepted = item && item.type === 'function_call' && interceptNames.has(item.name);
+        allOutputItems.push(item);
+        doneOutputKeys.add(key);
+        const open = openOutputItems.get(key);
+        openOutputItems.delete(key);
+        maxOutputIndex = Math.max(maxOutputIndex, outputIndex);
+        if (isIntercepted) {
+          addInterceptedCall(item);
           continue;
         }
-        let obj;
-        try {
-          obj = JSON.parse(dataLines.join('\n'));
-        } catch {
-          const prefix = eventLine ? 'event: ' + eventLine + '\n' : '';
-          clientRes.write(prefix + 'data: ' + dataLines.join('\n') + '\n\n');
-          continue;
+        const rewritten = translateOutputItem(item, state);
+        if (open) {
+          markers.writeSseEvent(clientRes, 'response.output_item.done', {
+            type: 'response.output_item.done',
+            output_index: outputIndex,
+            sequence_number: nextSequenceNumber(),
+            item: rewritten,
+          });
+        } else {
+          markers.writeSseEvent(clientRes, 'response.output_item.added', {
+            type: 'response.output_item.added',
+            output_index: outputIndex,
+            sequence_number: nextSequenceNumber(),
+            item: rewritten,
+          });
+          markers.writeSseEvent(clientRes, 'response.output_item.done', {
+            type: 'response.output_item.done',
+            output_index: outputIndex,
+            sequence_number: nextSequenceNumber(),
+            item: rewritten,
+          });
         }
-    if (Number.isInteger(obj.output_index)) obj.output_index += outputIndexOffset || 0;
-    if (Number.isInteger(obj.sequence_number)) obj.sequence_number += sequenceNumberOffset || 0;
-    const t = obj.type || '';
-    if (Number.isInteger(obj.output_index)) maxOutputIndex = Math.max(maxOutputIndex, obj.output_index);
-    if (Number.isInteger(obj.sequence_number)) maxSequenceNumber = Math.max(maxSequenceNumber, obj.sequence_number);
-
-    // Suppress duplicate lifecycle events after the first upstream turn.
-        if (!allowLifecycle && (t === 'response.created' || t === 'response.in_progress' || t === 'response.queued')) {
-          continue;
-        }
-
-        // Intercept web_search / find_skill function_call items.
-        if ((t === 'response.output_item.added' || t === 'response.output_item.done') &&
-            obj.item && obj.item.type === 'function_call' && INTERCEPT_NAMES.has(obj.item.name)) {
-          if (obj.item.id) suppressed.add(obj.item.id);
-          if (t === 'response.output_item.added') {
-            pending.set(obj.item.id || ('c' + interceptedCalls.length), {
-              id: obj.item.id, call_id: obj.item.call_id, name: obj.item.name, arguments: obj.item.arguments || '',
-            });
-          } else {
-            const key = obj.item.id || ('c' + interceptedCalls.length);
-            const p = pending.get(key) || { id: obj.item.id, call_id: obj.item.call_id, name: obj.item.name, arguments: '' };
-            const args = (obj.item.arguments !== undefined && obj.item.arguments !== '') ? obj.item.arguments : p.arguments;
-            interceptedCalls.push({
-              id: obj.item.id, call_id: obj.item.call_id, name: obj.item.name,
-              arguments: args, status: obj.item.status || 'completed',
-            });
-            pending.delete(key);
-          }
-          continue; // suppress
-        }
-
-        // Drop argument deltas for suppressed items (and accumulate in case
-        // the done event lacks full arguments).
-        if ((t === 'response.function_call_arguments.delta' || t === 'response.function_call_arguments.done') &&
-            obj.item_id && suppressed.has(obj.item_id)) {
-          if (t === 'response.function_call_arguments.delta' && typeof obj.delta === 'string') {
-            const p = pending.get(obj.item_id);
-            if (p) p.arguments = (p.arguments || '') + obj.delta;
-          }
-          continue; // suppress
-        }
-
-        // Buffer the terminal completed event; the caller decides whether to
-        // forward it (no interception) or drop it (continue the loop).
-        if (t === 'response.completed') {
-          completedEvent = obj;
-          continue;
-        }
-
-        // Everything else: translate (namespace/custom/tool_search shapes) and
-        // forward unchanged.
-       const rewritten = rewriteSseJson(obj, state);
-       if (rewritten === DROP) continue;
-        markers.writeSseEvent(clientRes, eventLine, rewritten);
+        visibleOutputItems.push(rewritten);
       }
-    });
-   upstreamRes.on('end', () => {
-     resolve({ interceptedCalls, completedEvent, maxOutputIndex, maxSequenceNumber });
-   });
-  });
-}
+    }
 
-// Translate a buffered response.completed event's output items and forward it.
-function flushCompleted(clientRes, completedEvent, customNames, prependItems) {
-  if (!completedEvent) return;
-  const state = { rewrittenIds: new Set(), customNames };
-  if (completedEvent.response && Array.isArray(completedEvent.response.output)) {
-    completedEvent.response.output = completedEvent.response.output.map((it) => translateOutputItem(it, state));
-  }
-  markers.injectMarkersIntoCompleted(completedEvent, prependItems);
-  markers.writeSseEvent(clientRes, 'response.completed', completedEvent);
+    function cleanup() {
+      upstreamRes.removeListener('data', onData);
+      upstreamRes.removeListener('end', onEnd);
+      upstreamRes.removeListener('error', onError);
+      upstreamRes.removeListener('aborted', onAborted);
+    }
+
+    function result(endedBy) {
+      return {
+        interceptedCalls,
+        allOutputItems,
+        visibleOutputItems,
+        pendingOutputItems: [...openOutputItems.values()],
+        completedEvent,
+        failureEvent,
+        endedBy,
+        maxOutputIndex,
+        maxSequenceNumber,
+      };
+    }
+
+    function settle(endedBy) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result(endedBy));
+      if (endedBy !== 'eof' && !upstreamRes.complete) {
+        upstreamRes.on('error', () => {});
+        upstreamRes.destroy();
+      }
+    }
+
+    function onError(error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function onAborted() {
+      onError(new Error('upstream stream aborted before a terminal event'));
+    }
+
+    function processBlock(block) {
+      if (settled) return false;
+      const lines = block.split(/\r?\n/);
+      let eventLine = null;
+      const dataLines = [];
+      for (const line of lines) {
+        if (line.startsWith('event:')) eventLine = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+      }
+      if (dataLines.length === 0) {
+        if (block.trim() && streamCanWrite(clientRes, streamState)) clientRes.write(block + '\n\n');
+        return true;
+      }
+      const payload = dataLines.join('\n');
+      if (payload.trim() === '[DONE]') {
+        settle('done');
+        return false;
+      }
+      let obj;
+      try {
+        obj = JSON.parse(payload);
+      } catch {
+        if (streamCanWrite(clientRes, streamState)) {
+          const prefix = eventLine ? 'event: ' + eventLine + '\n' : '';
+          clientRes.write(prefix + 'data: ' + payload + '\n\n');
+        }
+        return true;
+      }
+      if (Number.isInteger(obj.output_index)) obj.output_index += outputIndexOffset || 0;
+      if (Number.isInteger(obj.sequence_number)) obj.sequence_number += sequenceNumberOffset || 0;
+      const t = obj.type || eventLine || '';
+      if (Number.isInteger(obj.output_index)) maxOutputIndex = Math.max(maxOutputIndex, obj.output_index);
+      if (Number.isInteger(obj.sequence_number)) maxSequenceNumber = Math.max(maxSequenceNumber, obj.sequence_number);
+      if (obj.response) rememberResponse(streamState, obj.response);
+
+      if (t === 'response.created') {
+        if (!streamState.created && streamCanWrite(clientRes, streamState)) {
+          streamState.created = true;
+          markers.writeSseEvent(clientRes, 'response.created', obj);
+        }
+        return true;
+      }
+      if (t === 'response.in_progress') {
+        if (!streamState.created) ensureStreamLifecycle(clientRes, streamState, obj.response);
+        if (!streamState.inProgress && streamCanWrite(clientRes, streamState)) {
+          streamState.inProgress = true;
+          markers.writeSseEvent(clientRes, 'response.in_progress', obj);
+        }
+        return true;
+      }
+      if (t === 'response.queued') return true;
+      if (t === 'response.completed') {
+        ensureStreamLifecycle(clientRes, streamState, obj.response);
+        completedEvent = obj;
+        reconcileCompletedOutput(obj);
+        settle('completed');
+        return false;
+      }
+      if (t === 'response.failed' || t === 'response.incomplete' || t === 'response.error' || t === 'error') {
+        failureEvent = obj;
+        settle('failed');
+        return false;
+      }
+
+      ensureStreamLifecycle(clientRes, streamState, obj.response);
+      const key = outputKey(obj);
+      const isInterceptedItem = obj.item && obj.item.type === 'function_call' && interceptNames.has(obj.item.name);
+      if (t === 'response.output_item.added' && key) {
+        openOutputItems.set(key, { outputIndex: obj.output_index, item: obj.item, suppressed: isInterceptedItem });
+      }
+      if (t === 'response.output_item.done' && obj.item) {
+        if (key && !doneOutputKeys.has(key)) {
+          allOutputItems.push(obj.item);
+          doneOutputKeys.add(key);
+        }
+        if (key) openOutputItems.delete(key);
+      }
+
+      // Intercept proxy-owned function_call items.
+      if ((t === 'response.output_item.added' || t === 'response.output_item.done') && isInterceptedItem) {
+        if (obj.item.id) suppressed.add(obj.item.id);
+        if (t === 'response.output_item.added') {
+          pending.set(obj.item.id || ('c' + interceptedCalls.length), {
+            id: obj.item.id, call_id: obj.item.call_id, name: obj.item.name, arguments: obj.item.arguments || '',
+          });
+        } else {
+          const pendingKey = obj.item.id || ('c' + interceptedCalls.length);
+          const p = pending.get(pendingKey) || { id: obj.item.id, call_id: obj.item.call_id, name: obj.item.name, arguments: '' };
+          const args = (obj.item.arguments !== undefined && obj.item.arguments !== '') ? obj.item.arguments : p.arguments;
+          addInterceptedCall(Object.assign({}, obj.item, { arguments: args }));
+          pending.delete(pendingKey);
+        }
+        return true;
+      }
+
+      // Drop argument deltas for suppressed items and retain them for the call.
+      if ((t === 'response.function_call_arguments.delta' || t === 'response.function_call_arguments.done') &&
+          obj.item_id && suppressed.has(obj.item_id)) {
+        if (t === 'response.function_call_arguments.delta' && typeof obj.delta === 'string') {
+          const p = pending.get(obj.item_id);
+          if (p) p.arguments = (p.arguments || '') + obj.delta;
+        }
+        return true;
+      }
+
+      const rewritten = rewriteSseJson(obj, state);
+      if (rewritten === DROP) return true;
+      if (t === 'response.output_item.done' && rewritten.item) visibleOutputItems.push(rewritten.item);
+      if (streamCanWrite(clientRes, streamState)) markers.writeSseEvent(clientRes, eventLine || t, rewritten);
+      return true;
+    }
+
+    function processBufferedBlocks(final) {
+      let match;
+      while ((match = leftover.match(/\r?\n\r?\n/))) {
+        const idx = match.index;
+        const block = leftover.slice(0, idx);
+        leftover = leftover.slice(idx + match[0].length);
+        if (!processBlock(block)) return false;
+      }
+      if (final && leftover.trim()) {
+        const block = leftover;
+        leftover = '';
+        return processBlock(block);
+      }
+      return true;
+    }
+
+    function onData(chunk) {
+      leftover += chunk.toString('utf8');
+      processBufferedBlocks(false);
+    }
+
+    function onEnd() {
+      if (settled) return;
+      processBufferedBlocks(true);
+      if (!settled) settle('eof');
+    }
+
+    upstreamRes.on('error', onError);
+    upstreamRes.on('aborted', onAborted);
+    upstreamRes.on('data', onData);
+    upstreamRes.on('end', onEnd);
+  });
 }
 
 
 async function runStreamingLoop(upstream, body, clientRes, info, options) {
   const log = options.log || (() => {});
   const customNames = info.customNames || new Set();
+  const interceptNames = options.interceptNames || INTERCEPT_NAMES;
   const seq = { index: 0, num: 0 };
-  const emittedItems = []; // synthetic marker items, replayed in response.completed
+  const completedItems = [];
+  const streamState = {
+    id: 'resp_proxy_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+    response: {},
+    created: false,
+    inProgress: false,
+    terminalEvent: null,
+    clientClosed: false,
+  };
+  const abortController = new AbortController();
   let workBody = JSON.parse(JSON.stringify(body));
   workBody.stream = true;
 
@@ -1000,98 +1250,122 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
     connection: 'keep-alive',
   });
 
-  for (let loop = 0; loop < MAX_STREAM_LOOPS; loop += 1) {
-    let upstreamRes;
-    try {
-      upstreamRes = await postUpstreamStream(upstream, workBody);
-    } catch (e) {
-      log('streaming loop: upstream request failed: ' + e.message);
-      if (!clientRes.headersSent) {
-        sendJsonResponse(clientRes, 502, { error: { message: 'proxy upstream failed: ' + e.message, type: 'proxy_upstream_error' } });
-      } else {
-        markers.writeSseEvent(clientRes, 'response.error', { type: 'response.error', error: { message: 'proxy upstream failed: ' + e.message } });
-        clientRes.end();
+  const onClientClose = () => {
+    if (!clientRes.writableEnded) {
+      streamState.clientClosed = true;
+      abortController.abort();
+    }
+  };
+  clientRes.on('close', onClientClose);
+
+  try {
+    const maxLoops = interceptNames.size > 0 ? MAX_STREAM_LOOPS : 1;
+    for (let loop = 0; loop < maxLoops; loop += 1) {
+      let result;
+      try {
+        const upstreamRes = await postUpstreamStream(upstream, workBody, abortController.signal);
+        result = await pipeAndCollect(
+          upstreamRes,
+          clientRes,
+          streamState,
+          customNames,
+          interceptNames,
+          loop === 0 ? 0 : seq.index,
+          loop === 0 ? 0 : seq.num
+        );
+      } catch (e) {
+        if (streamState.clientClosed) return;
+        log('streaming loop: upstream failed: ' + e.message);
+        failStream(clientRes, streamState, 'proxy upstream failed: ' + e.message, null, completedItems);
+        return;
       }
-      return;
-    }
 
-    const result = await pipeAndCollect(
-      upstreamRes,
-      clientRes,
-      customNames,
-      loop === 0,
-      loop === 0 ? 0 : seq.index,
-      loop === 0 ? 0 : seq.num
-    );
-    seq.index = Math.max(seq.index, result.maxOutputIndex + 1);
-    seq.num = Math.max(seq.num, result.maxSequenceNumber + 1);
-    const calls = result.interceptedCalls;
+      seq.index = Math.max(seq.index, result.maxOutputIndex + 1);
+      seq.num = Math.max(seq.num, result.maxSequenceNumber + 1);
+      completedItems.push(...result.visibleOutputItems);
 
-    if (calls.length === 0) {
-      // Nothing to fulfill: the turn is already streamed; finalize.
-      flushCompleted(clientRes, result.completedEvent, customNames, emittedItems);
-      clientRes.end();
-      return;
-    }
+      if (result.failureEvent) {
+        failStream(clientRes, streamState, 'upstream response failed', result.failureEvent, completedItems);
+        return;
+      }
+      if (result.pendingOutputItems.length > 0) {
+        failStream(clientRes, streamState, 'upstream stream ended before all output items were finalized', null, completedItems);
+        return;
+      }
 
-    debugLog('streaming loop: fulfilling ' + calls.length + ' intercepted call(s): ' + calls.map((c) => c.name).join(','));
-   const outputs = [];
-   for (const call of calls) {
-     let outputStr = '';
-     if (call.name === WEB_SEARCH) {
-       const args = parseArgsObject(call.arguments);
-       try {
-         const search = await webSearch.searchWeb(args, debugLog);
-         debugLog('web_search source: ' + (search.source || 'unknown'));
-         outputStr = webSearch.formatSearchResult(search);
-       } catch (err) {
-         outputStr = '[web_search error]\n' + err.message;
-       }
-     } else if (call.name === imagine.GENERATE_IMAGE) {
+      const calls = result.interceptedCalls;
+      if (calls.length === 0) {
+        if (!result.completedEvent && result.allOutputItems.length === 0) {
+          failStream(clientRes, streamState, 'upstream stream ended before a complete response was available', null, completedItems);
+          return;
+        }
+        completeStream(clientRes, streamState, result.completedEvent, completedItems);
+        return;
+      }
+
+      debugLog('streaming loop: fulfilling ' + calls.length + ' intercepted call(s): ' + calls.map((c) => c.name).join(','));
+      const outputs = [];
+      for (const call of calls) {
+        let outputStr = '';
+        if (call.name === WEB_SEARCH) {
+          const args = parseArgsObject(call.arguments);
+          try {
+            const search = await webSearch.searchWeb(args, debugLog);
+            debugLog('web_search source: ' + (search.source || 'unknown'));
+            outputStr = webSearch.formatSearchResult(search);
+          } catch (err) {
+            outputStr = '[web_search error]\n' + err.message;
+          }
+        } else if (call.name === imagine.GENERATE_IMAGE) {
        // Emit an in-progress marker immediately so the app-server can fire
        // the legacy ImageGenerationBegin event and the UI shows a placeholder.
        // Yield to the event loop so the SSE frame reaches the client before
        // the synchronous fulfillment runs and the completed marker follows.
-       const startedMarker = markers.makeImageGenerationStartedMarker(call);
-       const markerIndex = markers.emitOutputItemAdded(clientRes, startedMarker, seq);
-       await new Promise((resolve) => setTimeout(resolve, 0));
-       try {
-         const r = await imagine.fulfillGenerateImage(call, upstream, ROUTE_CFG, debugLog);
-         outputStr = r.output;
-       } catch (err) {
-         outputStr = '[generate_image error] ' + err.message;
-       }
-       const doneMarker = markers.makeImageGenerationMarker(call, outputStr);
-       markers.emitOutputItemDoneAt(clientRes, doneMarker, markerIndex, seq);
-       emittedItems.push(doneMarker);
-     } else if (call.name === imagine.PROXY_STATUS) {
-       const r = imagine.fulfillProxyStatus(call, ROUTE_CFG, debugLog);
-       outputStr = r.output;
-     } else {
+          const startedMarker = markers.makeImageGenerationStartedMarker(call);
+          const markerIndex = markers.emitOutputItemAdded(clientRes, startedMarker, seq);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          try {
+            const r = await imagine.fulfillGenerateImage(call, upstream, ROUTE_CFG, debugLog);
+            outputStr = r.output;
+          } catch (err) {
+            outputStr = '[generate_image error] ' + err.message;
+          }
+          const doneMarker = markers.makeImageGenerationMarker(call, outputStr);
+          markers.emitOutputItemDoneAt(clientRes, doneMarker, markerIndex, seq);
+          completedItems.push(doneMarker);
+        } else if (call.name === imagine.PROXY_STATUS) {
+          const r = imagine.fulfillProxyStatus(call, ROUTE_CFG, debugLog);
+          outputStr = r.output;
+        } else {
        // find_skill
-       const r = skillFind.fulfillFindSkill(call, debugLog);
-       outputStr = r.output;
-     }
+          const r = skillFind.fulfillFindSkill(call, debugLog);
+          outputStr = r.output;
+        }
     // web_search -> web_search_call chip; generate_image -> image_generation_call chip;
     // find_skill / ollama_proxy_status -> no chip (fulfilled silently).
-    const marker = markers.makeMarker(call, outputStr);
-    if (marker && call.name !== imagine.GENERATE_IMAGE) {
-      markers.emitOutputItem(clientRes, marker, seq);
-      emittedItems.push(marker);
+        const marker = markers.makeMarker(call, outputStr);
+        if (marker && call.name !== imagine.GENERATE_IMAGE) {
+          markers.emitOutputItem(clientRes, marker, seq);
+          completedItems.push(marker);
+        }
+        outputs.push({ type: 'function_call_output', call_id: call.call_id, output: outputStr });
+      }
+
+      const prevOutput = result.completedEvent && result.completedEvent.response && Array.isArray(result.completedEvent.response.output)
+        ? result.completedEvent.response.output : result.allOutputItems;
+      workBody = Object.assign({}, workBody, { input: [...prevOutput, ...outputs], stream: true });
     }
-    // Always feed the result back to the model as a function_call_output (model shape).
-    outputs.push({ type: 'function_call_output', call_id: call.call_id, output: outputStr });
-   }
 
-    // Continue the conversation: the model's last turn output + our outputs.
-    const prevOutput = (result.completedEvent && result.completedEvent.response && Array.isArray(result.completedEvent.response.output))
-      ? result.completedEvent.response.output : [];
-    workBody = Object.assign({}, workBody, { input: [...prevOutput, ...outputs], stream: true });
+    debugLog('streaming loop: exceeded ' + MAX_STREAM_LOOPS + ' iterations');
+    failStream(clientRes, streamState, 'proxy exceeded the internal tool-call turn limit', null, completedItems);
+  } catch (e) {
+    if (!streamState.clientClosed) {
+      log('streaming loop failed: ' + e.message);
+      failStream(clientRes, streamState, 'proxy streaming loop failed: ' + e.message, null, completedItems);
+    }
+  } finally {
+    clientRes.removeListener('close', onClientClose);
   }
-
-  debugLog('streaming loop: exceeded ' + MAX_STREAM_LOOPS + ' iterations; finalizing');
-  // Best effort: nothing left to stream, just close the SSE so the UI unblocks.
-  clientRes.end();
 }
 
 function translateFinalResponse(response, info) {
@@ -1119,6 +1393,15 @@ function sendSseCompleted(clientRes, response) {
     connection: 'keep-alive',
   });
   let sequence = 0;
+  const inProgress = Object.assign({}, response, { status: 'in_progress', output: [] });
+  markers.writeSseEvent(clientRes, 'response.created', {
+    type: 'response.created',
+    response: inProgress,
+  });
+  markers.writeSseEvent(clientRes, 'response.in_progress', {
+    type: 'response.in_progress',
+    response: inProgress,
+  });
   if (Array.isArray(response.output)) {
     response.output.forEach((item, outputIndex) => {
       clientRes.write('event: response.output_item.added\n');
@@ -1175,18 +1458,15 @@ const server = http.createServer((clientReq, clientRes) => {
       }
     }
     const upstream = getUpstream();
+    if (isResponses && body && originalStream && ROUTE_CFG.stream_proxy_loop) {
+      debugLog('streaming response lifecycle enabled');
+      await runStreamingLoop(upstream, body, clientRes, info, {
+        log: (...a) => log(...a),
+        interceptNames: INTERCEPT_NAMES,
+      });
+      return;
+    }
     if (isResponses && body && (webSearch.hasNativeWebSearchTool(body) || imagine.hasProxyStatusTool(body) || (ROUTE_CFG.imagine_enabled && imagine.hasGenerateImageTool(body)) || (ROUTE_CFG.enable_find_skill && skillFind.hasFindSkillTool(body)))) {
-      if (originalStream && ROUTE_CFG.stream_proxy_loop) {
-        try {
-          debugLog('streaming proxy loop enabled');
-          await runStreamingLoop(upstream, body, clientRes, info, { log: (...a) => log(...a) });
-          return;
-        } catch (e) {
-          log('streaming proxy loop failed: ' + e.message + '; falling through to non-streaming loop');
-          if (clientRes.headersSent) { clientRes.end(); return; }
-          // else fall through to the non-streaming loop below
-        }
-      }
       if (!webSearch.hasNativeWebSearchTool(body) && (imagine.hasProxyStatusTool(body) || (ROUTE_CFG.imagine_enabled && imagine.hasGenerateImageTool(body)))) {
         try {
           debugLog('imagine proxy loop enabled (generate_image + ollama_proxy_status)');
