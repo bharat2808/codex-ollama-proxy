@@ -43,8 +43,33 @@ test('ambiguous bare calls are not guessed', () => {
 test('tool_search aliases normalize to registered discovery queries', () => {
   assert.equal(pluginCompat.normalizeDiscoveryQuery('computer use'), 'node_repl');
   assert.equal(
+    pluginCompat.normalizeDiscoveryQuery('computer use list apps get screen'),
+    'node_repl'
+  );
+  assert.equal(
     pluginCompat.normalizeDiscoveryQuery('computer-use@openai-bundled'),
     'node_repl'
   );
   assert.equal(pluginCompat.normalizeDiscoveryQuery('calendar events'), 'calendar events');
+});
+
+test('runtime callable guidance includes the resolved bootstrap and rejects legacy fallbacks', () => {
+  const plugin = pluginCompat.findPlugin('computer-use@openai-bundled');
+  const bootstrapPath = '/Users/example/.codex/plugins/computer-use/scripts/client.mjs';
+  const guidance = pluginCompat.callableRuntimeGuidance(
+    'mcp__node_repl__js',
+    new Map([[plugin.pluginId, { bootstrapPath }]])
+  );
+
+  assert.match(guidance, /screen_capture/);
+  assert.match(guidance, /Do not use require\(\)/);
+  assert.match(guidance, new RegExp(bootstrapPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(guidance, /await globalThis\.sky\.list_apps\(\)/);
+  assert.equal(
+    pluginCompat.callableRuntimeGuidance(
+      'mcp__node_repl__js_reset',
+      new Map([[plugin.pluginId, { bootstrapPath }]])
+    ),
+    ''
+  );
 });

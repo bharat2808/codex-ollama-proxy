@@ -11,6 +11,7 @@ const imageRouting = require('./image-routing');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
 const pluginCompat = require('./plugin-compat');
+const pluginSkillBridge = require('./plugin-skill-bridge');
 const modelDiscovery = require('./model-discovery');
 
 // proxy-models.toml drives per-request model auto-routing.
@@ -19,6 +20,10 @@ const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex'
 const RUNTIME_DIR = path.join(CODEX_DIR, 'ollama-shape-proxy');
 const PROXY_MODELS_PATH = path.join(RUNTIME_DIR, 'proxy-models.toml');
 const UPSTREAM_BODY_LOG = path.join(RUNTIME_DIR, 'upstream-bodies.jsonl');
+const PLUGIN_RUNTIMES = new Map(pluginCompat.PLUGINS.map((plugin) => [
+  plugin.pluginId,
+  pluginSkillBridge.resolvePluginRuntime(plugin, CODEX_DIR),
+]));
 const ROUTE_CFG = { text_model: null, image_model: null, image_output_dir: "", auto_route_image: false, verbose_tools: false, log_upstream_body: false, enable_find_skill: false, stream_proxy_loop: true, upstream_url: upstreamLib.DEFAULT_UPSTREAM_URL, upstream_api_key: "", imagine_enabled: false, imagine_service: "gemini", imagine_model: "", imagine_api_key: "", imagine_quality: "fast", imagine_enhance: false, imagine_aspect_ratio: "1:1" };
 function loadRouteConfig() {
   try {
@@ -208,6 +213,15 @@ function flattenNamespaceTool(namespace, tool) {
       additionalProperties: false,
     },
   };
+}
+
+function addPluginRuntimeGuidance(tool) {
+  if (!tool || tool.type !== 'function' || !tool.name) return tool;
+  const guidance = pluginCompat.callableRuntimeGuidance(tool.name, PLUGIN_RUNTIMES);
+  if (!guidance || String(tool.description || '').includes(guidance)) return tool;
+  return Object.assign({}, tool, {
+    description: [tool.description, guidance].filter(Boolean).join(' '),
+  });
 }
 
 function flattenDiscoveredTools(tools) {
@@ -629,15 +643,20 @@ function translateRequestBody(body) {
       mapped.push(imagine.PROXY_STATUS_FN);
       toolsChanged = true;
     }
+    const guided = mapped.map((tool) => {
+      const result = addPluginRuntimeGuidance(tool);
+      if (result !== tool) toolsChanged = true;
+      return result;
+    });
     const seenFunctions = new Set();
-    const deduped = mapped.filter((tool) => {
+    const deduped = guided.filter((tool) => {
       if (!tool || tool.type !== 'function' || !tool.name) return true;
       if (seenFunctions.has(tool.name)) return false;
       seenFunctions.add(tool.name);
       return true;
     });
-    if (deduped.length !== mapped.length) {
-      debugLog('removed ' + (mapped.length - deduped.length) + ' duplicate function tool definition(s)');
+    if (deduped.length !== guided.length) {
+      debugLog('removed ' + (guided.length - deduped.length) + ' duplicate function tool definition(s)');
       toolsChanged = true;
     }
     if (toolsChanged) {

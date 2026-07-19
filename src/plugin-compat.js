@@ -9,6 +9,7 @@ const PLUGINS = Object.freeze([Object.freeze({
   searchAliases: Object.freeze(['computer use', 'computer-use', 'computer-use@openai-bundled', '@oai/sky']),
   discoveryQuery: 'node_repl',
   callablePattern: /(^|__)node_repl($|__)/,
+  runtimeCallablePattern: /(^|__)node_repl(?:__js)?$/,
   skillName: 'computer-use',
   runtimeRoots: Object.freeze([
     Object.freeze(['skills', '.system', 'computer-use']),
@@ -48,10 +49,27 @@ function normalizeDiscoveryQuery(query) {
   const plugin = PLUGINS.find((entry) => {
     if (normalized === entry.pluginId.toLowerCase()) return true;
     return [...entry.aliases, ...entry.searchAliases].some((alias) =>
-      normalized === normalizePluginReference(alias)
+      normalized.includes(normalizePluginReference(alias))
     );
   });
   return plugin ? plugin.discoveryQuery : value;
+}
+
+function callableRuntimeGuidance(callableName, runtimes) {
+  const name = String(callableName || '');
+  for (const plugin of PLUGINS) {
+    if (!plugin.runtimeCallablePattern || !plugin.runtimeCallablePattern.test(name)) continue;
+    const runtime = runtimes && runtimes.get(plugin.pluginId);
+    if (!runtime || !runtime.bootstrapPath) continue;
+    return `${plugin.pluginId} compatibility for this exact callable: ` +
+      `do not search for legacy Computer Use tools such as screen_capture or get_open_apps. ` +
+      `Do not use require(), osascript, or import ${plugin.directImportPackage} directly. ` +
+      `First initialize the runtime with: if (!globalThis.${plugin.runtimeGlobal}) { ` +
+      `const { ${plugin.bootstrapExport} } = await import(${JSON.stringify(runtime.bootstrapPath)}); ` +
+      `${plugin.bootstrapCall} } ` +
+      `Then use globalThis.${plugin.runtimeGlobal}; for example, await globalThis.${plugin.runtimeGlobal}.list_apps().`;
+  }
+  return '';
 }
 
 function toolSearchGuidance() {
@@ -112,6 +130,7 @@ function recoverToolCall(name, callableNames) {
 
 module.exports = {
   PLUGINS,
+  callableRuntimeGuidance,
   discoveredGuidance,
   findPlugin,
   normalizeDiscoveryQuery,
