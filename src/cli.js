@@ -5,6 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const computerUseBridge = require('./computer-use-bridge');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
@@ -100,6 +101,15 @@ function init(options = {}) {
     console.log(`catalog_copy=${MODEL_CATALOG_COPY}`);
   } else {
     console.log(`catalog_exists=${MODEL_CATALOG}`);
+  }
+  reportComputerUseBridge(computerUseBridge.installCompatibilitySkill({ codexDir: CODEX_DIR }));
+}
+
+function reportComputerUseBridge(result) {
+  if (result.status === 'created' || result.status === 'updated') {
+    console.log(`computer_use_skill_${result.status}=${result.destination}`);
+  } else if (result.status === 'conflict') {
+    console.log(`computer_use_skill_preserved=${result.destination}`);
   }
 }
 
@@ -292,7 +302,10 @@ function main() {
   const parsed = parseFlags(command === 'switch' ? tail : process.argv.slice(3));
   if (!command || command === '-h' || command === '--help') return usage();
   if (command === 'init') return init(parseFlags(process.argv.slice(3)).flags);
-  if (command === 'serve') return require('./proxy').startServer();
+  if (command === 'serve') {
+    reportComputerUseBridge(computerUseBridge.installCompatibilitySkill({ codexDir: CODEX_DIR }));
+    return require('./proxy').startServer();
+  }
   if (command === 'status') return status();
   if (command === 'switch') return switchMode(subcommand, parsed.flags);
   if (command === 'route') return route(parseFlags(process.argv.slice(2)).flags);

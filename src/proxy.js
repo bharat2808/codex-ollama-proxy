@@ -9,6 +9,7 @@ const imagine = require('./imagine');
 const imageRouting = require('./image-routing');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
+const pluginCompat = require('./plugin-compat');
 
 // proxy-models.toml drives per-request model auto-routing.
 // Loaded once at startup; editable without restart by re-running apply script.
@@ -139,7 +140,7 @@ const WEB_SEARCH_FN = {
 const TOOL_SEARCH_FN = {
   type: 'function',
   name: TOOL_SEARCH,
-  description: 'Search the available deferred Codex tools, plugin tools, MCP namespaces, and connectors by query. Use this when a needed tool is not already present in the current tool list. Returns matching tool definitions for a follow-up call.',
+  description: 'Search the available deferred Codex tools, plugin tools, MCP namespaces, and connectors by query. Use this when a needed tool is not already present in the current tool list. Returns matching tool definitions for a follow-up call. Plugin compatibility: ' + pluginCompat.toolSearchGuidance(),
   parameters: {
     type: 'object',
     properties: {
@@ -321,22 +322,13 @@ function translateInputItem(item) {
       // glm tends to guess the bare tool name first and gets "unsupported call", so
       // append the exact callable names to the output it sees.
       const tools = item.tools;
-      const callAs = [];
-      if (Array.isArray(tools)) {
-        for (const ns of tools) {
-          if (ns && ns.type === 'namespace' && ns.name && Array.isArray(ns.tools)) {
-            for (const sub of ns.tools) {
-              if (sub && sub.name) callAs.push(ns.name + '__' + sub.name);
-            }
-          } else if (ns && ns.type === 'function' && ns.name) {
-            callAs.push(ns.name);
-          }
-        }
-      }
+      const callAs = flattenDiscoveredTools(tools).map((tool) => tool.name);
       let out = tools == null ? '[]' : JSON.stringify(tools);
       if (callAs.length) {
         out += '\n\nInvoke each tool by its exact name: ' + callAs.join(', ');
       }
+      const compatGuidance = pluginCompat.discoveredGuidance(callAs);
+      if (compatGuidance) out += '\n\n' + compatGuidance;
       return {
         type: 'function_call_output',
         call_id: item.call_id,
@@ -400,14 +392,16 @@ function translateInputItem(item) {
 //   customNames: Set<name>                       (from type:"custom" tools, e.g. apply_patch)
 function collectCustomToolInfo(tools) {
   const customNames = new Set();
-  if (!Array.isArray(tools)) return { customNames };
+  const callableNames = new Set();
+  if (!Array.isArray(tools)) return { customNames, callableNames };
   for (const t of tools) {
     if (!t || typeof t !== 'object') continue;
+    if ((t.type === 'function' || t.type === 'custom') && t.name) callableNames.add(t.name);
     if (t.type === 'custom' && t.name) {
       customNames.add(t.name);
     }
   }
-  return { customNames };
+  return { customNames, callableNames };
 }
 
 const routingDecisions = new WeakMap();
@@ -681,6 +675,19 @@ function translateOutputItem(item, state) {
     if (!state.verboseLoggedToolCalls.has(key)) {
       state.verboseLoggedToolCalls.add(key);
       verboseToolLog('response tool call item', item);
+    }
+  }
+  if (item.type === 'function_call' && item.name) {
+    const recovery = pluginCompat.recoverToolCall(item.name, state.callableNames);
+    if (recovery && recovery.kind === 'tool_search') {
+      debugLog('response: ' + recovery.message);
+      item = Object.assign({}, item, {
+        name: TOOL_SEARCH,
+        arguments: JSON.stringify({ query: recovery.query }),
+      });
+    } else if (recovery && recovery.kind === 'callable') {
+      debugLog('response: ' + recovery.message);
+      item = Object.assign({}, item, { name: recovery.name });
     }
   }
   if (item.type === 'function_call' && item.name === TOOL_SEARCH) {
@@ -982,8 +989,8 @@ function outputKey(obj) {
 // Pipe one upstream SSE turn while buffering terminal transport markers. The
 // caller owns the single downstream terminal event, including when the
 // upstream uses [DONE] or EOF instead of response.completed.
-function pipeAndCollect(upstreamRes, clientRes, streamState, customNames, interceptNames, outputIndexOffset, sequenceNumberOffset) {
-  const state = { rewrittenIds: new Set(), customNames };
+function pipeAndCollect(upstreamRes, clientRes, streamState, customNames, callableNames, interceptNames, outputIndexOffset, sequenceNumberOffset) {
+  const state = { rewrittenIds: new Set(), customNames, callableNames };
   const suppressed = new Set();          // item ids we are intercepting
   const pending = new Map();             // id -> { id, call_id, name, arguments }
   const interceptedCalls = [];
@@ -1253,6 +1260,7 @@ function pipeAndCollect(upstreamRes, clientRes, streamState, customNames, interc
 async function runStreamingLoop(upstream, body, clientRes, info, options) {
   const log = options.log || (() => {});
   const customNames = info.customNames || new Set();
+  const callableNames = info.callableNames || new Set();
   const interceptNames = options.interceptNames || INTERCEPT_NAMES;
   const seq = { index: 0, num: 0 };
   const completedItems = [];
@@ -1293,6 +1301,7 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
           clientRes,
           streamState,
           customNames,
+          callableNames,
           interceptNames,
           loop === 0 ? 0 : seq.index,
           loop === 0 ? 0 : seq.num
@@ -1394,7 +1403,11 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
 
 function translateFinalResponse(response, info) {
   if (!response || typeof response !== 'object') return response;
-  const state = { rewrittenIds: new Set(), customNames: info.customNames || new Set() };
+  const state = {
+    rewrittenIds: new Set(),
+    customNames: info.customNames || new Set(),
+    callableNames: info.callableNames || new Set(),
+  };
   if (Array.isArray(response.output)) {
     response.output = response.output.map((it) => translateOutputItem(it, state));
   }
@@ -1484,7 +1497,7 @@ const server = http.createServer((clientReq, clientRes) => {
   clientReq.on('data', (c) => chunks.push(c));
   clientReq.on('end', async () => {
     let bodyBuf = Buffer.concat(chunks);
-    let info = { customNames: new Set() };
+    let info = { customNames: new Set(), callableNames: new Set() };
     let body = null;
     let originalStream = false;
     let routingDecision = null;
@@ -1631,7 +1644,11 @@ const server = http.createServer((clientReq, clientRes) => {
     }, (upstreamRes) => {
       if (isResponses && originalStream) {
         clientRes.writeHead(upstreamRes.statusCode, upstreamRes.headers);
-        const state = { rewrittenIds: new Set(), customNames: info.customNames };
+        const state = {
+          rewrittenIds: new Set(),
+          customNames: info.customNames,
+          callableNames: info.callableNames,
+        };
         let leftover = Buffer.alloc(0);
         upstreamRes.on('data', (chunk) => {
           leftover = processSseChunk(Buffer.concat([leftover, chunk]), clientRes, state);

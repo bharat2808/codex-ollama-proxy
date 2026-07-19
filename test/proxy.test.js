@@ -339,7 +339,8 @@ test('request translation unwraps additional_tools returned by tool_search', () 
 
   assert.ok(body.tools.some((tool) => tool.type === 'function' && tool.name === 'node_repl'));
   assert.equal(body.input[0].type, 'function_call_output');
-  assert.match(body.input[0].output, /node_repl/);
+  assert.match(body.input[0].output, /Invoke its exact returned name: node_repl/);
+  assert.match(body.input[0].output, /computer-use@openai-bundled.*plugin identifier/);
 });
 
 test('request translation does not expose node_repl before discovery', () => {
@@ -389,6 +390,9 @@ test('request translation converts native tool_search to callable function tool'
     'expected native tool_search to be exposed as a function tool'
   );
   assert.equal(body.tools.some((tool) => tool.type === 'tool_search'), false);
+  const toolSearch = body.tools.find((tool) => tool.name === 'tool_search');
+  assert.match(toolSearch.description, /computer-use@openai-bundled.*plugin identifier/);
+  assert.match(toolSearch.description, /\{"query":"node_repl"\}/);
 });
 
 test('request translation injects tool_search when Codex omits it', () => {
@@ -405,6 +409,103 @@ test('request translation injects tool_search when Codex omits it', () => {
     body.tools.some((tool) => tool.type === 'function' && tool.name === 'tool_search'),
     'expected tool_search to be injected as a function tool'
   );
+});
+
+test('proxy recovers a plugin link call into the registered deferred tool search', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_plugin_recovery',
+        output: [{
+          type: 'function_call',
+          id: 'item_plugin_recovery',
+          call_id: 'call_plugin_recovery',
+          name: 'plugin://computer-use@openai-bundled/',
+          arguments: '{}',
+          status: 'completed',
+        }],
+        status: 'completed',
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model', input: 'use Computer Use', tools: [], stream: false,
+    });
+    const body = JSON.parse(response.body);
+
+    assert.equal(body.output[0].type, 'tool_search_call');
+    assert.equal(body.output[0].arguments.query, 'node_repl');
+  });
+});
+
+test('streaming proxy recovers a plugin identifier call into tool_search', async () => {
+  await withProxy((_req, res) => {
+    writeFunctionTurn(res, {
+      type: 'function_call',
+      id: 'item_plugin_stream_recovery',
+      call_id: 'call_plugin_stream_recovery',
+      name: 'computer-use@openai-bundled',
+      arguments: '{}',
+      status: 'completed',
+    }, 'completed');
+  }, async (proxyPort) => {
+    const response = await postStream(proxyPort, {
+      model: 'test-model', input: 'use Computer Use', tools: [], stream: true,
+    });
+    const events = parseSse(response.body);
+    const output = events.at(-1).data.response.output[0];
+
+    assertSuccessfulTerminal(events);
+    assert.equal(output.type, 'tool_search_call');
+    assert.equal(output.arguments.query, 'node_repl');
+  });
+});
+
+test('proxy recovers dotted namespace calls to the exact discovered callable', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_dotted_recovery',
+        output: [{
+          type: 'function_call',
+          id: 'item_dotted_recovery',
+          call_id: 'call_dotted_recovery',
+          name: 'mcp__node_repl.js',
+          arguments: '{"code":"1 + 1"}',
+          status: 'completed',
+        }],
+        status: 'completed',
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'run JavaScript',
+      tools: [{
+        type: 'namespace',
+        name: 'mcp__node_repl',
+        tools: [{
+          type: 'function',
+          name: 'js',
+          parameters: {
+            type: 'object',
+            properties: { code: { type: 'string' } },
+            required: ['code'],
+          },
+        }],
+      }],
+      stream: false,
+    });
+    const body = JSON.parse(response.body);
+
+    assert.equal(body.output[0].namespace, 'mcp__node_repl');
+    assert.equal(body.output[0].name, 'js');
+    assert.equal(body.output[0].arguments, '{"code":"1 + 1"}');
+  });
 });
 
 test('proxy forwards responses requests to configured upstream URL with bearer auth', async () => {
@@ -772,6 +873,8 @@ test('Computer Use tool_search and node_repl turns preserve screenshot and file 
       }
       if (received.length === 2) {
         assert.ok(body.tools.some((tool) => tool.name === 'mcp__node_repl__js'));
+        const searchOutput = body.input.find((item) => item.call_id === 'call_search');
+        assert.match(searchOutput.output, /Invoke its exact returned name: mcp__node_repl__js/);
         writeFunctionTurn(res, {
           type: 'function_call', id: 'item_node', call_id: 'call_node', name: 'mcp__node_repl__js',
           arguments: '{"code":"await computer.getAppState()"}', status: 'completed',

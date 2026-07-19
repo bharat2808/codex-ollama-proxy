@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added a Computer Use compatibility bridge: model-facing `tool_search` guidance now distinguishes the plugin identifier from the deferred `node_repl` tool, discovered results include the exact callable name, and startup installs a stable user skill with a resolved absolute bootstrap import.
+- Added a central bundled-plugin compatibility registry and recovery for plugin-link, dotted namespace, and unambiguous bare tool calls.
+
 - Replaced attachment-based image-model routing with deterministic latest-user
   generation intent classification.
 - Explicit generation now calls the configured model through

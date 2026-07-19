@@ -112,6 +112,14 @@ When `tool_search` returns deferred MCP/plugin namespace tools, the proxy also e
 }
 ```
 
+### Computer Use compatibility
+
+`computer-use@openai-bundled` is a plugin identifier, not a URL or MCP server. The proxy tells local models to discover Computer Use through `tool_search({"query":"node_repl"})`, then exposes and names the exact returned `node_repl` callable.
+
+During `init` and proxy startup, the proxy also creates `~/.codex/skills/computer-use/SKILL.md` from the installed bundled Computer Use skill. Its bootstrap import is rewritten to the runtime's resolved absolute `computer-use-client.mjs` path. Existing user-owned skills at that path are preserved. No duplicate Computer Use MCP server is installed.
+
+Bundled-plugin compatibility facts live in a central registry so more identifier-to-discovery and bootstrap mappings can be added without one-off proxy logic. The proxy also recovers common malformed calls: registered plugin links become the correct deferred `tool_search`, dotted namespace calls become exact flattened names, and unambiguous bare tool names are qualified automatically. Ambiguous bare names are never guessed.
+
 ## How apply_patch Translation Works
 
 Codex may expose `apply_patch` as a custom/freeform tool. The proxy preserves the freeform custom tool behavior for Codex while making the surrounding tool list easier for local or custom Responses API providers to handle.
