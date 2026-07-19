@@ -199,6 +199,25 @@ function chooseImageModel(requested, configured, state = current) {
   return null;
 }
 
+function markImageModel(name, transport = 'openai_images') {
+  const modelName = String(name || '').trim();
+  if (!modelName) return null;
+  const existing = findModel(modelName);
+  const inferred = Object.assign({}, existing || {}, {
+    name: existing ? existing.name : modelName,
+    source: existing ? existing.source : 'provider_error',
+    imageGeneration: true,
+    textGeneration: false,
+    transport,
+  });
+  current = Object.assign({}, current, {
+    models: existing
+      ? current.models.map((model) => model === existing ? inferred : model)
+      : [...current.models, inferred],
+  });
+  return inferred;
+}
+
 function replaceSnapshot(state) {
   current = Object.assign({ source: 'test', complete: true, models: [], fetchedAt: Date.now(), upstream: '' }, state);
   pending = null;
@@ -208,6 +227,7 @@ module.exports = {
   chooseImageModel,
   discover,
   findModel,
+  markImageModel,
   ollamaNativeUrl,
   prewarm,
   recordFor,

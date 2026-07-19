@@ -1151,6 +1151,146 @@ test('automatic image generation uses /images/generations and returns to text ro
   fs.rmSync(imageOutputDir, { recursive: true, force: true });
 });
 
+test('provider-confirmed image model errors retry through image generation and cache the model', async () => {
+  const received = [];
+  const imageOutputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-image-fallback-'));
+  try {
+    await withProxy((req, res) => {
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        received.push({ url: req.url, body });
+        if (req.url === '/custom/responses') {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            error: { message: 'Image generation model does not support Responses chat; use the image generation endpoint.' },
+          }));
+          return;
+        }
+        assert.equal(req.url, '/custom/images/generations');
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          data: [{ b64_json: Buffer.from('fallback-image').toString('base64') }],
+        }));
+      });
+    }, async (proxyPort) => {
+      const first = await postJson(proxyPort, {
+        model: 'unclassified-image-model-a',
+        input: 'a watercolor fox in a pine forest',
+        tools: [],
+        stream: false,
+      });
+      assert.equal(first.statusCode, 200);
+      const firstBody = JSON.parse(first.body);
+      assert.equal(firstBody.output[0].type, 'image_generation_call');
+      assert.equal(fs.readFileSync(firstBody.output[0].saved_path, 'utf8'), 'fallback-image');
+      fs.rmSync(firstBody.output[0].saved_path, { force: true });
+
+      const second = await postJson(proxyPort, {
+        model: 'unclassified-image-model-a',
+        input: 'a charcoal owl on a branch',
+        tools: [],
+        stream: false,
+      });
+      assert.equal(second.statusCode, 200);
+      const secondBody = JSON.parse(second.body);
+      assert.equal(secondBody.output[0].type, 'image_generation_call');
+      fs.rmSync(secondBody.output[0].saved_path, { force: true });
+    }, [
+      'image_model = ""',
+      `image_output_dir = "${imageOutputDir}"`,
+      'auto_route_image = false',
+    ]);
+
+    assert.deepEqual(received.map((request) => request.url), [
+      '/custom/responses',
+      '/custom/images/generations',
+      '/custom/images/generations',
+    ]);
+    assert.equal(received[1].body.prompt, 'a watercolor fox in a pine forest');
+    assert.equal(received[2].body.prompt, 'a charcoal owl on a branch');
+  } finally {
+    fs.rmSync(imageOutputDir, { recursive: true, force: true });
+  }
+});
+
+test('streaming provider image-model errors retry through image generation', async () => {
+  const received = [];
+  const imageOutputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-stream-image-fallback-'));
+  try {
+    await withProxy((req, res) => {
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        received.push({ url: req.url, body });
+        if (req.url === '/custom/responses') {
+          res.writeHead(422, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            error: { message: 'Responses chat is not supported for this diffusion model.' },
+          }));
+          return;
+        }
+        assert.equal(req.url, '/custom/images/generations');
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          data: [{ b64_json: Buffer.from('stream-fallback-image').toString('base64') }],
+        }));
+      });
+    }, async (proxyPort) => {
+      const response = await postStream(proxyPort, {
+        model: 'unclassified-image-model-b',
+        input: 'a neon city reflected in rain',
+        tools: [],
+        stream: true,
+      });
+      assert.equal(response.statusCode, 200);
+      const events = parseSse(response.body);
+      assertSuccessfulTerminal(events);
+      const output = events.at(-1).data.response.output[0];
+      assert.equal(output.type, 'image_generation_call');
+      assert.equal(fs.readFileSync(output.saved_path, 'utf8'), 'stream-fallback-image');
+      fs.rmSync(output.saved_path, { force: true });
+    }, [
+      'image_model = ""',
+      `image_output_dir = "${imageOutputDir}"`,
+      'auto_route_image = false',
+    ]);
+    assert.deepEqual(received.map((request) => request.url), [
+      '/custom/responses',
+      '/custom/images/generations',
+    ]);
+  } finally {
+    fs.rmSync(imageOutputDir, { recursive: true, force: true });
+  }
+});
+
+test('ordinary provider errors never trigger image generation fallback', async () => {
+  const received = [];
+  await withProxy((req, res) => {
+    received.push(req.url);
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(429, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'rate limit exceeded' } }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'unclassified-image-model-c',
+      input: 'a simple landscape',
+      tools: [],
+      stream: false,
+    });
+    assert.equal(response.statusCode, 502);
+    assert.match(response.body, /rate limit exceeded/);
+  }, [
+    'image_model = ""',
+    'auto_route_image = false',
+  ]);
+  assert.deepEqual(received, ['/custom/responses']);
+});
+
 test('manual image model selection still uses the image generation endpoint', async () => {
   let request = null;
   await withProxy((req, res) => {

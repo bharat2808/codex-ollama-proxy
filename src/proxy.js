@@ -494,6 +494,46 @@ function getRoutingDecision(body) {
   return routingDecisions.get(body) || imageRouting.classifyImageRouting(body);
 }
 
+function upstreamResponseError(statusCode, raw) {
+  const error = new Error('upstream ' + statusCode + ': ' + String(raw || '').slice(0, 500));
+  error.statusCode = statusCode;
+  error.responseBody = String(raw || '');
+  return error;
+}
+
+function providerRejectedImageModelAsChat(error) {
+  const status = Number(error && error.statusCode);
+  if (status < 400 || status >= 500 || status === 401 || status === 403 || status === 429) return false;
+  const text = String((error && (error.responseBody || error.message)) || '').toLowerCase();
+  return [
+    /(?:image|diffusion)(?:[- ]generation)? model.{0,160}(?:does not support|not supported|cannot be used|only supports?|requires?).{0,100}(?:chat|responses?|image generation)/,
+    /(?:chat|responses?).{0,160}(?:not supported|unsupported|cannot be used).{0,100}(?:image|diffusion)/,
+    /(?:use|call|requires?).{0,40}(?:images\/generations|image generation endpoint)/,
+  ].some((pattern) => pattern.test(text));
+}
+
+async function retryChatAsImage(upstream, body, error) {
+  if (!body || !providerRejectedImageModelAsChat(error)) return null;
+  const model = String(body.model || '').trim();
+  const prompt = imageRouting.classifyImageRouting(body).userText;
+  if (!model || !prompt) return null;
+  const known = modelDiscovery.findModel(model);
+  const transport = known && known.transport ? known.transport : 'openai_images';
+  debugLog('provider identified model "' + model + '" as image-only; retrying with image generation');
+  const response = await imagine.runDirectImageGeneration(
+    upstream,
+    prompt,
+    Object.assign({}, ROUTE_CFG, {
+      image_model: model,
+      image_transport: transport,
+      image_routing_error: null,
+    }),
+    (...args) => debugLog(...args)
+  );
+  modelDiscovery.markImageModel(model, transport);
+  return response;
+}
+
 function translateRequestBody(body) {
   if (!body || typeof body !== 'object') return body;
   liftAdditionalToolsInput(body);
@@ -931,7 +971,7 @@ function postUpstreamStream(upstream, body, signal) {
       if (res.statusCode && res.statusCode >= 400) {
         let buf = '';
         res.on('data', (c) => { buf += c.toString('utf8'); });
-        res.on('end', () => reject(new Error('upstream ' + res.statusCode + ': ' + buf.slice(0, 500))));
+        res.on('end', () => reject(upstreamResponseError(res.statusCode, buf)));
         return;
       }
       resolve(res);
@@ -1347,6 +1387,23 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
         );
       } catch (e) {
         if (streamState.clientClosed) return;
+        if (loop === 0 && !streamState.created && options.imageFallback) {
+          try {
+            const fallback = await options.imageFallback(e);
+            if (fallback) {
+              ensureStreamLifecycle(clientRes, streamState, fallback);
+              const fallbackSeq = { index: 0, num: 0 };
+              for (const item of fallback.output || []) {
+                markers.emitOutputItem(clientRes, item, fallbackSeq);
+                completedItems.push(item);
+              }
+              completeStream(clientRes, streamState, { response: fallback }, completedItems);
+              return;
+            }
+          } catch (fallbackError) {
+            log('streaming loop: image fallback failed: ' + fallbackError.message);
+          }
+        }
         log('streaming loop: upstream failed: ' + e.message);
         failStream(clientRes, streamState, 'proxy upstream failed: ' + e.message, null, completedItems);
         return;
@@ -1598,6 +1655,7 @@ const server = http.createServer((clientReq, clientRes) => {
       await runStreamingLoop(upstream, body, clientRes, info, {
         log: (...a) => log(...a),
         interceptNames: ROUTE_CFG.stream_proxy_loop ? INTERCEPT_NAMES : new Set(),
+        imageFallback: (error) => retryChatAsImage(upstream, body, error),
       });
       return;
     }
@@ -1646,6 +1704,16 @@ const server = http.createServer((clientReq, clientRes) => {
         }
       } catch (e) {
         log('native web_search proxy loop failed: ' + e.message);
+        try {
+          const fallback = await retryChatAsImage(upstream, body, e);
+          if (fallback) {
+            if (originalStream) sendSseCompleted(clientRes, fallback);
+            else sendJsonResponse(clientRes, 200, fallback);
+            return;
+          }
+        } catch (fallbackError) {
+          log('image fallback failed: ' + fallbackError.message);
+        }
         if (webSearch.hasToolSearchTool(body)) {
           log('native web_search proxy loop failed with tool_search present; falling through to normal tool_search flow');
         } else {
@@ -1708,8 +1776,23 @@ const server = http.createServer((clientReq, clientRes) => {
       } else if (isResponses) {
         const chunks = [];
         upstreamRes.on('data', (chunk) => chunks.push(chunk));
-        upstreamRes.on('end', () => {
+        upstreamRes.on('end', async () => {
           const raw = Buffer.concat(chunks).toString('utf8');
+          if (upstreamRes.statusCode >= 400) {
+            try {
+              const fallback = await retryChatAsImage(
+                upstream,
+                body,
+                upstreamResponseError(upstreamRes.statusCode, raw)
+              );
+              if (fallback) {
+                sendJsonResponse(clientRes, 200, fallback);
+                return;
+              }
+            } catch (fallbackError) {
+              log('image fallback failed: ' + fallbackError.message);
+            }
+          }
           try {
             const response = JSON.parse(raw);
             translateFinalResponse(response, info);

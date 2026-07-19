@@ -74,7 +74,10 @@ function requestJson(upstream, body) {
           return;
         }
         const msg = parsed && parsed.error ? parsed.error : (data || res.statusMessage);
-        reject(new Error('HTTP ' + res.statusCode + ': ' + (typeof msg === 'object' ? JSON.stringify(msg) : msg)));
+        const error = new Error('HTTP ' + res.statusCode + ': ' + (typeof msg === 'object' ? JSON.stringify(msg) : msg));
+        error.statusCode = res.statusCode;
+        error.responseBody = data;
+        reject(error);
       });
     });
     req.on('error', reject);

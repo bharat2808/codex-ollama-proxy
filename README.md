@@ -88,6 +88,8 @@ codex-ollama-proxy route --image-model "IMAGE_MODEL" \
 
 For Ollama image models, the proxy forwards generation through Ollama's native `/api/generate` endpoint. OpenAI-compatible image providers continue to use `/v1/images/generations`.
 
+If a provider explicitly rejects a Codex Responses request because the selected model is image-only, the proxy retries the latest user prompt through image generation and remembers that model capability for later requests. Authentication, rate-limit, and ordinary chat errors are never rerouted.
+
 One model advertised as supporting both text and image generation can still be selected explicitly:
 
 ```bash
