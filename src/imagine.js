@@ -5,14 +5,13 @@
 // Self-fulfillment loop for the synthetic `generate_image` tool, mirroring the
 // pattern used by web_search.js and skill-find.js: the proxy injects a plain
 // `function` tool so the model can emit function_call{name:"generate_image"};
-// this loop fulfills those calls locally (via Gemini or OpenAI image API) and
+// this loop fulfills those calls locally (via Gemini, OpenAI, or Ollama) and
 // feeds the results back as function_call_output, then re-runs the model so it
 // can act on the saved image path. Prompt enhancement is done by sending the
-// prompt to the proxy's own Ollama text model with a Subject-Context-Style
+// prompt to the configured upstream text model with a Subject-Context-Style
 // system prompt. Reference images (image-to-image editing) are supported via
 // the inputImagePath parameter.
 
-const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -20,6 +19,8 @@ const upstreamLib = require('./upstream');
 
 const GENERATE_IMAGE = 'generate_image';
 const MAX_LOOPS = 4;
+const SUPPORTED_IMAGE_SERVICES = Object.freeze(['gemini', 'openai', 'ollama']);
+const DEFAULT_OLLAMA_IMAGE_BASE_URL = 'http://127.0.0.1:11434';
 
 // ── Synthetic function-tool definition ──────────────────────────────────────
 // Injected into body.tools exactly like WEB_SEARCH_FN and FIND_SKILL_FN.
@@ -154,17 +155,17 @@ function postResponses(upstream, body) {
   return upstreamLib.requestJson(upstream, body);
 }
 
-function httpsRequest(url, options, bodyBuf) {
+function httpRequest(url, options, bodyBuf) {
   return new Promise((resolve, reject) => {
-    const u = new URL(url);
+    const u = url instanceof URL ? url : new URL(url);
     const reqOpts = {
       hostname: u.hostname,
-      port: u.port || 443,
+      port: u.port || undefined,
       path: u.pathname + u.search,
       method: options.method || 'POST',
       headers: options.headers || {},
     };
-    const req = https.request(reqOpts, (res) => {
+    const req = upstreamLib.transport(u).request(reqOpts, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -194,7 +195,7 @@ function extractTextFromResponse(response) {
   return null;
 }
 
-// ── Prompt enhancement via Ollama text model ────────────────────────────────
+// ── Prompt enhancement via the configured upstream text model ──────────────
 async function enhancePrompt(upstream, userPrompt, config, systemPrompt, inputImageBase64, inputImageMime) {
   try {
     const body = {
@@ -271,7 +272,7 @@ async function generateGeminiImage(prompt, options, log) {
   const generationConfig = buildGeminiGenerationConfig(options);
 
   const body = JSON.stringify({ contents, generationConfig });
-  const res = await httpsRequest(url, {
+  const res = await httpRequest(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -362,7 +363,7 @@ async function generateOpenAIImage(prompt, options, log) {
     parts.push(Buffer.from('--' + boundary + '--\r\n'));
 
     const bodyBuf = Buffer.concat(parts);
-    const res = await httpsRequest('https://api.openai.com/v1/images/edits', {
+    const res = await httpRequest('https://api.openai.com/v1/images/edits', {
       method: 'POST',
       headers: {
         'authorization': 'Bearer ' + apiKey,
@@ -381,7 +382,7 @@ async function generateOpenAIImage(prompt, options, log) {
       size: size,
       quality: quality,
     });
-    const res = await httpsRequest('https://api.openai.com/v1/images/generations', {
+    const res = await httpRequest('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       headers: {
         'authorization': 'Bearer ' + apiKey,
@@ -411,7 +412,7 @@ async function parseOpenAIImageResponse(res, model, prompt, inputImageProvided, 
     imageBuffer = Buffer.from(firstImage.b64_json, 'base64');
   } else if (firstImage.url) {
     // Download the image from the URL
-    const downloadRes = await httpsRequest(firstImage.url, { method: 'GET' });
+    const downloadRes = await httpRequest(firstImage.url, { method: 'GET' });
     if (downloadRes.statusCode !== 200) {
       throw new Error('OpenAI API: failed to download image from URL (' + downloadRes.statusCode + ')');
     }
@@ -435,13 +436,88 @@ async function parseOpenAIImageResponse(res, model, prompt, inputImageProvided, 
   };
 }
 
+function aspectRatioDimensions(aspectRatio) {
+  switch (aspectRatio) {
+    case '16:9': return { width: 1344, height: 768 };
+    case '9:16': return { width: 768, height: 1344 };
+    case '4:3': return { width: 1024, height: 768 };
+    case '3:4': return { width: 768, height: 1024 };
+    default: return { width: 1024, height: 1024 };
+  }
+}
+
+function ollamaApiUrl(baseUrl, apiPath) {
+  const url = new URL(String(baseUrl || DEFAULT_OLLAMA_IMAGE_BASE_URL));
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('imagine_base_url must use http or https');
+  }
+  const basePath = url.pathname.replace(/\/+$/u, '');
+  const prefix = /\/v1$/u.test(basePath) ? basePath.slice(0, -3) : basePath;
+  url.pathname = prefix + '/' + String(apiPath || '').replace(/^\/+/, '');
+  url.search = '';
+  url.hash = '';
+  return url;
+}
+
+// Ollama image generation through its native, experimental /api/generate API.
+async function generateOllamaImage(prompt, options, log) {
+  const model = String(options.model || '').trim();
+  if (!model) throw new Error('imagine_model is required for the Ollama image backend');
+
+  const dimensions = aspectRatioDimensions(options.aspectRatio);
+  const payload = {
+    model,
+    prompt,
+    width: dimensions.width,
+    height: dimensions.height,
+    stream: false,
+  };
+  if (options.inputImage) payload.images = [options.inputImage];
+
+  const body = Buffer.from(JSON.stringify(payload));
+  const headers = {
+    'content-type': 'application/json',
+    'content-length': body.length,
+  };
+  if (options.apiKey) headers.authorization = 'Bearer ' + options.apiKey;
+  const res = await httpRequest(ollamaApiUrl(options.baseUrl, '/api/generate'), {
+    method: 'POST',
+    headers,
+  }, body);
+
+  if (res.statusCode !== 200) {
+    const error = res.json && res.json.error ? res.json.error : res.body.toString('utf8').slice(0, 500);
+    throw new Error('Ollama API error (' + res.statusCode + '): ' + error);
+  }
+  const encoded = res.json && (res.json.image || (Array.isArray(res.json.images) && res.json.images[0]));
+  if (!encoded) throw new Error('Ollama API: no image data in response');
+  const imageBuffer = Buffer.from(encoded, 'base64');
+  if (imageBuffer.length === 0) throw new Error('Ollama API: returned empty image data');
+
+  log('ollama: generated ' + imageBuffer.length + ' bytes (png) with model ' + model);
+  return {
+    imageData: imageBuffer,
+    metadata: {
+      model,
+      prompt,
+      mimeType: 'image/png',
+      timestamp: new Date(),
+      inputImageProvided: !!options.inputImage,
+    },
+  };
+}
+
 // ── Backend dispatcher ───────────────────────────────────────────────────────
 async function callImageBackend(prompt, options, log) {
   const service = options.service || 'gemini';
-  if (service === 'openai') {
-    return generateOpenAIImage(prompt, options, log);
+  switch (service) {
+    case 'gemini': return generateGeminiImage(prompt, options, log);
+    case 'openai': return generateOpenAIImage(prompt, options, log);
+    case 'ollama': return generateOllamaImage(prompt, options, log);
+    default:
+      throw new Error('Unsupported imagine_service "' + service + '" (expected ' +
+        SUPPORTED_IMAGE_SERVICES.join(', ') + ')');
   }
-  return generateGeminiImage(prompt, options, log);
 }
 
 // ── Fulfill one generate_image call ─────────────────────────────────────────
@@ -491,6 +567,7 @@ async function fulfillGenerateImage(call, upstream, config, log) {
     result = await callImageBackend(enhancedPrompt, {
       service: config.imagine_service || 'gemini',
       model: config.imagine_model || '',
+      baseUrl: config.imagine_base_url || '',
       apiKey: config.imagine_api_key || '',
       quality: args.quality || config.imagine_quality || 'fast',
       aspectRatio: args.aspectRatio || config.imagine_aspect_ratio || '1:1',
@@ -597,7 +674,7 @@ async function checkHealth(config) {
     } else {
       try {
         const url = 'https://generativelanguage.googleapis.com/v1beta/models?key=' + key;
-        const res = await httpsRequest(url, { method: 'GET' });
+        const res = await httpRequest(url, { method: 'GET' });
         if (res.statusCode === 200) {
           results.gemini = { ready: true, models: (res.json.models || []).length };
         } else {
@@ -613,7 +690,7 @@ async function checkHealth(config) {
       results.openai = { ready: false, error: 'OPENAI_API_KEY not set' };
     } else {
       try {
-        const res = await httpsRequest('https://api.openai.com/v1/models', {
+        const res = await httpRequest('https://api.openai.com/v1/models', {
           method: 'GET',
           headers: { 'authorization': 'Bearer ' + key },
         });
@@ -626,6 +703,35 @@ async function checkHealth(config) {
         results.openai = { ready: false, error: e.message };
       }
     }
+  } else if (service === 'ollama') {
+    const model = String(config.imagine_model || '').trim();
+    if (!model) {
+      results.ollama = { ready: false, error: 'imagine_model is not configured' };
+    } else {
+      try {
+        const headers = apiKey ? { authorization: 'Bearer ' + apiKey } : {};
+        const res = await httpRequest(ollamaApiUrl(config.imagine_base_url, '/api/tags'), {
+          method: 'GET',
+          headers,
+        });
+        if (res.statusCode !== 200) {
+          results.ollama = { ready: false, error: 'HTTP ' + res.statusCode };
+        } else {
+          const models = res.json && Array.isArray(res.json.models) ? res.json.models : [];
+          const available = models.map((entry) => String(entry && (entry.name || entry.model) || ''));
+          const matches = available.some((name) =>
+            name === model || name === model + ':latest' || name + ':latest' === model
+          );
+          results.ollama = matches
+            ? { ready: true, models: available.length }
+            : { ready: false, error: 'model not found: ' + model };
+        }
+      } catch (e) {
+        results.ollama = { ready: false, error: e.message };
+      }
+    }
+  } else {
+    results[service] = { ready: false, error: 'unsupported image service' };
   }
 
   return results;
@@ -666,9 +772,10 @@ function findProxyStatusCalls(response) {
 }
 
 function fulfillProxyStatus(call, config, log) {
+  const imagineService = config.imagine_service || 'gemini';
   const maskedKey = config.imagine_api_key
     ? 'set (' + config.imagine_api_key.slice(0, 4) + '...)'
-    : 'not set (will use env var if available)';
+    : (imagineService === 'ollama' ? 'not set' : 'not set (will use env var if available)');
 
   const status = {
     current_config: {
@@ -680,8 +787,10 @@ function fulfillProxyStatus(call, config, log) {
       enable_find_skill: config.enable_find_skill || false,
       stream_proxy_loop: config.stream_proxy_loop !== false,
       imagine_enabled: config.imagine_enabled || false,
-      imagine_service: config.imagine_service || 'gemini',
-      imagine_model: config.imagine_model || '(provider default)',
+      imagine_service: imagineService,
+      imagine_model: config.imagine_model || (imagineService === 'ollama' ? '(required)' : '(provider default)'),
+      imagine_base_url: config.imagine_base_url || (imagineService === 'ollama'
+        ? DEFAULT_OLLAMA_IMAGE_BASE_URL : null),
       imagine_api_key: maskedKey,
       imagine_quality: config.imagine_quality || 'fast',
       imagine_enhance: config.imagine_enhance || false,
@@ -698,7 +807,7 @@ function fulfillProxyStatus(call, config, log) {
       install: 'codex-ollama-proxy install',
       uninstall: 'codex-ollama-proxy uninstall',
       restart: 'codex-ollama-proxy restart',
-      imagine_enable: 'codex-ollama-proxy imagine --enable --service gemini|openai --model MODEL --api-key "KEY"',
+      imagine_enable: 'codex-ollama-proxy imagine --enable --service gemini|openai|ollama --model MODEL [--base-url URL] [--api-key "KEY"]',
       imagine_disable: 'codex-ollama-proxy imagine --disable',
       imagine_quality: 'codex-ollama-proxy imagine --quality fast|balanced|quality',
       imagine_enhance: 'codex-ollama-proxy imagine --enhance',
@@ -719,6 +828,7 @@ function fulfillProxyStatus(call, config, log) {
 }
 
 module.exports = {
+  SUPPORTED_IMAGE_SERVICES,
   GENERATE_IMAGE,
   GENERATE_IMAGE_FN,
   hasGenerateImageTool,
@@ -728,6 +838,9 @@ module.exports = {
   checkHealth,
   validateInputImagePath,
   buildGeminiGenerationConfig,
+  aspectRatioDimensions,
+  generateOllamaImage,
+  ollamaApiUrl,
   PROXY_STATUS,
   PROXY_STATUS_FN,
   hasProxyStatusTool,

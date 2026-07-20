@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added an explicit Ollama backend to the existing `generate_image` tool, using native `/api/generate` without prompt classification or chat rerouting.
+- Kept Gemini and OpenAI image generation unchanged, and added an independent Ollama base URL so any supported Responses provider can remain configured for text.
+
 ## 0.3.3
 
 - Fixed newer Codex/Desktop `tool_search` exposure where the tool arrives as a native `type: "tool_search"` managed tool instead of a plain function definition.

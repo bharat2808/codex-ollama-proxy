@@ -79,6 +79,31 @@ codex-ollama-proxy switch ollama --model "MODEL"
 
 After switching, restart Codex or open a fresh thread.
 
+## Generate Images With Gemini, OpenAI, or Ollama
+
+Image generation uses the existing model-driven `generate_image` tool. The
+proxy does not classify prompt text or reroute ordinary chat requests.
+
+Use Ollama's native image endpoint while keeping any supported Responses API
+provider for text:
+
+```bash
+codex-ollama-proxy imagine --enable --service ollama \
+  --model "x/z-image-turbo" --base-url "http://127.0.0.1:11434"
+codex-ollama-proxy imagine --doctor
+codex-ollama-proxy restart
+```
+
+Gemini and OpenAI remain available through the same tool:
+
+```bash
+codex-ollama-proxy imagine --enable --service gemini --model "GEMINI_IMAGE_MODEL" --api-key "KEY"
+codex-ollama-proxy imagine --enable --service openai --model "gpt-image-2" --api-key "KEY"
+```
+
+Ollama image generation uses its experimental `/api/generate` image support.
+The configured model determines whether reference-image editing is supported.
+
 ## Fix MCP Unsupported Call Errors In Codex
 
 Codex app plugins and MCP tools can arrive as namespace tools or dynamically loaded tools. Local/custom providers often cannot invoke those shapes directly. The proxy rewrites those tools into ordinary function tools for the model, then restores the calls for Codex.
@@ -120,6 +145,9 @@ Codex may expose `apply_patch` as a custom/freeform tool. The proxy preserves th
 - Ollama-compatible Responses API servers
 - OpenRouter or other custom providers that expose a compatible Responses API
 - Local shims that accept `POST /v1/responses`
+
+The `generate_image` tool supports Gemini, OpenAI, and Ollama independently of
+the selected Responses API provider.
 
 Chat Completions-only providers are not supported by upstream URL configuration alone.
 

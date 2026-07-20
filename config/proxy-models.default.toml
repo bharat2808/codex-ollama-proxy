@@ -64,7 +64,7 @@ stream_proxy_loop = true
 # When true, the proxy injects a synthetic `generate_image` function tool into
 # every /v1/responses request. The model can call generate_image{prompt,
 # inputImagePath, aspectRatio, quality} and the proxy fulfills it locally by
-# calling a cloud image generation API (Gemini or OpenAI). The generated image
+# calling the configured image backend (Gemini, OpenAI, or Ollama). The image
 # is saved to a temp file and the path is returned to the model as tool output.
 # Works the same way as web_search and find_skill — no MCP server or separate
 # process needed. Set to false to disable image generation entirely.
@@ -73,20 +73,28 @@ imagine_enabled = false
 # Which image generation backend to use:
 #   "gemini" — Google Gemini (Nano Banana 2 / Pro). Requires GEMINI_API_KEY.
 #   "openai"  — OpenAI GPT Image 2. Requires OPENAI_API_KEY.
+#   "ollama"  — Ollama's native /api/generate image endpoint.
 imagine_service = "gemini"
 
 # Default model for the selected backend. Must match the provider — do not mix
-# a Gemini model with imagine_service = "openai" or vice versa. If empty, the
-# provider's built-in default is used (quality-dependent for Gemini, gpt-image-2 for OpenAI).
+# models between services. Ollama requires an explicit model. If empty, Gemini
+# and OpenAI use their provider defaults.
 # Update together with imagine_service: --service and --model must always be set as a pair.
 imagine_model = ""
 
-# API key for the selected backend. If empty, falls back to the corresponding
-# environment variable (GEMINI_API_KEY or OPENAI_API_KEY).
+# Base URL for the Ollama image backend. This is independent of upstream_url,
+# so image generation can remain local while text requests use OpenRouter or
+# another supported Responses provider. A trailing /v1 is accepted and removed
+# before calling /api/generate. Ignored by Gemini and OpenAI.
+imagine_base_url = "http://127.0.0.1:11434"
+
+# API key for the selected backend. Gemini and OpenAI fall back to their
+# corresponding environment variables. Ollama sends a bearer token only when
+# this value is configured; local Ollama normally leaves it empty.
 imagine_api_key = ""
 
 # Quality preset: "fast" (quick drafts), "balanced" (medium), "quality" (best).
-# Maps to backend-specific settings (Gemini model selection, OpenAI quality).
+# Maps to Gemini/OpenAI settings. Ollama currently uses the model's defaults.
 imagine_quality = "fast"
 
 # When true, the proxy enhances the prompt before sending it to the image
