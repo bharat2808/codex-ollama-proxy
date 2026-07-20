@@ -111,6 +111,11 @@ function loadRouteConfig() {
   return cfg;
 }
 
+function defaultOllamaModel() {
+  const routeCfg = loadRouteConfig();
+  return routeCfg.text_model || DEFAULT_OLLAMA_MODEL;
+}
+
 function forceImageCapabilityForRouteModel(catalog) {
   const routeCfg = loadRouteConfig();
   if (!routeCfg.auto_route_image || !routeCfg.text_model) {
@@ -583,7 +588,7 @@ async function main() {
   console.log('');
 
   const backup = args.noBackup ? null : makeBackup(args.mode);
-  const newText = normalizeOllama(text, args.model || DEFAULT_OLLAMA_MODEL);
+  const newText = normalizeOllama(text, args.model || defaultOllamaModel());
   writeText(CONFIG, newText);
   console.log(`switched=${args.mode}`);
   if (backup) console.log(`backup=${backup}`);

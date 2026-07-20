@@ -1,0 +1,8 @@
+# codex-ollama-proxy preset
+adaptor = "chat-completion"
+upstream_url = "https://integrate.api.nvidia.com/v1"
+upstream_api_key = "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"
+text_model = "z-ai/glm-5.2"
+image_model = "thinkingmachines/inkling"
+auto_route_image = true
+imagine_enabled = true

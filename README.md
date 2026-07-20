@@ -58,7 +58,8 @@ The upstream must expose a compatible Responses API. Chat Completions-only APIs 
 
 For providers that expose `/v1/chat/completions` but not `/v1/responses`, keep
 using the normal upstream configuration and start the built-in completion API
-adaptor:
+adaptor. Configure the chat-completion route after any `switch ollama` command,
+because `switch ollama` resets the route back to local Ollama defaults.
 
 ```bash
 codex-ollama-proxy upstream --url "https://provider.example/v1" --api-key "KEY"
@@ -70,10 +71,46 @@ The proxy starts a local adaptor and forwards Codex traffic through it. The
 provider URL and key come from the existing `upstream` config, so there is no
 separate API-key path for the adaptor.
 
+You can save provider routes as presets:
+
+```bash
+codex-ollama-proxy preset add nvidia \
+  --adaptor chat-completion \
+  --url "https://integrate.api.nvidia.com/v1" \
+  --text-model "z-ai/glm-5.2" \
+  --image-model "thinkingmachines/inkling" \
+  --auto-image \
+  --imagine-enable
+
+codex-ollama-proxy preset use nvidia --api-key "$NVIDIA_API_KEY"
+codex-ollama-proxy serve --adaptor chat-completion
+```
+
+To store the key in the preset as well, pass it when creating the preset:
+
+```bash
+codex-ollama-proxy preset add nvidia \
+  --adaptor chat-completion \
+  --url "https://integrate.api.nvidia.com/v1" \
+  --text-model "z-ai/glm-5.2" \
+  --image-model "thinkingmachines/inkling" \
+  --auto-image \
+  --imagine-enable \
+  --api-key "$NVIDIA_API_KEY"
+
+codex-ollama-proxy run nvidia
+```
+
+`run` starts the proxy stack in the background, waits briefly for the local
+proxy to respond, prints the PID and log path, and returns the terminal prompt.
+Use `--foreground` when you want live server logs in the current terminal.
+
 NVIDIA example:
 
 ```bash
 export NVIDIA_API_KEY="nvapi-..."
+
+codex-ollama-proxy switch ollama --model "z-ai/glm-5.2"
 
 codex-ollama-proxy upstream \
   --url "https://integrate.api.nvidia.com/v1" \

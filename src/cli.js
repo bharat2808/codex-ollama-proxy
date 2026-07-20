@@ -4,7 +4,8 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const presets = require('./presets');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
@@ -22,7 +23,13 @@ function usage() {
   console.log(`Usage:
   codex-ollama-proxy init [--force]
   codex-ollama-proxy serve [--adaptor chat-completion]
+  codex-ollama-proxy serve --preset NAME [--api-key KEY] [--replace]
   codex-ollama-proxy serve --adaptor chat-completion [--completion-model MODEL] [--adaptor-port PORT]
+  codex-ollama-proxy preset add NAME --adaptor chat-completion --url URL --text-model MODEL [--image-model MODEL] [--auto-image|--no-auto-image] [--imagine-enable|--imagine-disable]
+  codex-ollama-proxy preset list
+  codex-ollama-proxy preset show NAME
+  codex-ollama-proxy preset use NAME [--api-key KEY]
+  codex-ollama-proxy run NAME [--api-key KEY] [--adaptor-port PORT] [--replace] [--foreground]
   codex-ollama-proxy status
   codex-ollama-proxy switch openai
   codex-ollama-proxy switch ollama [--model MODEL]
@@ -68,6 +75,14 @@ function bootstrapLaunchAgent() {
   process.exit(lastResult?.status ?? 1);
 }
 
+function bootoutLaunchAgent() {
+  const result = spawnSync('launchctl', ['bootout', `gui/${process.getuid()}/${LABEL}`], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return result.status === 0;
+}
+
 function parseFlags(argv) {
   const flags = {};
   const rest = [];
@@ -80,7 +95,7 @@ function parseFlags(argv) {
     const eq = arg.indexOf('=');
     const key = (eq >= 0 ? arg.slice(2, eq) : arg.slice(2)).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     if (eq >= 0) flags[key] = arg.slice(eq + 1);
-    else if (['force', 'auto-image', 'no-auto-image', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'status'].includes(arg.slice(2))) flags[key] = true;
+    else if (['force', 'auto-image', 'no-auto-image', 'imagine-enable', 'imagine-disable', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'status', 'no-refresh', 'no-backup', 'replace', 'foreground'].includes(arg.slice(2))) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { flags, rest };
@@ -107,8 +122,8 @@ function init(options = {}) {
 // Redact secret values in a TOML string so status() never leaks API keys.
 function redactSecrets(text) {
   return text
-    .replace(/^(\s*imagine_api_key\s*=\s*").*(".*)$/m, '$1***$2')
-    .replace(/^(\s*upstream_api_key\s*=\s*").*(".*)$/m, '$1***$2');
+    .replace(/^(\s*imagine_api_key\s*=\s*")([^"]*)(".*)$/m, (_m, a, value, b) => `${a}${value ? '***' : ''}${b}`)
+    .replace(/^(\s*upstream_api_key\s*=\s*")([^"]*)(".*)$/m, (_m, a, value, b) => `${a}${value ? '***' : ''}${b}`);
 }
 
 function readRouteConfig() {
@@ -128,6 +143,59 @@ function writeRouteValue(text, key, value) {
   const pattern = new RegExp(`^(\\s*${key}\\s*=\\s*)(?:\"[^\"]*\"|true|false).*`, 'm');
   if (pattern.test(text)) return text.replace(pattern, `$1${rendered}`);
   return `${text.replace(/\s+$/u, '')}\n${key} = ${rendered}\n`;
+}
+
+function applyPreset(name, flags = {}) {
+  const preset = presets.readPreset(RUNTIME_DIR, name);
+  switchMode('ollama', {
+    model: preset.text_model,
+    noRefresh: flags.noRefresh,
+    noBackup: flags.noBackup,
+  });
+  let text = readRouteConfig();
+  text = writeRouteValue(text, 'upstream_url', preset.upstream_url);
+  const apiKey = flags.apiKey !== undefined ? flags.apiKey : preset.upstream_api_key;
+  if (flags.apiKey === '') {
+    die('Error: --api-key was passed but empty. Check your shell variable with: echo ${NVIDIA_API_KEY:+set}');
+  }
+  if (apiKey !== undefined) {
+    text = writeRouteValue(text, 'upstream_api_key', apiKey || '');
+  }
+  text = writeRouteValue(text, 'text_model', preset.text_model);
+  text = writeRouteValue(text, 'image_model', preset.image_model);
+  text = writeRouteValue(text, 'auto_route_image', Boolean(preset.auto_route_image));
+  if (preset.imagine_enabled !== undefined) {
+    text = writeRouteValue(text, 'imagine_enabled', Boolean(preset.imagine_enabled));
+  }
+  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  console.log(`preset_applied=${name}`);
+  console.log(`updated=${ROUTE_CONFIG}`);
+  console.log(`adaptor=${preset.adaptor}`);
+  if (flags.apiKey !== '') console.log(`api_key=${apiKey ? 'set' : 'unchanged_or_empty'}`);
+  return preset;
+}
+
+function presetCmd(subcommand, argv) {
+  if (!subcommand || subcommand === '-h' || subcommand === '--help') return usage();
+  if (subcommand === 'list') return presets.listPresets(RUNTIME_DIR, console.log);
+  const [name, ...tail] = argv;
+  if (!name) die(`Error: preset ${subcommand} requires a name.`);
+  const { flags } = parseFlags(tail);
+  if (subcommand === 'add') return presets.addPreset(RUNTIME_DIR, name, flags, console.log);
+  if (subcommand === 'show') return presets.showPreset(RUNTIME_DIR, name, console.log);
+  if (subcommand === 'use') return applyPreset(name, flags);
+  die('Error: preset command must be add, list, show, or use.');
+}
+
+function resetRouteForOllama(flags = {}) {
+  fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+  let text = fs.readFileSync(DEFAULT_ROUTE_CONFIG, 'utf8');
+  if (flags.model) {
+    text = writeRouteValue(text, 'text_model', flags.model);
+    text = writeRouteValue(text, 'image_model', flags.model);
+  }
+  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  console.log(`route_reset=ollama (${ROUTE_CONFIG})`);
 }
 
 function route(flags) {
@@ -180,8 +248,11 @@ function switchMode(mode, flags) {
   }
   if (mode !== 'ollama') die('switch mode must be "openai" or "ollama"');
   init();
+  resetRouteForOllama(flags);
   const args = ['ollama'];
   if (flags.model) args.push('--model', flags.model);
+  if (flags.noRefresh) args.push('--no-refresh');
+  if (flags.noBackup) args.push('--no-backup');
   codexConfig(args);
   console.log('Restart Codex or open a fresh thread so provider discovery reloads.');
 }
@@ -226,11 +297,90 @@ function probeJson(port, requestPath, timeoutMs = 750) {
   });
 }
 
+function listeningPids(port) {
+  const result = spawnSync('lsof', ['-nP', '-tiTCP:' + port, '-sTCP:LISTEN'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (result.status !== 0 && !result.stdout) return [];
+  return result.stdout.split(/\s+/u).filter(Boolean);
+}
+
+function describePortOwner(port) {
+  const result = spawnSync('lsof', ['-nP', '-iTCP:' + port, '-sTCP:LISTEN'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  return result.stdout ? result.stdout.trim() : '';
+}
+
+function stopListeningPort(port) {
+  const pids = listeningPids(port).filter((pid) => pid !== String(process.pid));
+  if (pids.length === 0) return true;
+  for (const pid of pids) {
+    try {
+      process.kill(Number(pid), 'SIGTERM');
+    } catch {}
+  }
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    if (listeningPids(port).filter((pid) => pid !== String(process.pid)).length === 0) return true;
+    sleepMs(100);
+  }
+  for (const pid of pids) {
+    try {
+      process.kill(Number(pid), 'SIGKILL');
+    } catch {}
+  }
+  sleepMs(100);
+  return listeningPids(port).filter((pid) => pid !== String(process.pid)).length === 0;
+}
+
 function isHealthyProxyModelsResponse(probe) {
   if (!probe || probe.statusCode < 200 || probe.statusCode >= 500 || !probe.body) return false;
   if (probe.body.object === 'list' && Array.isArray(probe.body.data)) return true;
   if (Array.isArray(probe.body.models) || Array.isArray(probe.body.data)) return true;
   return false;
+}
+
+async function ensureProxyCanStart(flags, proxyPort) {
+  const existingProxy = await probeJson(proxyPort, '/v1/models');
+  if (isHealthyProxyModelsResponse(existingProxy)) {
+    if (flags.replace) {
+      console.log(`replace=stopping_existing_listener port=${proxyPort}`);
+      if (bootoutLaunchAgent()) console.log(`replace=stopped_launch_agent ${LABEL}`);
+      if (!stopListeningPort(proxyPort)) die(`Error: could not stop existing listener on 127.0.0.1:${proxyPort}.`);
+      return true;
+    }
+    console.log(`already_running=http://127.0.0.1:${proxyPort}`);
+    console.log('Use `codex-ollama-proxy status` to inspect it, or stop the existing process before restarting.');
+    return false;
+  }
+  const occupiedPids = listeningPids(proxyPort);
+  if (existingProxy.statusCode > 0 || occupiedPids.length > 0) {
+    if (flags.replace) {
+      console.log(`replace=stopping_existing_listener port=${proxyPort}`);
+      if (bootoutLaunchAgent()) console.log(`replace=stopped_launch_agent ${LABEL}`);
+      if (!stopListeningPort(proxyPort)) die(`Error: could not stop existing listener on 127.0.0.1:${proxyPort}.`);
+      return true;
+    }
+    console.log(`already_running_unhealthy=http://127.0.0.1:${proxyPort} status=${existingProxy.statusCode || 'unknown'}`);
+    const owner = describePortOwner(proxyPort);
+    if (owner) console.log(owner);
+    console.log('Run again with --replace to stop that listener and start this preset, or stop it yourself first.');
+    return false;
+  }
+  return true;
+}
+
+async function waitForProxyResponse(port, timeoutMs = 6000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const probe = await probeJson(port, '/v1/models', 500);
+    if (probe.statusCode > 0) return probe;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return { statusCode: 0, body: null, raw: '', error: 'timeout' };
 }
 
 function renderPlist() {
@@ -253,7 +403,7 @@ function install() {
 }
 
 function uninstall() {
-  run('launchctl', ['bootout', `gui/${process.getuid()}/${LABEL}`], { check: false });
+  bootoutLaunchAgent();
   if (fs.existsSync(PLIST)) fs.unlinkSync(PLIST);
   console.log(`removed=${PLIST}`);
 }
@@ -264,14 +414,13 @@ function logs(flags) {
 }
 
 async function serveCmd(flags = {}) {
+  if (flags.preset) {
+    const preset = applyPreset(flags.preset, flags);
+    flags = Object.assign({}, flags, { adaptor: preset.adaptor });
+  }
   if (!process.env.PROXY_PORT) process.env.PROXY_PORT = PROXY_PORT;
   const proxyPort = parseInt(process.env.PROXY_PORT || PROXY_PORT, 10);
-  const existingProxy = await probeJson(proxyPort, '/v1/models');
-  if (isHealthyProxyModelsResponse(existingProxy)) {
-    console.log(`already_running=http://127.0.0.1:${proxyPort}`);
-    console.log('Use `codex-ollama-proxy status` to inspect it, or stop the existing process before restarting.');
-    return null;
-  }
+  if (!await ensureProxyCanStart(flags, proxyPort)) return null;
   if (!flags.adaptor) return require('./proxy').startServer();
   if (flags.adaptor !== 'chat-completion') {
     die('Error: --adaptor must be "chat-completion".');
@@ -321,6 +470,52 @@ async function serveCmd(flags = {}) {
   return proxyServer;
 }
 
+async function runPreset(name, flags = {}) {
+  if (!name) die('Error: run requires a preset name.');
+  const preset = applyPreset(name, flags);
+  if (flags.foreground) return serveCmd(Object.assign({}, flags, { adaptor: preset.adaptor }));
+
+  if (!process.env.PROXY_PORT) process.env.PROXY_PORT = PROXY_PORT;
+  const proxyPort = parseInt(process.env.PROXY_PORT || PROXY_PORT, 10);
+  if (!await ensureProxyCanStart(flags, proxyPort)) return null;
+
+  fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+  const logPath = path.join(RUNTIME_DIR, 'proxy.log');
+  const out = fs.openSync(logPath, 'a');
+  const err = fs.openSync(logPath, 'a');
+  const args = [
+    path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'),
+    'serve',
+    '--adaptor',
+    preset.adaptor,
+  ];
+  if (flags.adaptorPort) args.push('--adaptor-port', String(flags.adaptorPort));
+  if (flags.completionModel) args.push('--completion-model', String(flags.completionModel));
+
+  const child = spawn(process.execPath, args, {
+    cwd: process.cwd(),
+    detached: true,
+    env: Object.assign({}, process.env, { PROXY_PORT: String(proxyPort) }),
+    stdio: ['ignore', out, err],
+  });
+  child.unref();
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  if (child.exitCode !== null) {
+    die(`Error: preset server exited during startup. Check logs: codex-ollama-proxy logs --tail 100`);
+  }
+  const probe = await waitForProxyResponse(proxyPort);
+  if (probe.statusCode === 0) {
+    console.log(`started_pid=${child.pid}`);
+    console.log(`proxy=http://127.0.0.1:${proxyPort} status=starting`);
+    console.log(`logs=${logPath}`);
+    return child;
+  }
+  console.log(`started_pid=${child.pid}`);
+  console.log(`proxy=http://127.0.0.1:${proxyPort} status=${probe.statusCode}`);
+  console.log(`logs=${logPath}`);
+  return child;
+}
 
 function imagineCmd(flags) {
   if (flags.doctor) {
@@ -390,6 +585,8 @@ async function main() {
   if (!command || command === '-h' || command === '--help') return usage();
   if (command === 'init') return init(parseFlags(process.argv.slice(3)).flags);
   if (command === 'serve') return await serveCmd(parseFlags(process.argv.slice(2)).flags);
+  if (command === 'preset') return presetCmd(subcommand, tail);
+  if (command === 'run') return await runPreset(subcommand, parsed.flags);
   if (command === 'status') return status();
   if (command === 'switch') return switchMode(subcommand, parsed.flags);
   if (command === 'route') return route(parseFlags(process.argv.slice(2)).flags);

@@ -50,7 +50,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "check": "node --check src/cli.js && node --check src/proxy.js && node --check src/codex-config.js && node --check adaptor/completion-api-adaptor.js",
+    "check": "node --check src/cli.js && node --check src/proxy.js && node --check src/codex-config.js && node --check src/presets.js && node --check adaptor/completion-api-adaptor.js",
     "smoke": "scripts/smoke-test.sh"
   },
   "engines": {
