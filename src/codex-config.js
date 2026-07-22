@@ -274,11 +274,12 @@ function ensureOllamaProviderTable(text) {
   if (!exists(OLLAMA_REFERENCE)) {
     const blocks = tableBlocks(text);
     if (Object.prototype.hasOwnProperty.call(blocks, OLLAMA_PROVIDER_HEADER)) return text;
-    return `${text.replace(/\s+$/u, '')}\n\n${OLLAMA_PROVIDER_HEADER}\nname = "Ollama"\nbase_url = "http://127.0.0.1:11434/v1/"\nwire_api = "responses"\n`;
+    return `${text.replace(/\s+$/u, '')}\n\n${OLLAMA_PROVIDER_HEADER}\nname = "Ollama"\nbase_url = "http://127.0.0.1:11434/v1/"\nwire_api = "responses"\nrequires_openai_auth = true\n`;
   }
   const referenceText = readText(OLLAMA_REFERENCE);
   const { providerHeaders } = referenceHeaders(referenceText);
-  return ensureReferenceTables(text, referenceText, providerHeaders);
+  let result = ensureReferenceTables(text, referenceText, providerHeaders);
+  return ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'requires_openai_auth', 'true');
 }
 
 function normalizeOllama(text, model) {
@@ -295,7 +296,7 @@ function normalizeOllama(text, model) {
   lines = replaceOrInsert(lines, 'model_catalog_json', `"${MODEL_CATALOG}"`);
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');
   normalized = ensureStorefrontPluginTables(normalized);
-  normalized = ensureTableKey(normalized, '[features]', 'apps', 'true');
+  normalized = ensureTableKey(normalized, '[features]', 'enable_mcp_apps', 'true');
   return ensureOllamaProviderTable(normalized);
 }
 
@@ -323,7 +324,7 @@ function normalizeOpenAI(text) {
 
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');
   normalized = removeTable(normalized, OLLAMA_PROVIDER_HEADER);
-  normalized = ensureTableKey(normalized, '[features]', 'apps', 'true');
+  normalized = ensureTableKey(normalized, '[features]', 'enable_mcp_apps', 'true');
   return normalized.replace(/\s+$/u, '') + '\n';
 }
 
@@ -358,7 +359,7 @@ function currentStatus(text) {
   const storefrontTables = Object.keys(blocks).filter((header) => header.startsWith(STOREFRONT_PLUGIN_PREFIX));
   const hasOllamaProvider = Object.prototype.hasOwnProperty.call(blocks, OLLAMA_PROVIDER_HEADER);
   const featuresBlock = blocks['[features]'] || '';
-  const appsMatch = featuresBlock.match(/^apps\s*=\s*(true|false)\b/m);
+  const appsMatch = featuresBlock.match(/^enable_mcp_apps\s*=\s*(true|false)\b/m);
   const appsEnabled = appsMatch ? appsMatch[1] === 'true' : false;
   const { mcp, plugins } = listMcpAndPluginTables(text);
   let catalogTools = '';

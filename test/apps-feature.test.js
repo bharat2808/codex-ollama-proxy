@@ -20,8 +20,8 @@ test('ensureTableKey inserts a key into an existing [features] table', () => {
     '[mcp_servers]',
     '',
   ].join('\n');
-  const result = ensureTableKey(text, '[features]', 'apps', 'true');
-  assert.match(result, /^apps = true$/m);
+  const result = ensureTableKey(text, '[features]', 'enable_mcp_apps', 'true');
+  assert.match(result, /^enable_mcp_apps = true$/m);
   assert.match(result, /^tool_search = true$/m);
   assert.match(result, /^js_repl = false$/m);
 });
@@ -31,13 +31,13 @@ test('ensureTableKey replaces an existing key in [features]', () => {
     'sandbox_mode = "danger-full-access"',
     '',
     '[features]',
-    'apps = false',
+    'enable_mcp_apps = false',
     'tool_search = true',
     '',
   ].join('\n');
-  const result = ensureTableKey(text, '[features]', 'apps', 'true');
-  assert.match(result, /^apps = true$/m);
-  assert.doesNotMatch(result, /^apps = false$/m);
+  const result = ensureTableKey(text, '[features]', 'enable_mcp_apps', 'true');
+  assert.match(result, /^enable_mcp_apps = true$/m);
+  assert.doesNotMatch(result, /^enable_mcp_apps = false$/m);
   assert.match(result, /^tool_search = true$/m);
 });
 
@@ -48,9 +48,9 @@ test('ensureTableKey creates [features] table when absent', () => {
     '[mcp_servers]',
     '',
   ].join('\n');
-  const result = ensureTableKey(text, '[features]', 'apps', 'true');
+  const result = ensureTableKey(text, '[features]', 'enable_mcp_apps', 'true');
   assert.match(result, /^\[features\]$/m);
-  assert.match(result, /^apps = true$/m);
+  assert.match(result, /^enable_mcp_apps = true$/m);
 });
 
 test('normalizeOllama enables apps feature in [features]', () => {
@@ -85,8 +85,9 @@ test('normalizeOllama enables apps feature in [features]', () => {
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /apps_enabled=yes/);
     const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
-    assert.match(config, /^apps = true$/m);
+    assert.match(config, /^enable_mcp_apps = true$/m);
     assert.match(config, /^tool_search = true$/m);
+    assert.match(config, /^requires_openai_auth = true$/m);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
@@ -101,7 +102,7 @@ test('normalizeOpenAI preserves apps feature in [features]', () => {
     'model_provider = "ollama-launch-codex-app"',
     '',
     '[features]',
-    'apps = false',
+    'enable_mcp_apps = false',
     'tool_search = true',
     '',
   ].join('\n'), 'utf8');
@@ -120,8 +121,45 @@ test('normalizeOpenAI preserves apps feature in [features]', () => {
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /apps_enabled=yes/);
     const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
-    assert.match(config, /^apps = true$/m);
+    assert.match(config, /^enable_mcp_apps = true$/m);
     assert.doesNotMatch(config, /^model_provider =/m);
+    assert.doesNotMatch(config, /requires_openai_auth/);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('normalizeOllama sets requires_openai_auth on provider table (no reference)', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-provider-auth-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), [
+    'sandbox_mode = "danger-full-access"',
+    '',
+    '[features]',
+    'tool_search = true',
+    '',
+  ].join('\n'), 'utf8');
+  fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
+    'text_model = "glm-5.2:cloud"',
+    '',
+  ].join('\n'), 'utf8');
+
+  try {
+    const result = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'model_config.js'),
+      'ollama',
+      '--no-refresh',
+      '--no-backup',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+    assert.match(config, /^requires_openai_auth = true$/m);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
