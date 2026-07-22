@@ -352,8 +352,10 @@ test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstre
 
 test('CLI run PRESET applies preset and starts proxy plus chat-completion adaptor', async () => {
   const received = [];
+  const modelRequests = [];
   const provider = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
+      modelRequests.push({ authorization: req.headers.authorization });
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ object: 'list', data: [{ id: 'preset-model', object: 'model' }] }));
       return;
@@ -409,7 +411,6 @@ test('CLI run PRESET applies preset and starts proxy plus chat-completion adapto
     path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
     'run',
     'fake-provider',
-    '--no-refresh',
     '--no-backup',
     '--foreground',
     '--adaptor-port',
@@ -444,6 +445,13 @@ test('CLI run PRESET applies preset and starts proxy plus chat-completion adapto
     assert.equal(received[0].authorization, 'Bearer preset-secret');
     assert.equal(received[0].body.model, 'preset-model');
     assert.deepEqual(received[0].body.messages, [{ role: 'user', content: 'hello preset' }]);
+    assert.ok(modelRequests.length >= 1);
+    assert.ok(modelRequests.every((request) => request.authorization === 'Bearer preset-secret'));
+    const catalog = JSON.parse(fs.readFileSync(
+      path.join(codexHome, 'ollama-launch-models-ollama-working.json'),
+      'utf8',
+    ));
+    assert.deepEqual(catalog.models.map((model) => model.slug), ['preset-model']);
     const storedPreset = fs.readFileSync(path.join(codexHome, 'ollama-shape-proxy', 'presets', 'fake-provider.toml'), 'utf8');
     assert.match(storedPreset, /^upstream_api_key\s*=\s*"preset-secret"$/m);
   } finally {

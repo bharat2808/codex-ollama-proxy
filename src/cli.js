@@ -218,8 +218,11 @@ function applyPreset(name, flags = {}) {
   }
   const apiKey = flags.apiKey !== undefined ? flags.apiKey : values.upstream_api_key;
   if (apiKey !== undefined) values.upstream_api_key = apiKey || '';
+  // Normalize Codex into proxy mode without refreshing yet. The preset route
+  // must be written first so model discovery queries the preset provider
+  // instead of the temporary local-Ollama defaults installed by switchMode.
   switchMode('ollama', {
-    noRefresh: flags.noRefresh,
+    noRefresh: true,
     noBackup: flags.noBackup,
     noStart: true,
   });
@@ -230,6 +233,7 @@ function applyPreset(name, flags = {}) {
   text = writeRouteValue(text, 'active_preset', name);
   text = applyImagineConfigToText(text);
   fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  if (!flags.noRefresh) codexConfig(['refresh']);
   launcherState.write(LAUNCHER_STATE, launcherState.fromPreset(preset, {
     proxy_port: configuredProxyPort(),
   }));

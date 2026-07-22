@@ -97,7 +97,13 @@ function ensureModelCatalog() {
 }
 
 function loadRouteConfig() {
-  const cfg = { text_model: null, image_model: null, auto_route_image: false };
+  const cfg = {
+    text_model: null,
+    image_model: null,
+    upstream_url: null,
+    upstream_api_key: null,
+    auto_route_image: false,
+  };
   if (!exists(PROXY_MODELS)) return cfg;
   const text = readText(PROXY_MODELS);
   for (const line of text.split(/\n/)) {
