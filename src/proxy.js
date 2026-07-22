@@ -65,13 +65,19 @@ const MODEL_CATALOG_PATHS = [
   path.join(CODEX_DIR, 'ollama-launch-models.json'),
 ];
 
-// When auto_route_image is on, force the text_model's catalog entry to claim
-// image capability so Codex emits input_image blocks even when the active
-// model (text_model) is really text-only. The proxy then rewrites the model
-// to image_model per-request, so the text model never actually sees the image.
-// Idempotent: only writes if the entry actually changed.
+// Set of model names that actually have vision capability (from Ollama probes).
+// Empty means either non-Ollama (all assumed vision-capable) or not yet probed.
+let visionCapableModels = null;
+
+// When auto_route_image is on, force ALL catalog entries to claim image
+// capability so Codex emits input_image blocks regardless of which model
+// is selected. The proxy then rewrites non-vision models to image_model
+// per-request. Before forcing, snapshot which models actually have vision
+// (from Ollama probes) so the proxy knows which models can handle images
+// directly vs which need rewriting.
+// Idempotent: only writes if an entry actually changed.
 function forceImageCapabilityForTextModel() {
-  if (!ROUTE_CFG.auto_route_image || !ROUTE_CFG.text_model) return;
+  if (!ROUTE_CFG.auto_route_image) return;
   for (const catalogPath of MODEL_CATALOG_PATHS) {
     let raw;
     try {
@@ -89,24 +95,39 @@ function forceImageCapabilityForTextModel() {
       continue;
     }
     const models = Array.isArray(catalog.models) ? catalog.models : [];
+
+    // Snapshot which models actually have vision before forcing
+    if (!visionCapableModels) {
+      visionCapableModels = new Set();
+      for (const m of models) {
+        const mods = Array.isArray(m && m.input_modalities) ? m.input_modalities : [];
+        if (mods.includes('image')) {
+          const name = (m && (m.slug || m.display_name)) || '';
+          if (name) visionCapableModels.add(name);
+        }
+      }
+      if (visionCapableModels.size > 0) {
+        log('vision-capable models (from catalog): ' + [...visionCapableModels].join(', '));
+      } else {
+        log('vision-capable models: (none probed — all image requests will rewrite to image_model)');
+      }
+    }
+
+    // Force ALL entries to image-capable
     for (const m of models) {
-      if (m && (m.slug === ROUTE_CFG.text_model || m.display_name === ROUTE_CFG.text_model)) {
-        const mods = Array.isArray(m.input_modalities) ? m.input_modalities : [];
-        if (!mods.includes('image')) {
-          m.input_modalities = ['text', 'image'];
-          changed = true;
-        }
-        if (m.supports_image_detail_original !== true) {
-          m.supports_image_detail_original = true;
-          changed = true;
-        }
-        if (changed) {
-          log('force-image: patched catalog entry "' + ROUTE_CFG.text_model + '" -> image-capable in ' + catalogPath + ' (auto_route_image=true)');
-        }
-        break;
+      if (!m) continue;
+      const mods = Array.isArray(m.input_modalities) ? m.input_modalities : [];
+      if (!mods.includes('image')) {
+        m.input_modalities = ['text', 'image'];
+        changed = true;
+      }
+      if (m.supports_image_detail_original !== true) {
+        m.supports_image_detail_original = true;
+        changed = true;
       }
     }
     if (changed) {
+      log('force-image: patched all catalog entries -> image-capable in ' + catalogPath + ' (auto_route_image=true)');
       try {
         fs.writeFileSync(catalogPath, JSON.stringify(catalog, null, 2) + '\n', 'utf8');
         log('force-image: catalog written ' + catalogPath);
@@ -510,20 +531,26 @@ function activeTurnHasImage(body) {
   return false;
 }
 
+function modelHasVision(modelName) {
+  if (!modelName) return false;
+  if (!visionCapableModels) return false; // non-Ollama: always rewrite to be safe
+  return visionCapableModels.has(modelName);
+}
+
 // Apply per-request model routing based on the config + presence of an image.
 function applyModelRouting(body) {
   if (!body || typeof body !== 'object') return body;
   if (!ROUTE_CFG.auto_route_image) return body;
   const hasImage = activeTurnHasImage(body);
-  debugLog('auto-route: activeTurnHasImage=' + hasImage + ' model="' + body.model + '" image_model="' + ROUTE_CFG.image_model + '"');
-  if (hasImage) {
-    if (ROUTE_CFG.image_model && body.model !== ROUTE_CFG.image_model) {
-      debugLog('auto-route: request has image -> model "' + body.model + '" -> "' + ROUTE_CFG.image_model + '"');
-      body.model = ROUTE_CFG.image_model;
-    }
-  } else if (ROUTE_CFG.text_model && body.model !== ROUTE_CFG.text_model) {
-    debugLog('auto-route: text request -> model "' + body.model + '" -> "' + ROUTE_CFG.text_model + '"');
-    body.model = ROUTE_CFG.text_model;
+  if (!hasImage) return body; // text requests always pass through unchanged
+  debugLog('auto-route: activeTurnHasImage=true model="' + body.model + '" image_model="' + ROUTE_CFG.image_model + '"');
+  if (modelHasVision(body.model)) {
+    debugLog('auto-route: model "' + body.model + '" has vision -> passing through');
+    return body;
+  }
+  if (ROUTE_CFG.image_model && body.model !== ROUTE_CFG.image_model) {
+    debugLog('auto-route: request has image -> model "' + body.model + '" -> "' + ROUTE_CFG.image_model + '"');
+    body.model = ROUTE_CFG.image_model;
   }
   return body;
 }

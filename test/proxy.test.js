@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
@@ -182,6 +183,33 @@ function textItem(id, text, attachments = []) {
     content: [{ type: 'output_text', text, annotations: [] }, ...attachments],
   };
 }
+
+test('proxy module loads when image routing snapshots a populated model catalog', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-startup-test-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
+    'text_model = "text-model"',
+    'image_model = "vision-model"',
+    'auto_route_image = true',
+    '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(codexHome, 'ollama-launch-models-ollama-working.json'), JSON.stringify({
+    models: [{ slug: 'vision-model', input_modalities: ['text', 'image'] }],
+  }));
+
+  try {
+    const result = spawnSync(process.execPath, ['-e', "require('./src/proxy')"], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, CODEX_HOME: codexHome },
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
 
 test('dedupeLargeInputBlocks keeps the newest large developer block', () => {
   const { dedupeLargeInputBlocks } = require('../src/proxy');

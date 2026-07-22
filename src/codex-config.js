@@ -119,13 +119,13 @@ function defaultOllamaModel() {
 
 function forceImageCapabilityForRouteModel(catalog) {
   const routeCfg = loadRouteConfig();
-  if (!routeCfg.auto_route_image || !routeCfg.text_model) {
+  if (!routeCfg.auto_route_image) {
     return { changed: false, routeCfg };
   }
   const models = Array.isArray(catalog.models) ? catalog.models : [];
   let changed = false;
   for (const model of models) {
-    if (!model || (model.slug !== routeCfg.text_model && model.display_name !== routeCfg.text_model)) continue;
+    if (!model) continue;
     const modalities = Array.isArray(model.input_modalities) ? model.input_modalities : [];
     if (!modalities.includes('image')) {
       model.input_modalities = ['text', 'image'];
@@ -135,7 +135,6 @@ function forceImageCapabilityForRouteModel(catalog) {
       model.supports_image_detail_original = true;
       changed = true;
     }
-    break;
   }
   return { changed, routeCfg };
 }
@@ -461,6 +460,77 @@ async function fetchJson(url, timeoutMs = 5000, body = null) {
   }
 }
 
+async function fetchUpstreamModels() {
+  const routeCfg = loadRouteConfig();
+  const rawUrl = routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1';
+  let baseUrl = rawUrl.replace(/\/+$/u, '');
+  if (!baseUrl.endsWith('/v1')) baseUrl += '/v1';
+  const modelsUrl = baseUrl + '/models';
+  const headers = {};
+  if (routeCfg.upstream_api_key) headers['Authorization'] = 'Bearer ' + routeCfg.upstream_api_key;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(modelsUrl, { method: 'GET', headers, signal: controller.signal });
+    if (!response.ok) return { models: [], error: 'HTTP ' + response.status };
+    const data = await response.json();
+    const models = Array.isArray(data.data) ? data.data : (Array.isArray(data.models) ? data.models : []);
+    return { models, error: null };
+  } catch (e) {
+    return { models: [], error: e.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function isOllamaUpstream() {
+  const routeCfg = loadRouteConfig();
+  const rawUrl = routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1';
+  let url;
+  try { url = new URL(rawUrl); } catch { return false; }
+  if (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost') return false;
+  const pathname = url.pathname.replace(/\/+$/u, '');
+  if (pathname !== '/v1') return false;
+  // Probe /api/tags — Ollama-native endpoint
+  const root = new URL(url.href);
+  root.pathname = '/';
+  const tagsUrl = new URL('api/tags', root).href;
+  try {
+    const res = await fetch(tagsUrl, { method: 'GET', signal: AbortSignal.timeout(5000) });
+    const data = await res.json();
+    return data && Array.isArray(data.models);
+  } catch {
+    return false;
+  }
+}
+
+async function probeOllamaVisionCapabilities(modelIds) {
+  const routeCfg = loadRouteConfig();
+  const rawUrl = routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1';
+  const url = new URL(rawUrl);
+  const root = new URL(url.href);
+  root.pathname = '/';
+  const showUrl = new URL('api/show', root).href;
+  const visionSet = new Set();
+  await mapLimit(modelIds, OLLAMA_SHOW_CONCURRENCY, async (name) => {
+    try {
+      const res = await fetch(showUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: name }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json();
+      if (Array.isArray(data.capabilities) && data.capabilities.includes('vision')) {
+        visionSet.add(name);
+      }
+    } catch {
+      // Lookup failed — assume no vision
+    }
+  });
+  return visionSet;
+}
+
 async function mapLimit(values, limit, mapper) {
   const output = new Array(values.length);
   let next = 0;
@@ -519,11 +589,40 @@ async function refreshCatalog() {
 
   const canonical = canonicalToolValues();
   const freshInstructions = canonicalInstructionValues();
-  const local = await localOllamaModels();
-  const existingSlugs = new Set(models.map((m) => m && m.slug).filter(Boolean));
+
+  // Fetch model IDs from GET /v1/models
+  const { models: upstreamModels, error: upstreamError } = await fetchUpstreamModels();
+  const upstreamIds = new Set(
+    upstreamModels.map((m) => m && (m.id || m.name || m.model)).filter(Boolean),
+  );
+
+  // Detect Ollama and probe vision capabilities
+  const isOllama = await isOllamaUpstream();
+  let visionCapable = new Set(); // empty = all models assumed vision-capable
+  let local = {};
+  if (isOllama) {
+    // Probe /api/show for vision capabilities
+    const allIds = [...upstreamIds];
+    if (allIds.length > 0) {
+      visionCapable = await probeOllamaVisionCapabilities(allIds);
+    }
+    // Also get tool capabilities from /api/show
+    local = await localOllamaModels();
+  }
+
   const template = models.length ? JSON.parse(JSON.stringify(models[0])) : {};
   let changed = 0;
+  let pruned = 0;
 
+  // Prune models not returned by the upstream endpoint
+  models = models.filter((m) => {
+    if (!m || !m.slug) return false;
+    if (upstreamIds.has(m.slug) || upstreamIds.has(m.display_name)) return true;
+    pruned += 1;
+    return false;
+  });
+
+  // Patch capabilities for surviving models
   for (const m of models) {
     if (!m) continue;
     const before = Object.fromEntries(TOOL_CAPABILITY_FIELDS.map((key) => [key, m[key]]));
@@ -536,38 +635,47 @@ async function refreshCatalog() {
     m.shell_type = canonical.shell_type;
     m.web_search_tool_type = canonical.web_search_tool_type;
     m.use_responses_lite = canonical.use_responses_lite;
-    if (Array.isArray(caps)) {
-      const hasVision = caps.includes('vision');
-      const newMods = hasVision ? ['text', 'image'] : ['text'];
-      if (JSON.stringify(m.input_modalities) !== JSON.stringify(newMods)) m.input_modalities = newMods;
-      if (m.supports_image_detail_original !== hasVision) m.supports_image_detail_original = hasVision;
-    }
+
+    // Default: both text + image. Ollama: downgrade if no vision probed.
+    const hasVision = isOllama ? visionCapable.has(m.slug) || visionCapable.has(m.display_name) : true;
+    const newMods = hasVision ? ['text', 'image'] : ['text'];
+    if (JSON.stringify(m.input_modalities) !== JSON.stringify(newMods)) m.input_modalities = newMods;
+    if (m.supports_image_detail_original !== hasVision) m.supports_image_detail_original = hasVision;
+
     const after = Object.fromEntries(TOOL_CAPABILITY_FIELDS.map((key) => [key, m[key]]));
     if (JSON.stringify(before) !== JSON.stringify(after)) changed += 1;
   }
 
+  // Add new models from upstream
+  const existingSlugs = new Set(models.map((m) => m && m.slug).filter(Boolean));
   const added = [];
-  for (const [name, caps] of Object.entries(local)) {
-    if (existingSlugs.has(name)) continue;
+  for (const id of upstreamIds) {
+    if (existingSlugs.has(id)) continue;
     const entry = JSON.parse(JSON.stringify(template));
-    entry.slug = name;
-    entry.display_name = name;
-    entry.description = 'Ollama local model';
+    entry.slug = id;
+    entry.display_name = id;
+    entry.description = isOllama ? 'Ollama local model' : 'Upstream model';
     entry.apply_patch_tool_type = canonical.apply_patch_tool_type;
-    entry.supports_parallel_tool_calls = caps.includes('tools');
+    entry.supports_parallel_tool_calls = Array.isArray(local[id]) ? local[id].includes('tools') : canonical.supports_parallel_tool_calls;
     entry.supports_search_tool = canonical.supports_search_tool;
     entry.shell_type = canonical.shell_type;
     entry.web_search_tool_type = canonical.web_search_tool_type;
     entry.use_responses_lite = canonical.use_responses_lite;
-    entry.input_modalities = caps.includes('vision') ? ['text', 'image'] : ['text'];
+    const hasVision = isOllama ? visionCapable.has(id) : true;
+    entry.input_modalities = hasVision ? ['text', 'image'] : ['text'];
+    entry.supports_image_detail_original = hasVision;
     models.push(entry);
-    added.push(name);
-    existingSlugs.add(name);
+    added.push(id);
+    existingSlugs.add(id);
   }
 
   catalog.models = models;
   const instructionsPatched = applyFreshInstructionValues(catalog, freshInstructions);
-  const routePatch = forceImageCapabilityForRouteModel(catalog);
+  // Note: do NOT call forceImageCapabilityForRouteModel here. The catalog on disk
+  // must contain TRUE capabilities (from Ollama probes or optimistic defaults).
+  // The proxy's forceImageCapabilityForTextModel() will force ALL entries to
+  // image-capable at startup, snapshotting the true vision set first.
+  const routeCfg = loadRouteConfig();
   const backup = makeBackupOf(MODEL_CATALOG, 'refresh');
   const renderedCatalog = JSON.stringify(catalog, null, 2) + '\n';
   writeText(MODEL_CATALOG, renderedCatalog);
@@ -580,16 +688,23 @@ async function refreshCatalog() {
     `canonical=${pythonishDict(canonical)}`,
     `instructions_patched=${instructionsPatched}`,
     `models_patched=${changed}`,
+    `models_pruned=${pruned}`,
     `models_added=${added.length}`,
-    `auto_route_image=${routePatch.routeCfg.auto_route_image ? 'true' : 'false'}`,
+    `catalog_source=${isOllama ? 'ollama /api/show (probed)' : 'GET /v1/models'}`,
+    `vision_capable=${visionCapable.size}`,
+    upstreamError ? `upstream_error=${upstreamError}` : null,
+    `auto_route_image=${routeCfg.auto_route_image ? 'true' : 'false'}`,
   ];
-  if (routePatch.routeCfg.auto_route_image && routePatch.routeCfg.text_model) {
-    lines.push(`auto_route_text_model=${routePatch.routeCfg.text_model}`);
-    lines.push(`auto_route_catalog_patched=${routePatch.changed ? 'yes' : 'already'}`);
+  if (routeCfg.auto_route_image && routeCfg.text_model) {
+    lines.push(`auto_route_text_model=${routeCfg.text_model}`);
   }
   if (added.length) lines.push(`added=${added.join(',')}`);
   const localNames = Object.keys(local).sort();
-  lines.push(localNames.length ? `local_ollama_models=${localNames.join(',')}` : 'local_ollama_models=(unreachable; skipped sync)');
+  if (isOllama) {
+    lines.push(localNames.length ? `local_ollama_models=${localNames.join(',')}` : 'local_ollama_models=(unreachable; skipped sync)');
+  } else {
+    lines.push(`upstream_models=${upstreamIds.size > 0 ? [...upstreamIds].join(',') : '(none)'}`);
+  }
   return lines.join('\n');
 }
 
@@ -695,6 +810,9 @@ module.exports = {
   canonicalInstructionValuesFromCache,
   applyFreshInstructionValues,
   localOllamaModels,
+  fetchUpstreamModels,
+  isOllamaUpstream,
+  probeOllamaVisionCapabilities,
   refreshCatalog,
   ensureTableKey,
   main,
