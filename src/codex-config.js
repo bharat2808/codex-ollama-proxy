@@ -294,6 +294,7 @@ function normalizeOllama(text, model) {
   } else {
     lines = removeKey(lines, 'model');
   }
+  lines = replaceOrInsert(lines, 'model_reasoning_summary', '"auto"');
   lines = replaceOrInsert(lines, 'model_context_window', DEFAULT_CONTEXT_WINDOW);
   lines = replaceOrInsert(lines, 'model_auto_compact_token_limit', DEFAULT_AUTO_COMPACT);
   lines = replaceOrInsert(lines, 'model_provider', `"${PROVIDER_NAME}"`);
@@ -325,6 +326,7 @@ function normalizeOpenAI(text) {
   lines = removeKey(lines, 'model_provider');
   lines = removeKey(lines, 'model_catalog_json');
   lines = removeKey(lines, 'web_search');
+  lines = removeKey(lines, 'model_reasoning_summary');
 
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');
   normalized = removeTable(normalized, OLLAMA_PROVIDER_HEADER);
@@ -663,6 +665,9 @@ async function refreshCatalog() {
     if (JSON.stringify(m.input_modalities) !== JSON.stringify(newMods)) m.input_modalities = newMods;
     if (m.supports_image_detail_original !== hasVision) m.supports_image_detail_original = hasVision;
 
+    // Set reasoning summary fields so the UI renders summaries under the thinking header
+    m.supports_reasoning_summary_parameter = true;
+    m.default_reasoning_summary = 'auto';
     const after = Object.fromEntries(TOOL_CAPABILITY_FIELDS.map((key) => [key, m[key]]));
     if (JSON.stringify(before) !== JSON.stringify(after)) changed += 1;
   }
@@ -688,6 +693,8 @@ async function refreshCatalog() {
       : (id === routeCfg.image_model);
     entry.input_modalities = hasVision ? ['text', 'image'] : ['text'];
     entry.supports_image_detail_original = hasVision;
+    entry.supports_reasoning_summary_parameter = true;
+    entry.default_reasoning_summary = 'auto';
     models.push(entry);
     added.push(id);
     existingSlugs.add(id);

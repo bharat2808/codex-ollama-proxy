@@ -219,7 +219,6 @@ function applyPreset(name, flags = {}) {
   const apiKey = flags.apiKey !== undefined ? flags.apiKey : values.upstream_api_key;
   if (apiKey !== undefined) values.upstream_api_key = apiKey || '';
   switchMode('ollama', {
-    model: values.text_model,
     noRefresh: flags.noRefresh,
     noBackup: flags.noBackup,
     noStart: true,
