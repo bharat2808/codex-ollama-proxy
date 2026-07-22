@@ -584,7 +584,7 @@ test('image auto-routing sends a current Computer Use screenshot to the vision m
   assert.equal(model, 'vision-model');
 });
 
-test('image auto-routing ignores screenshots from earlier user turns', () => {
+test('image auto-routing ignores historical screenshots and preserves the incoming model', () => {
   const model = routeModel({
     model: 'vision-model',
     input: [
@@ -610,7 +610,7 @@ test('image auto-routing ignores screenshots from earlier user turns', () => {
     tools: [],
   });
 
-  assert.equal(model, 'text-model');
+  assert.equal(model, 'vision-model');
 });
 
 test('disabled image auto-routing preserves the selected model', () => {
@@ -750,7 +750,7 @@ test('HTTP persistence stays in the proxy-owned cache and preserves active image
   ]);
 });
 
-test('inline image persistence deduplicates historical images and sends text turns path references', () => {
+test('inline image persistence deduplicates historical images and preserves the incoming model on text turns', () => {
   withRouteConfig([
     'text_model = "text-model"',
     'image_model = "vision-model"',
@@ -781,7 +781,7 @@ test('inline image persistence deduplicates historical images and sends text tur
 
     const first = makeBody();
     translateRequestBody(first);
-    assert.equal(first.model, 'text-model');
+    assert.equal(first.model, 'vision-model');
     assert.equal(first.input[0].content[1].type, 'input_text');
     const firstPath = first.input[0].content[1].text.match(/^\[image saved: (.+)]$/)[1];
     assert.deepEqual(fs.readFileSync(firstPath), inlineImageBytes('image/png', 'cached-image'));
@@ -996,7 +996,7 @@ test('inline image persistence removes expired inactive session caches', () => {
   }
 });
 
-test('inline images remain unchanged when persistence is disabled', () => {
+test('historical inline images remain unchanged without a stable session and preserve the incoming model', () => {
   const imageUrl = inlineImageUrl('image/png', 'not-cached');
   const body = {
     model: 'vision-model',
@@ -1015,7 +1015,7 @@ test('inline images remain unchanged when persistence is disabled', () => {
     tools: [],
   };
 
-  assert.equal(routeModel(body), 'text-model');
+  assert.equal(routeModel(body), 'vision-model');
   assert.equal(body.input[0].content[0].image_url, imageUrl);
 });
 
