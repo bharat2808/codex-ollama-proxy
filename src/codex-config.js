@@ -12,6 +12,7 @@ const MODEL_CATALOG = path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.
 const MODEL_CATALOG_COPY = path.join(CODEX_DIR, 'ollama-launch-models.json');
 const DEFAULT_MODEL_CATALOG = path.join(PACKAGE_DIR, 'config', 'model-catalogs', 'ollama-launch-models.default.json');
 const MODELS_CACHE = path.join(CODEX_DIR, 'models_cache.json');
+const VISION_CACHE = path.join(CODEX_DIR, 'cache', 'vision_capable_models.json');
 const BACKUP_DIR = path.join(CODEX_DIR, 'config-backups');
 const PROXY_MODELS = path.join(CODEX_DIR, 'ollama-shape-proxy', 'proxy-models.toml');
 
@@ -288,7 +289,11 @@ function normalizeOllama(text, model) {
   lines = removeKey(lines, 'developer_instructions');
   const instructionLine = referenceTopLevelLine('developer_instructions');
   if (instructionLine) lines.push(instructionLine);
-  lines = replaceOrInsert(lines, 'model', `"${model}"`);
+  if (model) {
+    lines = replaceOrInsert(lines, 'model', `"${model}"`);
+  } else {
+    lines = removeKey(lines, 'model');
+  }
   lines = replaceOrInsert(lines, 'model_context_window', DEFAULT_CONTEXT_WINDOW);
   lines = replaceOrInsert(lines, 'model_auto_compact_token_limit', DEFAULT_AUTO_COMPACT);
   lines = replaceOrInsert(lines, 'model_provider', `"${PROVIDER_NAME}"`);
@@ -589,6 +594,13 @@ async function refreshCatalog() {
 
   const canonical = canonicalToolValues();
   const freshInstructions = canonicalInstructionValues();
+  const routeCfg = loadRouteConfig();
+
+  // Always include the configured text_model and image_model from proxy-models.toml
+  // even if the upstream endpoint doesn't return them.
+  const suppliedModels = new Set();
+  if (routeCfg.text_model) suppliedModels.add(routeCfg.text_model);
+  if (routeCfg.image_model) suppliedModels.add(routeCfg.image_model);
 
   // Fetch model IDs from GET /v1/models
   const { models: upstreamModels, error: upstreamError } = await fetchUpstreamModels();
@@ -596,13 +608,16 @@ async function refreshCatalog() {
     upstreamModels.map((m) => m && (m.id || m.name || m.model)).filter(Boolean),
   );
 
+  // Merge: all upstream IDs + supplied models (dedupe)
+  const allKnownIds = new Set([...upstreamIds, ...suppliedModels]);
+
   // Detect Ollama and probe vision capabilities
   const isOllama = await isOllamaUpstream();
-  let visionCapable = new Set(); // empty = all models assumed vision-capable
+  let visionCapable = new Set();
   let local = {};
   if (isOllama) {
-    // Probe /api/show for vision capabilities
-    const allIds = [...upstreamIds];
+    // Probe /api/show for vision capabilities on all known models
+    const allIds = [...allKnownIds];
     if (allIds.length > 0) {
       visionCapable = await probeOllamaVisionCapabilities(allIds);
     }
@@ -610,14 +625,17 @@ async function refreshCatalog() {
     local = await localOllamaModels();
   }
 
+  // The image_model is always vision-capable (it's the image routing target)
+  if (routeCfg.image_model) visionCapable.add(routeCfg.image_model);
+
   const template = models.length ? JSON.parse(JSON.stringify(models[0])) : {};
   let changed = 0;
   let pruned = 0;
 
-  // Prune models not returned by the upstream endpoint
+  // Prune models not in upstream OR supplied — keep only what's known
   models = models.filter((m) => {
     if (!m || !m.slug) return false;
-    if (upstreamIds.has(m.slug) || upstreamIds.has(m.display_name)) return true;
+    if (allKnownIds.has(m.slug) || allKnownIds.has(m.display_name)) return true;
     pruned += 1;
     return false;
   });
@@ -636,8 +654,11 @@ async function refreshCatalog() {
     m.web_search_tool_type = canonical.web_search_tool_type;
     m.use_responses_lite = canonical.use_responses_lite;
 
-    // Default: both text + image. Ollama: downgrade if no vision probed.
-    const hasVision = isOllama ? visionCapable.has(m.slug) || visionCapable.has(m.display_name) : true;
+    // Ollama: use probed vision capability. Non-Ollama: text-only by default.
+    // image_model is always vision-capable.
+    const hasVision = isOllama
+      ? visionCapable.has(m.slug) || visionCapable.has(m.display_name)
+      : (m.slug === routeCfg.image_model || m.display_name === routeCfg.image_model);
     const newMods = hasVision ? ['text', 'image'] : ['text'];
     if (JSON.stringify(m.input_modalities) !== JSON.stringify(newMods)) m.input_modalities = newMods;
     if (m.supports_image_detail_original !== hasVision) m.supports_image_detail_original = hasVision;
@@ -646,10 +667,10 @@ async function refreshCatalog() {
     if (JSON.stringify(before) !== JSON.stringify(after)) changed += 1;
   }
 
-  // Add new models from upstream
+  // Add new models from upstream + supplied (dedupe against existing)
   const existingSlugs = new Set(models.map((m) => m && m.slug).filter(Boolean));
   const added = [];
-  for (const id of upstreamIds) {
+  for (const id of allKnownIds) {
     if (existingSlugs.has(id)) continue;
     const entry = JSON.parse(JSON.stringify(template));
     entry.slug = id;
@@ -661,7 +682,10 @@ async function refreshCatalog() {
     entry.shell_type = canonical.shell_type;
     entry.web_search_tool_type = canonical.web_search_tool_type;
     entry.use_responses_lite = canonical.use_responses_lite;
-    const hasVision = isOllama ? visionCapable.has(id) : true;
+    // Ollama: use probed vision. Non-Ollama: image_model is vision, rest text-only.
+    const hasVision = isOllama
+      ? visionCapable.has(id)
+      : (id === routeCfg.image_model);
     entry.input_modalities = hasVision ? ['text', 'image'] : ['text'];
     entry.supports_image_detail_original = hasVision;
     models.push(entry);
@@ -675,8 +699,15 @@ async function refreshCatalog() {
   // must contain TRUE capabilities (from Ollama probes or optimistic defaults).
   // The proxy's forceImageCapabilityForTextModel() will force ALL entries to
   // image-capable at startup, snapshotting the true vision set first.
-  const routeCfg = loadRouteConfig();
   const backup = makeBackupOf(MODEL_CATALOG, 'refresh');
+  // Write vision cache so the proxy can restore the true vision set on restart
+  // even after it has forced all catalog entries to image-capable.
+  try {
+    fs.mkdirSync(path.dirname(VISION_CACHE), { recursive: true });
+    writeText(VISION_CACHE, JSON.stringify({ models: [...visionCapable] }, null, 2) + '\n');
+  } catch (e) {
+    // Non-fatal: proxy falls back to reading catalog modalities
+  }
   const renderedCatalog = JSON.stringify(catalog, null, 2) + '\n';
   writeText(MODEL_CATALOG, renderedCatalog);
   const catalogCopy = syncModelCatalogCopy(renderedCatalog);
@@ -709,12 +740,13 @@ async function refreshCatalog() {
 }
 
 function parseArgs(argv) {
-  const args = { mode: null, model: null, noBackup: false, noRefresh: false };
+  const args = { mode: null, model: null, noModel: false, noBackup: false, noRefresh: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (['status', 'openai', 'ollama', 'refresh'].includes(arg) && !args.mode) args.mode = arg;
     else if (arg === '--model') args.model = argv[++i];
     else if (arg.startsWith('--model=')) args.model = arg.slice('--model='.length);
+    else if (arg === '--no-model') args.noModel = true;
     else if (arg === '--no-backup') args.noBackup = true;
     else if (arg === '--no-refresh') args.noRefresh = true;
     else if (arg === '-h' || arg === '--help') {
@@ -766,7 +798,8 @@ async function main() {
   console.log('');
 
   const backup = args.noBackup ? null : makeBackup(args.mode);
-  const newText = normalizeOllama(text, args.model || defaultOllamaModel());
+  const modelArg = args.noModel ? null : (args.model || null);
+  const newText = normalizeOllama(text, modelArg);
   writeText(CONFIG, newText);
   console.log(`switched=${args.mode}`);
   if (backup) console.log(`backup=${backup}`);

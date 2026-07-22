@@ -64,6 +64,7 @@ const MODEL_CATALOG_PATHS = [
   path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json'),
   path.join(CODEX_DIR, 'ollama-launch-models.json'),
 ];
+const VISION_CACHE_PATH = path.join(CODEX_DIR, 'cache', 'vision_capable_models.json');
 
 // Set of model names that actually have vision capability (from Ollama probes).
 // Empty means either non-Ollama (all assumed vision-capable) or not yet probed.
@@ -96,20 +97,37 @@ function forceImageCapabilityForTextModel() {
     }
     const models = Array.isArray(catalog.models) ? catalog.models : [];
 
-    // Snapshot which models actually have vision before forcing
+    // Snapshot which models actually have vision before forcing.
+    // Prefer the vision cache file written by refreshCatalog (has TRUE capabilities).
+    // Fall back to reading catalog modalities (only correct if catalog hasn't been forced yet).
     if (!visionCapableModels) {
       visionCapableModels = new Set();
-      for (const m of models) {
-        const mods = Array.isArray(m && m.input_modalities) ? m.input_modalities : [];
-        if (mods.includes('image')) {
-          const name = (m && (m.slug || m.display_name)) || '';
-          if (name) visionCapableModels.add(name);
+      let cacheSource = 'catalog';
+      try {
+        const cacheRaw = fs.readFileSync(VISION_CACHE_PATH, 'utf8');
+        const cache = JSON.parse(cacheRaw);
+        if (cache && Array.isArray(cache.models)) {
+          for (const name of cache.models) {
+            if (name) visionCapableModels.add(name);
+          }
+          cacheSource = 'vision cache';
+        }
+      } catch (e) {
+        // No cache file — fall back to catalog
+      }
+      if (visionCapableModels.size === 0) {
+        for (const m of models) {
+          const mods = Array.isArray(m && m.input_modalities) ? m.input_modalities : [];
+          if (mods.includes('image')) {
+            const name = (m && (m.slug || m.display_name)) || '';
+            if (name) visionCapableModels.add(name);
+          }
         }
       }
       if (visionCapableModels.size > 0) {
-        log('vision-capable models (from catalog): ' + [...visionCapableModels].join(', '));
+        log('vision-capable models (from ' + cacheSource + '): ' + [...visionCapableModels].join(', '));
       } else {
-        log('vision-capable models: (none probed — all image requests will rewrite to image_model)');
+        log('vision-capable models: (none — all image requests will rewrite to image_model)');
       }
     }
 
@@ -533,23 +551,27 @@ function activeTurnHasImage(body) {
 
 function modelHasVision(modelName) {
   if (!modelName) return false;
-  if (!visionCapableModels) return false; // non-Ollama: always rewrite to be safe
+  if (!visionCapableModels) return false;
   return visionCapableModels.has(modelName);
 }
 
 // Apply per-request model routing based on the config + presence of an image.
+// Vision-capable models always pass through with images, regardless of auto_route_image.
+// Text-only models pass through when auto_route_image is off.
+// Text-only models get rewritten to image_model when auto_route_image is on.
 function applyModelRouting(body) {
   if (!body || typeof body !== 'object') return body;
-  if (!ROUTE_CFG.auto_route_image) return body;
   const hasImage = activeTurnHasImage(body);
   if (!hasImage) return body; // text requests always pass through unchanged
-  debugLog('auto-route: activeTurnHasImage=true model="' + body.model + '" image_model="' + ROUTE_CFG.image_model + '"');
+  // Model has vision — let it through regardless of auto_route setting
   if (modelHasVision(body.model)) {
     debugLog('auto-route: model "' + body.model + '" has vision -> passing through');
     return body;
   }
+  // Model is text-only
+  if (!ROUTE_CFG.auto_route_image) return body; // no rewrite — let upstream error if it can't handle images
   if (ROUTE_CFG.image_model && body.model !== ROUTE_CFG.image_model) {
-    debugLog('auto-route: request has image -> model "' + body.model + '" -> "' + ROUTE_CFG.image_model + '"');
+    debugLog('auto-route: text-only model "' + body.model + '" has image -> rewrite to "' + ROUTE_CFG.image_model + '"');
     body.model = ROUTE_CFG.image_model;
   }
   return body;
@@ -1564,6 +1586,7 @@ const server = http.createServer((clientReq, clientRes) => {
       try {
         body = JSON.parse(bodyBuf.toString('utf8'));
         originalStream = body && body.stream === true;
+        body._originalModel = body.model; // save before routing rewrites it
         translateRequestBody(body);
         info = collectCustomToolInfo(body.tools);
         {
@@ -1595,7 +1618,13 @@ const server = http.createServer((clientReq, clientRes) => {
       if (!webSearch.hasNativeWebSearchTool(body) && (imagine.hasProxyStatusTool(body) || (ROUTE_CFG.imagine_enabled && imagine.hasGenerateImageTool(body)))) {
         try {
           debugLog('imagine proxy loop enabled (generate_image + ollama_proxy_status)');
-          const result = await imagine.runGenerateImageLoop(upstream, body, ROUTE_CFG, { log: (...a) => debugLog(...a) });
+          const result = await imagine.runGenerateImageLoop(upstream, body, ROUTE_CFG, {
+            log: (...a) => debugLog(...a),
+            originalModel: body._originalModel,
+            routedModel: body.model,
+            visionCapableModels: visionCapableModels,
+            upstreamUrl: upstreamLib.displayUrl(getUpstream()),
+          });
           const response = result.response;
           translateFinalResponse(response, info);
           if (originalStream) sendSseCompleted(clientRes, response);
