@@ -192,6 +192,41 @@ function insertionIndexForTables(lines) {
   return index >= 0 ? index : lines.length;
 }
 
+function ensureTableKey(text, tableHeader, key, value) {
+  const lines = text.split(/\n/);
+  let blockStart = -1;
+  let blockEnd = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].trim() === tableHeader) {
+      blockStart = i;
+      blockEnd = i + 1;
+      while (blockEnd < lines.length && !/^\[[^\n]+\]\s*$/.test(lines[blockEnd])) {
+        blockEnd += 1;
+      }
+      break;
+    }
+  }
+  if (blockStart === -1) {
+    const allLines = text.replace(/\s+$/u, '').split(/\n/);
+    const insertAt = insertionIndexForTables(allLines);
+    const before = allLines.slice(0, insertAt);
+    const after = allLines.slice(insertAt);
+    const combined = before.slice();
+    if (combined.length) combined.push('');
+    combined.push(tableHeader);
+    combined.push(`${key} = ${value}`);
+    if (after.length) {
+      combined.push('');
+      combined.push(...after);
+    }
+    return combined.join('\n').replace(/\s+$/u, '') + '\n';
+  }
+  const blockLines = lines.slice(blockStart + 1, blockEnd);
+  const updatedBlockLines = replaceOrInsert(blockLines, key, value);
+  const newLines = [...lines.slice(0, blockStart + 1), ...updatedBlockLines, ...lines.slice(blockEnd)];
+  return newLines.join('\n');
+}
+
 function ensureReferenceTables(text, referenceText, wantedHeaders) {
   const existing = tableBlocks(text);
   const reference = tableBlocks(referenceText);
@@ -260,6 +295,7 @@ function normalizeOllama(text, model) {
   lines = replaceOrInsert(lines, 'model_catalog_json', `"${MODEL_CATALOG}"`);
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');
   normalized = ensureStorefrontPluginTables(normalized);
+  normalized = ensureTableKey(normalized, '[features]', 'apps', 'true');
   return ensureOllamaProviderTable(normalized);
 }
 
@@ -287,6 +323,7 @@ function normalizeOpenAI(text) {
 
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');
   normalized = removeTable(normalized, OLLAMA_PROVIDER_HEADER);
+  normalized = ensureTableKey(normalized, '[features]', 'apps', 'true');
   return normalized.replace(/\s+$/u, '') + '\n';
 }
 
@@ -320,6 +357,9 @@ function currentStatus(text) {
   const blocks = tableBlocks(text);
   const storefrontTables = Object.keys(blocks).filter((header) => header.startsWith(STOREFRONT_PLUGIN_PREFIX));
   const hasOllamaProvider = Object.prototype.hasOwnProperty.call(blocks, OLLAMA_PROVIDER_HEADER);
+  const featuresBlock = blocks['[features]'] || '';
+  const appsMatch = featuresBlock.match(/^apps\s*=\s*(true|false)\b/m);
+  const appsEnabled = appsMatch ? appsMatch[1] === 'true' : false;
   const { mcp, plugins } = listMcpAndPluginTables(text);
   let catalogTools = '';
   if (mode === 'ollama') {
@@ -340,6 +380,7 @@ function currentStatus(text) {
     `mcp_servers=${mcp.length}`,
     `plugins=${plugins.length}`,
     `ollama_provider_table=${hasOllamaProvider ? 'yes' : 'no'}`,
+    `apps_enabled=${appsEnabled ? 'yes' : 'no'}`,
     `config=${CONFIG}${catalogTools}`,
   ].join('\n');
 }
@@ -654,5 +695,6 @@ module.exports = {
   applyFreshInstructionValues,
   localOllamaModels,
   refreshCatalog,
+  ensureTableKey,
   main,
 };
