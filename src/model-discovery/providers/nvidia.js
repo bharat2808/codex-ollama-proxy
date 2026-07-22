@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { loadOpenClawCatalog } = require('../openclaw-catalog');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
 const ENDPOINT = 'https://assets.ngc.nvidia.com/products/api-catalog/featured-models.json';
@@ -53,18 +54,37 @@ function parseRow(row) {
 }
 
 async function discover(options = {}) {
-  const payload = await fetchJson({
-    url: ENDPOINT,
+  const staticCatalog = await loadOpenClawCatalog({
     provider: 'nvidia',
+    cacheDir: options.cacheDir,
     fetchImpl: options.fetchImpl,
     timeoutMs: options.timeoutMs,
     signal: options.signal,
-    requireHttps: true,
-    allowedHostname: 'assets.ngc.nvidia.com',
+    now: options.now,
   });
-  const rows = payload && typeof payload === 'object' ? payload['featured-models'] : null;
-  if (!Array.isArray(rows)) return { models: [], warnings: [] };
-  return { models: rows.slice(0, MAX_ROWS).map(parseRow).filter(Boolean), warnings: [] };
+  let liveModels = [];
+  const warnings = [...staticCatalog.warnings];
+  try {
+    const payload = await fetchJson({
+      url: ENDPOINT,
+      provider: 'nvidia',
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+      requireHttps: true,
+      allowedHostname: 'assets.ngc.nvidia.com',
+    });
+    const rows = payload && typeof payload === 'object' ? payload['featured-models'] : null;
+    if (Array.isArray(rows)) liveModels = rows.slice(0, MAX_ROWS).map(parseRow).filter(Boolean);
+  } catch (error) {
+    if (options.signal && options.signal.aborted) throw error;
+    warnings.push('NVIDIA featured catalog refresh failed; using the OpenClaw static catalog.');
+  }
+  const seen = new Set(liveModels.map((model) => model.id));
+  return {
+    models: [...liveModels, ...staticCatalog.models.filter((model) => !seen.has(model.id))],
+    warnings,
+  };
 }
 
 module.exports = { CACHE_TTL_MS, ENDPOINT, discover, parseRow };

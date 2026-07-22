@@ -107,7 +107,6 @@ async function discover(options = {}) {
   const tagsPayload = options.detectionPayload || await fetchJson({
     url: `${apiBase}/api/tags`,
     provider: 'ollama',
-    apiKey: options.apiKey,
     fetchImpl: options.fetchImpl,
     timeoutMs: options.timeoutMs,
     signal: options.signal,
@@ -141,7 +140,6 @@ async function discover(options = {}) {
       const payload = await fetchJson({
         url: `${apiBase}/api/show`,
         provider: 'ollama',
-        apiKey: options.apiKey,
         fetchImpl: options.fetchImpl,
         timeoutMs: options.timeoutMs || 8000,
         signal: options.signal,

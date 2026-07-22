@@ -47,7 +47,6 @@ async function discoverModels(options = {}) {
   const resolution = await resolveProvider({
     provider: options.provider,
     baseUrl: options.baseUrl,
-    apiKey: options.apiKey,
     fetchImpl,
     timeoutMs: options.timeoutMs,
     signal: options.signal,
@@ -68,12 +67,14 @@ async function discoverModels(options = {}) {
   const adapter = ADAPTERS[resolution.provider];
   const adapterOptions = {
     baseUrl: options.baseUrl,
-    apiKey: options.apiKey,
+    apiKey: resolution.provider === 'ollama' ? null : options.apiKey,
     fetchImpl,
     timeoutMs: options.timeoutMs,
     signal: options.signal,
     detectionPayload: resolution.detectionPayload,
     suppliedModels: supplied.map((model) => model.id),
+    cacheDir: options.cacheDir || defaultCacheDir(),
+    now: options.now,
   };
   const endpoint = cacheEndpoint(resolution.provider, options);
   if (!endpoint) {
@@ -93,7 +94,7 @@ async function discoverModels(options = {}) {
   const cached = await withProviderCache({
     provider: resolution.provider,
     endpoint,
-    apiKey: options.apiKey,
+    apiKey: resolution.provider === 'ollama' ? null : options.apiKey,
     cacheDir: options.cacheDir || defaultCacheDir(),
     ttlMs: adapter.CACHE_TTL_MS,
     now: options.now,

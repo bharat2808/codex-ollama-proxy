@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { loadOpenClawCatalog } = require('../openclaw-catalog');
 const {
   MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
@@ -12,29 +13,6 @@ const {
 const BASE_URL = 'https://api.cohere.ai/compatibility/v1';
 const ENDPOINT = 'https://api.cohere.com/v1/models?endpoint=chat&page_size=1000';
 const CACHE_TTL_MS = 60000;
-
-const SEEDS = new Map([
-  ['command-a-plus-05-2026', {
-    displayName: 'Command A+', contextWindow: 128000, maxOutputTokens: 64000,
-    inputModalities: ['text', 'image'], reasoning: true, toolCalling: null,
-  }],
-  ['command-a-03-2025', {
-    displayName: 'Command A', contextWindow: 256000, maxOutputTokens: 8000,
-    inputModalities: ['text'], reasoning: null, toolCalling: null,
-  }],
-  ['command-a-reasoning-08-2025', {
-    displayName: 'Command A Reasoning', contextWindow: 256000, maxOutputTokens: 32000,
-    inputModalities: ['text'], reasoning: true, toolCalling: null,
-  }],
-  ['command-a-vision-07-2025', {
-    displayName: 'Command A Vision', contextWindow: 128000, maxOutputTokens: 8000,
-    inputModalities: ['text', 'image'], reasoning: false, toolCalling: false,
-  }],
-  ['north-mini-code-1-0', {
-    displayName: 'North Mini Code 1.0', contextWindow: 256000, maxOutputTokens: 64000,
-    inputModalities: ['text', 'image'], reasoning: true, toolCalling: null,
-  }],
-]);
 
 function normalizedUrl(value) {
   try {
@@ -61,11 +39,11 @@ function modalities(value) {
   return lowered.includes('image') ? ['text', 'image'] : ['text'];
 }
 
-function parseRow(row) {
+function parseRow(row, seeds = new Map()) {
   if (!row || typeof row !== 'object' || Array.isArray(row) || row.is_deprecated === true) return null;
   let id;
   try { id = normalizeModelId(row.name); } catch { return null; }
-  const seed = SEEDS.get(id) || null;
+  const seed = seeds.get(id) || null;
   const liveContext = positiveInteger(
     MAX_CONTEXT_WINDOW,
     row.context_window,
@@ -119,25 +97,46 @@ async function discover(options = {}) {
   if (normalizedUrl(options.baseUrl) !== BASE_URL) {
     return { models: [], warnings: ['Skipped Cohere discovery for a noncanonical base URL.'] };
   }
-  const payload = await fetchJson({
-    url: ENDPOINT,
+  const staticCatalog = await loadOpenClawCatalog({
     provider: 'cohere',
-    apiKey: options.apiKey,
+    cacheDir: options.cacheDir,
     fetchImpl: options.fetchImpl,
     timeoutMs: options.timeoutMs,
     signal: options.signal,
-    requireHttps: true,
-    allowedHostname: 'api.cohere.com',
+    now: options.now,
   });
+  const seeds = new Map(staticCatalog.models.map((model) => [model.id, model]));
+  let payload;
+  try {
+    payload = await fetchJson({
+      url: ENDPOINT,
+      provider: 'cohere',
+      apiKey: options.apiKey,
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+      requireHttps: true,
+      allowedHostname: 'api.cohere.com',
+    });
+  } catch (error) {
+    if (options.signal && options.signal.aborted) throw error;
+    return {
+      models: staticCatalog.models,
+      warnings: [
+        ...staticCatalog.warnings,
+        'Cohere live catalog refresh failed; using the OpenClaw static catalog.',
+      ],
+    };
+  }
   const rows = payload && typeof payload === 'object' && Array.isArray(payload.models)
     ? payload.models
     : [];
   const unique = new Map();
   for (const row of rows) {
-    const model = parseRow(row);
+    const model = parseRow(row, seeds);
     if (model && !unique.has(model.id)) unique.set(model.id, model);
   }
-  return { models: [...unique.values()], warnings: [] };
+  return { models: [...unique.values()], warnings: staticCatalog.warnings };
 }
 
-module.exports = { BASE_URL, CACHE_TTL_MS, ENDPOINT, SEEDS, discover, parseRow };
+module.exports = { BASE_URL, CACHE_TTL_MS, ENDPOINT, discover, parseRow };

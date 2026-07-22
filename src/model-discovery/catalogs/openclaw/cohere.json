@@ -1,0 +1,16 @@
+{
+  "modelCatalog": {
+    "providers": {
+      "cohere": {
+        "baseUrl": "https://api.cohere.ai/compatibility/v1",
+        "models": [
+          { "id": "command-a-plus-05-2026", "name": "Command A+", "reasoning": true, "input": ["text", "image"], "contextWindow": 128000, "maxTokens": 64000 },
+          { "id": "command-a-03-2025", "name": "Command A", "input": ["text"], "contextWindow": 256000, "maxTokens": 8000 },
+          { "id": "command-a-reasoning-08-2025", "name": "Command A Reasoning", "reasoning": true, "input": ["text"], "contextWindow": 256000, "maxTokens": 32000 },
+          { "id": "command-a-vision-07-2025", "name": "Command A Vision", "reasoning": false, "input": ["text", "image"], "contextWindow": 128000, "maxTokens": 8000, "compat": { "supportsTools": false } },
+          { "id": "north-mini-code-1-0", "name": "North Mini Code 1.0", "reasoning": true, "input": ["text", "image"], "contextWindow": 256000, "maxTokens": 64000 }
+        ]
+      }
+    }
+  }
+}

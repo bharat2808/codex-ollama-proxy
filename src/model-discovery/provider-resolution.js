@@ -37,7 +37,6 @@ async function detectLocalOllama(url, options) {
     const payload = await fetchJson({
       url: endpoint,
       provider: 'ollama',
-      apiKey: options.apiKey,
       fetchImpl: options.fetchImpl,
       timeoutMs: options.timeoutMs,
       signal: options.signal,

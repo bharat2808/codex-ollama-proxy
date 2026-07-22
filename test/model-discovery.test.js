@@ -13,11 +13,248 @@ const {
 const { resolveProvider } = require('../src/model-discovery/provider-resolution');
 const { fetchJson } = require('../src/model-discovery/live-catalog');
 const { cacheIdentity, withProviderCache } = require('../src/model-discovery/file-cache');
+const {
+  CATALOG_TTL_MS,
+  OPENCLAW_CATALOGS,
+  loadOpenClawCatalog,
+  parseOpenClawCatalog,
+} = require('../src/model-discovery/openclaw-catalog');
 const nvidia = require('../src/model-discovery/providers/nvidia');
 const openrouter = require('../src/model-discovery/providers/openrouter');
 const cohere = require('../src/model-discovery/providers/cohere');
 const ollama = require('../src/model-discovery/providers/ollama');
 const { discoverModels } = require('../src/model-discovery');
+
+test('OpenClaw catalog sync is allowlisted to NVIDIA and Cohere only', () => {
+  assert.deepEqual(Object.keys(OPENCLAW_CATALOGS).sort(), ['cohere', 'nvidia']);
+  assert.equal(CATALOG_TTL_MS, 24 * 60 * 60 * 1000);
+  for (const entry of Object.values(OPENCLAW_CATALOGS)) {
+    const url = new URL(entry.url);
+    assert.equal(url.protocol, 'https:');
+    assert.equal(url.hostname, 'raw.githubusercontent.com');
+    assert.match(url.pathname, /^\/openclaw\/openclaw\/main\/extensions\//u);
+    assert.match(url.pathname, /\/openclaw\.plugin\.json$/u);
+  }
+  assert.equal(OPENCLAW_CATALOGS.ollama, undefined);
+  assert.equal(OPENCLAW_CATALOGS['ollama-cloud'], undefined);
+});
+
+test('OpenClaw catalog parsing validates provider identity and drops deprecated models', () => {
+  const payload = {
+    modelCatalog: {
+      providers: {
+        nvidia: {
+          baseUrl: 'https://integrate.api.nvidia.com/v1',
+          models: [
+            {
+              id: 'vendor/current',
+              name: 'Current',
+              input: ['text', 'image'],
+              contextWindow: 131072,
+              maxTokens: 8192,
+              reasoning: true,
+              compat: { supportsTools: true },
+            },
+            {
+              id: 'vendor/old',
+              name: 'Old',
+              input: ['text'],
+              contextWindow: 32000,
+              maxTokens: 4096,
+              status: 'deprecated',
+            },
+          ],
+        },
+      },
+    },
+  };
+
+  const models = parseOpenClawCatalog('nvidia', payload);
+  assert.deepEqual(models.map((model) => model.id), ['vendor/current']);
+  assert.deepEqual(models[0].inputModalities, ['text', 'image']);
+  assert.equal(models[0].reasoning, true);
+  assert.equal(models[0].toolCalling, true);
+  assert.equal(models[0].source, 'openclaw-static');
+
+  payload.modelCatalog.providers.nvidia.baseUrl = 'https://attacker.example/v1';
+  assert.throws(() => parseOpenClawCatalog('nvidia', payload), /base URL/i);
+  assert.throws(() => parseOpenClawCatalog('ollama', payload), /unsupported OpenClaw catalog/i);
+});
+
+test('OpenClaw catalog sync refreshes at most daily and retains the last successful file', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-catalog-sync-'));
+  let calls = 0;
+  const payload = {
+    modelCatalog: {
+      providers: {
+        cohere: {
+          baseUrl: 'https://api.cohere.ai/compatibility/v1',
+          models: [{
+            id: 'command-test',
+            name: 'Command Test',
+            input: ['text'],
+            contextWindow: 128000,
+            maxTokens: 8000,
+          }],
+        },
+      },
+    },
+  };
+  try {
+    const options = {
+      provider: 'cohere',
+      cacheDir,
+      now: () => 1000,
+      fetchImpl: async (url, request) => {
+        calls += 1;
+        assert.equal(url, OPENCLAW_CATALOGS.cohere.url);
+        assert.equal(request.headers.Authorization, undefined);
+        return new Response(JSON.stringify(payload));
+      },
+    };
+    const refreshed = await loadOpenClawCatalog(options);
+    assert.equal(refreshed.cacheStatus, 'refreshed');
+    assert.deepEqual(refreshed.models.map((model) => model.id), ['command-test']);
+
+    const fresh = await loadOpenClawCatalog({
+      ...options,
+      now: () => 1000 + CATALOG_TTL_MS,
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error('fresh catalog must not fetch');
+      },
+    });
+    assert.equal(fresh.cacheStatus, 'fresh');
+    assert.equal(calls, 1);
+
+    const stale = await loadOpenClawCatalog({
+      ...options,
+      now: () => 1001 + CATALOG_TTL_MS,
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error('offline');
+      },
+    });
+    assert.equal(stale.cacheStatus, 'stale');
+    assert.deepEqual(stale.models.map((model) => model.id), ['command-test']);
+    assert.match(stale.warnings[0], /last successful/i);
+    assert.equal(calls, 2);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('OpenClaw catalog sync uses its bundled snapshot on first-run network failure', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-catalog-bundled-'));
+  try {
+    const result = await loadOpenClawCatalog({
+      provider: 'nvidia',
+      cacheDir,
+      fetchImpl: async () => { throw new Error('offline'); },
+    });
+    assert.equal(result.cacheStatus, 'bundled');
+    assert.ok(result.models.length > 0);
+    assert.match(result.warnings[0], /bundled OpenClaw catalog/i);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('OpenClaw catalog sync does not replace caller cancellation with a bundled snapshot', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-catalog-cancel-'));
+  const controller = new AbortController();
+  controller.abort();
+  try {
+    await assert.rejects(loadOpenClawCatalog({
+      provider: 'cohere',
+      cacheDir,
+      signal: controller.signal,
+      fetchImpl: async () => { throw new Error('aborted'); },
+    }), (error) => error.code === 'CANCELLED');
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('NVIDIA discovery merges the daily OpenClaw catalog behind the live NVIDIA feed', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nvidia-openclaw-merge-'));
+  const staticPayload = {
+    modelCatalog: {
+      providers: {
+        nvidia: {
+          baseUrl: 'https://integrate.api.nvidia.com/v1',
+          models: [{
+            id: 'static/model',
+            name: 'Static Model',
+            input: ['text'],
+            contextWindow: 64000,
+            maxTokens: 4000,
+          }],
+        },
+      },
+    },
+  };
+  try {
+    const result = await nvidia.discover({
+      apiKey: 'nvidia-secret',
+      cacheDir,
+      now: () => 1000,
+      fetchImpl: async (url, options) => {
+        if (url === OPENCLAW_CATALOGS.nvidia.url) {
+          assert.equal(options.headers.Authorization, undefined);
+          return new Response(JSON.stringify(staticPayload));
+        }
+        assert.equal(url, nvidia.ENDPOINT);
+        return new Response(JSON.stringify({
+          'featured-models': [{
+            model: 'live/model',
+            'model-name': 'Live Model',
+            context: 128000,
+            'max-output': 8000,
+          }],
+        }));
+      },
+    });
+    assert.deepEqual(result.models.map((model) => model.id), ['live/model', 'static/model']);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('NVIDIA discovery does not replace caller cancellation with its static catalog', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nvidia-openclaw-cancel-'));
+  const controller = new AbortController();
+  try {
+    await assert.rejects(nvidia.discover({
+      cacheDir,
+      signal: controller.signal,
+      fetchImpl: async (url) => {
+        if (url === OPENCLAW_CATALOGS.nvidia.url) {
+          return new Response(JSON.stringify({
+            modelCatalog: {
+              providers: {
+                nvidia: {
+                  baseUrl: 'https://integrate.api.nvidia.com/v1',
+                  models: [{
+                    id: 'static/model',
+                    name: 'Static Model',
+                    input: ['text'],
+                    contextWindow: 64000,
+                    maxTokens: 4000,
+                  }],
+                },
+              },
+            },
+          }));
+        }
+        controller.abort();
+        throw new Error('aborted');
+      },
+    }), (error) => error.code === 'CANCELLED');
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
 
 test('supplied model ids are validated, deduplicated, and retain unknown metadata', () => {
   const models = normalizeSuppliedModels([' first/model ', 'second:model', 'first/model']);
@@ -98,13 +335,15 @@ test('explicit and canonical provider resolution are deterministic and do not fe
 test('local Ollama auto-detection reuses tags while unknown remote endpoints are not probed', async () => {
   const calls = [];
   const payload = { models: [{ name: 'qwen3:8b' }] };
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, options) => {
     calls.push(String(url));
+    assert.equal(options.headers.Authorization, undefined);
     return new Response(JSON.stringify(payload));
   };
 
   const local = await resolveProvider({
     baseUrl: 'http://localhost:11434/v1/',
+    apiKey: 'must-not-reach-local-ollama',
     fetchImpl,
   });
   assert.deepEqual(local, {
@@ -287,7 +526,9 @@ test('provider cache ignores a corrupt matching file and replaces it after a suc
   }
 });
 
-test('NVIDIA discovery maps bounded featured rows and preserves feed order', async () => {
+test('NVIDIA discovery maps bounded featured rows and preserves feed order', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nvidia-featured-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
   const calls = [];
   const payload = {
     'featured-models': [
@@ -298,14 +539,36 @@ test('NVIDIA discovery maps bounded featured rows and preserves feed order', asy
     ],
   };
   const result = await nvidia.discover({
+    cacheDir,
     fetchImpl: async (url) => {
       calls.push(String(url));
+      if (String(url) === OPENCLAW_CATALOGS.nvidia.url) {
+        return new Response(JSON.stringify({
+          modelCatalog: {
+            providers: {
+              nvidia: {
+                baseUrl: 'https://integrate.api.nvidia.com/v1',
+                models: [{
+                  id: 'meta/llama-test',
+                  name: 'Llama Test',
+                  input: ['text'],
+                  contextWindow: 65536,
+                  maxTokens: 4096,
+                }],
+              },
+            },
+          },
+        }));
+      }
       return new Response(JSON.stringify(payload));
     },
   });
   const models = result.models;
 
-  assert.deepEqual(calls, ['https://assets.ngc.nvidia.com/products/api-catalog/featured-models.json']);
+  assert.deepEqual(calls, [
+    OPENCLAW_CATALOGS.nvidia.url,
+    'https://assets.ngc.nvidia.com/products/api-catalog/featured-models.json',
+  ]);
   assert.deepEqual(result.warnings, []);
   assert.deepEqual(models.map((model) => model.id), ['nvidia/nemotron-test', 'meta/llama-test']);
   assert.deepEqual(models[0], {
@@ -396,7 +659,9 @@ test('OpenRouter discovery preserves authoritative metadata and rejects non-text
   assert.equal(models[1].maxOutputTokens, null);
 });
 
-test('Cohere discovery rejects deprecated rows and fills only exact-model seed metadata', async () => {
+test('Cohere discovery rejects deprecated rows and fills only exact-model seed metadata', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cohere-catalog-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
   const payload = {
     models: [
       { name: 'command-a-plus-05-2026', is_deprecated: false },
@@ -414,6 +679,7 @@ test('Cohere discovery rejects deprecated rows and fills only exact-model seed m
   const result = await cohere.discover({
     baseUrl: 'https://api.cohere.ai/compatibility/v1/',
     apiKey: 'cohere-key',
+    cacheDir,
     fetchImpl: async (url, options) => {
       assert.equal(url, 'https://api.cohere.com/v1/models?endpoint=chat&page_size=1000');
       assert.equal(options.headers.Authorization, 'Bearer cohere-key');
@@ -433,6 +699,54 @@ test('Cohere discovery rejects deprecated rows and fills only exact-model seed m
   assert.equal(result.models[1].contextWindow, 99999);
   assert.equal(result.models[1].toolCalling, true);
   assert.equal(result.models[1].metadataSources.contextWindow, 'provider-catalog');
+});
+
+test('Cohere discovery enriches live accessible models from the daily OpenClaw catalog', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cohere-openclaw-enrich-'));
+  const staticPayload = {
+    modelCatalog: {
+      providers: {
+        cohere: {
+          baseUrl: 'https://api.cohere.ai/compatibility/v1',
+          models: [{
+            id: 'command-synced',
+            name: 'Command Synced',
+            input: ['text', 'image'],
+            contextWindow: 200000,
+            maxTokens: 16000,
+            reasoning: true,
+            compat: { supportsTools: true },
+          }],
+        },
+      },
+    },
+  };
+  try {
+    const result = await cohere.discover({
+      baseUrl: cohere.BASE_URL,
+      apiKey: 'cohere-secret',
+      cacheDir,
+      now: () => 1000,
+      fetchImpl: async (url, options) => {
+        if (url === OPENCLAW_CATALOGS.cohere.url) {
+          assert.equal(options.headers.Authorization, undefined);
+          return new Response(JSON.stringify(staticPayload));
+        }
+        assert.equal(url, cohere.ENDPOINT);
+        assert.equal(options.headers.Authorization, 'Bearer cohere-secret');
+        return new Response(JSON.stringify({ models: [{ name: 'command-synced' }] }));
+      },
+    });
+    assert.equal(result.models.length, 1);
+    assert.equal(result.models[0].displayName, 'Command Synced');
+    assert.equal(result.models[0].contextWindow, 200000);
+    assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
+    assert.equal(result.models[0].reasoning, true);
+    assert.equal(result.models[0].toolCalling, true);
+    assert.equal(result.models[0].metadataSources.contextWindow, 'provider-seed');
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
 });
 
 test('Cohere discovery skips noncanonical base URLs without probing them', async () => {
@@ -460,6 +774,7 @@ test('Ollama discovery combines native context metadata with num_ctx and tolerat
   let maxActive = 0;
   const fetchImpl = async (url, options) => {
     assert.equal(url, 'http://localhost:11434/api/show');
+    assert.equal(options.headers.Authorization, undefined);
     const body = JSON.parse(options.body);
     active += 1;
     maxActive = Math.max(maxActive, active);
@@ -482,6 +797,7 @@ test('Ollama discovery combines native context metadata with num_ctx and tolerat
 
   const result = await ollama.discover({
     baseUrl: 'http://localhost:11434/v1',
+    apiKey: 'must-not-reach-local-ollama',
     detectionPayload: tagsPayload,
     suppliedModels: ['extra-model'],
     concurrency: 2,
@@ -537,8 +853,26 @@ test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unm
       suppliedModels: ['private/model'],
       cacheDir,
       now: () => 1000,
-      fetchImpl: async () => {
+      fetchImpl: async (url) => {
         calls += 1;
+        if (String(url) === OPENCLAW_CATALOGS.nvidia.url) {
+          return new Response(JSON.stringify({
+            modelCatalog: {
+              providers: {
+                nvidia: {
+                  baseUrl: 'https://integrate.api.nvidia.com/v1',
+                  models: [{
+                    id: 'nvidia/featured',
+                    name: 'Featured',
+                    input: ['text'],
+                    contextWindow: 32000,
+                    maxTokens: 4000,
+                  }],
+                },
+              },
+            },
+          }));
+        }
         return new Response(JSON.stringify({
           'featured-models': [
             { model: 'featured', 'model-name': 'Featured', context: 32000, 'max-output': 4000 },
@@ -565,7 +899,7 @@ test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unm
       },
     });
     assert.equal(fresh.cacheStatus, 'fresh');
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });
   }
