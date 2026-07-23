@@ -10,3 +10,4 @@ proxy-models.toml.local
 imagine.toml
 launcher-state.json
 presets/*.toml
+model-discovery-cache/*
