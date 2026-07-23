@@ -24,6 +24,7 @@ const METADATA_SOURCE_VALUES = new Set([
 ]);
 const MODALITY_SET = new Set(MODALITIES);
 const REASONING_LEVEL_SET = new Set(REASONING_LEVELS);
+const DATA_ORIGINS = new Set(['live', 'cache', 'bundled', 'static', 'supplied']);
 
 function digest(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -93,6 +94,8 @@ function validDocument(document, options, identity) {
     && document.endpointDigest === identity.endpointDigest
     && document.authScopeDigest === identity.authScopeDigest
     && Number.isFinite(document.fetchedAt)
+    && (document.origin === undefined || DATA_ORIGINS.has(document.origin))
+    && (document.complete === undefined || typeof document.complete === 'boolean')
     && Array.isArray(document.models)
     && document.models.length > 0
     && document.models.every((model) => validModel(
@@ -110,13 +113,15 @@ function readCache(options, identity) {
     if (!validDocument(document, options, identity)) throw new Error('invalid cache schema');
     document.models = document.models.map(upgradeModel);
     document.schemaVersion = SCHEMA_VERSION;
+    document.origin = document.origin || 'cache';
+    document.complete = document.complete === true;
     return { document, warning: null };
   } catch {
     return { document: null, warning: 'Ignored an invalid provider discovery cache file.' };
   }
 }
 
-function writeCache(options, identity, models, fetchedAt) {
+function writeCache(options, identity, models, fetchedAt, metadata = {}) {
   if (!Array.isArray(models) || models.length === 0 || !models.every(validModel)) {
     throw discoveryError('INVALID_SCHEMA', options.provider, 'Provider catalog contained no valid models.');
   }
@@ -128,6 +133,8 @@ function writeCache(options, identity, models, fetchedAt) {
     endpointDigest: identity.endpointDigest,
     authScopeDigest: identity.authScopeDigest,
     fetchedAt,
+    origin: DATA_ORIGINS.has(metadata.origin) ? metadata.origin : 'cache',
+    complete: metadata.complete === true,
     models: models.map(sanitizeModelForCache),
   };
   const temporary = path.join(
@@ -150,27 +157,53 @@ async function withProviderCache(options, refresh) {
   const cached = readCache(options, identity);
   const warnings = cached.warning ? [cached.warning] : [];
   if (cached.document && now - cached.document.fetchedAt <= options.ttlMs) {
-    return { models: cached.document.models, cacheStatus: 'fresh', warnings };
+    return {
+      models: cached.document.models,
+      cacheStatus: 'fresh',
+      warnings,
+      origin: cached.document.origin,
+      complete: cached.document.complete,
+    };
   }
 
   try {
     const refreshed = await refresh();
     const models = Array.isArray(refreshed) ? refreshed : refreshed.models;
     const fallback = Array.isArray(refreshed) ? null : refreshed.fallback;
+    const metadata = Array.isArray(refreshed)
+      ? { origin: 'cache', complete: false }
+      : { origin: refreshed.origin, complete: refreshed.complete };
     if (fallback) {
       if (cached.document) {
         warnings.push(...(fallback.warnings || []), 'Provider catalog refresh failed; using the last successful cache file.');
-        return { models: cached.document.models, cacheStatus: 'stale', warnings };
+        return {
+          models: cached.document.models,
+          cacheStatus: 'stale',
+          warnings,
+          origin: cached.document.origin,
+          complete: cached.document.complete,
+        };
       }
-      return { models, cacheStatus: fallback.cacheStatus || 'fallback', warnings: [...warnings, ...(fallback.warnings || [])] };
+      return {
+        models,
+        cacheStatus: fallback.cacheStatus || 'fallback',
+        warnings: [...warnings, ...(fallback.warnings || [])],
+        ...metadata,
+      };
     }
-    writeCache(options, identity, models, now);
-    return { models, cacheStatus: 'refreshed', warnings };
+    writeCache(options, identity, models, now, metadata);
+    return { models, cacheStatus: 'refreshed', warnings, ...metadata };
   } catch (error) {
     if ((options.signal && options.signal.aborted) || (error && error.code === 'CANCELLED')) throw error;
     if (cached.document) {
       warnings.push('Provider catalog refresh failed; using the last successful cache file.');
-      return { models: cached.document.models, cacheStatus: 'stale', warnings };
+      return {
+        models: cached.document.models,
+        cacheStatus: 'stale',
+        warnings,
+        origin: cached.document.origin,
+        complete: cached.document.complete,
+      };
     }
     if (error && error.code) throw error;
     throw discoveryError('REFRESH_FAILED', options.provider, 'Provider catalog refresh failed.', error);

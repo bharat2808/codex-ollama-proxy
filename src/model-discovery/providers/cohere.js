@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { adapterResult } = require('../adapter-result');
 const { loadOpenClawCatalog } = require('../openclaw-catalog');
 const {
   MAX_CONTEXT_WINDOW,
@@ -101,7 +102,12 @@ function parseRow(row, seeds = new Map()) {
 
 async function discover(options = {}) {
   if (normalizedUrl(options.baseUrl) !== BASE_URL) {
-    return { models: [], warnings: ['Skipped Cohere discovery for a noncanonical base URL.'] };
+    return adapterResult({
+      models: [],
+      warnings: ['Skipped Cohere discovery for a noncanonical base URL.'],
+      origin: 'supplied',
+      complete: false,
+    });
   }
   const staticCatalog = await loadOpenClawCatalog({
     provider: 'cohere',
@@ -126,13 +132,19 @@ async function discover(options = {}) {
     });
   } catch (error) {
     if (options.signal && options.signal.aborted) throw error;
-    return {
+    return adapterResult({
       models: staticCatalog.models,
       warnings: [
         ...staticCatalog.warnings,
         'Cohere live catalog refresh failed; using the OpenClaw static catalog.',
       ],
-    };
+      origin: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
+      complete: false,
+      fallback: {
+        cacheStatus: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
+        warnings: ['Cohere live catalog refresh failed; using the OpenClaw static catalog.'],
+      },
+    });
   }
   const rows = payload && typeof payload === 'object' && Array.isArray(payload.models)
     ? payload.models
@@ -142,7 +154,12 @@ async function discover(options = {}) {
     const model = parseRow(row, seeds);
     if (model && !unique.has(model.id)) unique.set(model.id, model);
   }
-  return { models: [...unique.values()], warnings: staticCatalog.warnings };
+  return adapterResult({
+    models: [...unique.values()],
+    warnings: staticCatalog.warnings,
+    origin: 'live',
+    complete: true,
+  });
 }
 
 module.exports = { BASE_URL, CACHE_TTL_MS, ENDPOINT, discover, parseRow };

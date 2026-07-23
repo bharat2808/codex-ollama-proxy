@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { adapterResult } = require('../adapter-result');
 const { loadOpenClawCatalog } = require('../openclaw-catalog');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
@@ -84,10 +85,12 @@ async function discover(options = {}) {
     warnings.push('NVIDIA featured catalog refresh failed; using the OpenClaw static catalog.');
   }
   const seen = new Set(liveModels.map((model) => model.id));
-  return {
+  return adapterResult({
     models: [...liveModels, ...staticCatalog.models.filter((model) => !seen.has(model.id))],
     warnings,
-  };
+    origin: liveModels.length ? 'live' : (staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static'),
+    complete: false,
+  });
 }
 
 module.exports = { CACHE_TTL_MS, ENDPOINT, discover, parseRow };

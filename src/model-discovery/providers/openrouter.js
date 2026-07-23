@@ -1,14 +1,20 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { adapterResult } = require('../adapter-result');
 const {
   MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
-  boundedPositiveInteger,
   emptyMetadataSources,
   isObviousNonTextModelId,
   normalizeModelId,
 } = require('../normalize');
+const {
+  firstBoundedPositiveInteger,
+  isUnavailableModelRow,
+  normalizedStrings,
+  record,
+} = require('../model-row-utils');
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/models';
 const CACHE_TTL_MS = 60000;
@@ -42,26 +48,8 @@ function fallbackModels() {
   }));
 }
 
-function record(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
-}
-
-function positiveInteger(maximum, ...values) {
-  for (const value of values) {
-    const parsed = boundedPositiveInteger(value, maximum);
-    if (parsed !== null) return parsed;
-  }
-  return null;
-}
-
-function strings(value) {
-  return Array.isArray(value)
-    ? value.filter((entry) => typeof entry === 'string').map((entry) => entry.trim().toLowerCase())
-    : [];
-}
-
 function modalities(architecture, direction) {
-  const explicit = strings(architecture && architecture[`${direction}_modalities`]);
+  const explicit = normalizedStrings(architecture && architecture[`${direction}_modalities`]);
   if (explicit.length) return explicit;
   if (!architecture || typeof architecture.modality !== 'string') return [];
   const [input = '', output = ''] = architecture.modality.toLowerCase().split('->', 2);
@@ -70,8 +58,7 @@ function modalities(architecture, direction) {
 
 function parseRow(row) {
   const value = record(row);
-  if (!value || value.active === false || value.enabled === false || value.available === false) return null;
-  if (value.archived === true || value.deprecated === true) return null;
+  if (isUnavailableModelRow(value)) return null;
   let id;
   try { id = normalizeModelId(value.id); } catch { return null; }
   const architecture = record(value.architecture);
@@ -79,14 +66,14 @@ function parseRow(row) {
   if (outputModalities.length && !outputModalities.includes('text')) return null;
   if (!outputModalities.length && isObviousNonTextModelId(id)) return null;
   const input = modalities(architecture, 'input');
-  const parameters = strings(value.supported_parameters);
+  const parameters = normalizedStrings(value.supported_parameters);
   const topProvider = record(value.top_provider);
-  const contextWindow = positiveInteger(
+  const contextWindow = firstBoundedPositiveInteger(
     MAX_CONTEXT_WINDOW,
     topProvider && topProvider.context_length,
     value.context_length,
   );
-  const maxOutputTokens = positiveInteger(
+  const maxOutputTokens = firstBoundedPositiveInteger(
     MAX_OUTPUT_TOKENS,
     topProvider && topProvider.max_completion_tokens,
     value.max_completion_tokens,
@@ -136,11 +123,13 @@ async function discover(options = {}) {
   } catch (error) {
     if (options.signal && options.signal.aborted) throw error;
     const warnings = ['OpenRouter live catalog refresh failed; using the bundled OpenClaw seed.'];
-    return {
+    return adapterResult({
       models: fallbackModels(),
       warnings,
+      origin: 'bundled',
+      complete: false,
       fallback: { cacheStatus: 'bundled', warnings },
-    };
+    });
   }
   const rows = payload && typeof payload === 'object' && Array.isArray(payload.data) ? payload.data : [];
   const unique = new Map();
@@ -148,10 +137,12 @@ async function discover(options = {}) {
     const model = parseRow(row);
     if (model && !unique.has(model.id)) unique.set(model.id, model);
   }
-  return {
+  return adapterResult({
     models: [...unique.values()].sort((left, right) => left.id.localeCompare(right.id)),
     warnings: [],
-  };
+    origin: 'live',
+    complete: true,
+  });
 }
 
 module.exports = { CACHE_TTL_MS, ENDPOINT, discover, fallbackModels, parseRow };

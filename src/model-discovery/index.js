@@ -7,58 +7,27 @@ const {
   mergeDiscoveredWithSupplied,
   normalizeSuppliedModels,
 } = require('./normalize');
+const { createDiscoveryResult } = require('./discovery-result');
 const { resolveProvider } = require('./provider-resolution');
-const nvidia = require('./providers/nvidia');
-const openrouter = require('./providers/openrouter');
-const cohere = require('./providers/cohere');
 const ollama = require('./providers/ollama');
-const zai = require('./providers/zai');
-const moonshot = require('./providers/moonshot');
-const deepseek = require('./providers/deepseek');
-const google = require('./providers/google');
-const xai = require('./providers/xai');
-const custom = require('./providers/custom');
+const { cacheEndpointFor, PROVIDERS } = require('./provider-registry');
 
-const ADAPTERS = {
-  nvidia, openrouter, cohere, ollama,
-  zai, moonshot, deepseek, google, xai, custom,
-};
+const ADAPTERS = Object.fromEntries(
+  Object.entries(PROVIDERS).map(([provider, definition]) => [provider, definition.adapter]),
+);
 
 function defaultCacheDir() {
   const codexDir = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
   return path.join(codexDir, 'ollama-shape-proxy', 'model-discovery-cache');
 }
 
-function normalizedUrl(value) {
-  try {
-    const url = new URL(value);
-    const pathname = url.pathname.replace(/\/+$/u, '') || '/';
-    return url.origin + (pathname === '/' ? '' : pathname);
-  } catch {
-    return '';
-  }
-}
-
-function cacheEndpoint(provider, options) {
-  if (provider === 'nvidia') return nvidia.ENDPOINT;
-  if (provider === 'openrouter') return openrouter.ENDPOINT;
-  if (provider === 'cohere') {
-    const baseUrl = options.baseUrl || cohere.BASE_URL;
-    return normalizedUrl(baseUrl) === cohere.BASE_URL ? cohere.ENDPOINT : null;
-  }
-  if (provider === 'ollama') return `${ollama.resolveApiBase(options.baseUrl)}/api/tags`;
-  if (ADAPTERS[provider] && typeof ADAPTERS[provider].endpointFor === 'function') {
-    return ADAPTERS[provider].endpointFor(options.baseUrl);
-  }
-  return null;
-}
-
 function providerTraits(provider, baseUrl) {
   const localOllama = provider === 'ollama' && ollama.isLocalBaseUrl(baseUrl);
+  const staticTraits = provider && PROVIDERS[provider] ? PROVIDERS[provider].traits : {};
   return {
-    inventoryComplete: provider === 'ollama',
+    inventoryComplete: Boolean(staticTraits.inventoryComplete),
     local: localOllama,
-    nativeInspection: provider === 'ollama',
+    nativeInspection: Boolean(staticTraits.nativeInspection),
     supportsCloudPull: localOllama,
   };
 }
@@ -75,16 +44,17 @@ async function discoverModels(options = {}) {
   });
 
   if (!resolution.provider) {
-    return {
+    return createDiscoveryResult({
       provider: null,
       providerResolution: resolution.providerResolution,
       traits: providerTraits(null, options.baseUrl),
       source: supplied.length ? 'supplied' : 'none',
+      dataOrigin: supplied.length ? 'supplied' : 'none',
       cacheStatus: 'none',
       discoverySkipped: true,
       models: supplied,
       warnings: [],
-    };
+    });
   }
 
   const adapter = ADAPTERS[resolution.provider];
@@ -100,31 +70,33 @@ async function discoverModels(options = {}) {
     cacheDir: options.cacheDir || defaultCacheDir(),
     now: options.now,
   };
-  const endpoint = cacheEndpoint(resolution.provider, options);
+  const endpoint = cacheEndpointFor(resolution.provider, options);
   if (resolution.provider === 'custom' && supplied.length === 0) {
-    return {
+    return createDiscoveryResult({
       provider: 'custom',
       providerResolution: resolution.providerResolution,
       traits,
       source: 'custom',
+      dataOrigin: 'supplied',
       cacheStatus: 'none',
       discoverySkipped: true,
       models: [],
       warnings: [],
-    };
+    });
   }
   if (!endpoint) {
     const result = await adapter.discover(adapterOptions);
-    return {
+    return createDiscoveryResult({
       provider: resolution.provider,
       providerResolution: resolution.providerResolution,
-      traits,
+      traits: { ...traits, inventoryComplete: result.complete },
       source: resolution.provider,
+      dataOrigin: result.origin,
       cacheStatus: 'none',
       discoverySkipped: true,
       models: mergeDiscoveredWithSupplied(result.models, supplied),
       warnings: result.warnings,
-    };
+    });
   }
 
   let adapterWarnings = [];
@@ -139,21 +111,25 @@ async function discoverModels(options = {}) {
   }, async () => {
     const result = await adapter.discover(adapterOptions);
     adapterWarnings = result.warnings;
-    return result.fallback
-      ? { models: result.models, fallback: result.fallback }
-      : result.models;
+    return {
+      models: result.models,
+      fallback: result.fallback,
+      origin: result.origin,
+      complete: result.complete,
+    };
   });
 
-  return {
+  return createDiscoveryResult({
     provider: resolution.provider,
     providerResolution: resolution.providerResolution,
-    traits,
+    traits: { ...traits, inventoryComplete: cached.complete },
     source: resolution.provider,
+    dataOrigin: cached.origin,
     cacheStatus: cached.cacheStatus,
     discoverySkipped: false,
     models: mergeDiscoveredWithSupplied(cached.models, supplied),
-    warnings: [...cached.warnings, ...adapterWarnings],
-  };
+    warnings: [...new Set([...cached.warnings, ...adapterWarnings])],
+  });
 }
 
 module.exports = { ADAPTERS, discoverModels };

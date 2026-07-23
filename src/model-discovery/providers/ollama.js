@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { adapterResult } = require('../adapter-result');
 const { loadBundledOpenClawCatalog } = require('../openclaw-catalog');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
@@ -188,10 +189,12 @@ async function discover(options = {}) {
     }
   });
   const discoveredIds = new Set(models.map((model) => model.id));
-  return {
+  return adapterResult({
     models: [...models, ...cloudCatalog.models.filter((model) => !discoveredIds.has(model.id))],
     warnings,
-  };
+    origin: 'live',
+    complete: true,
+  });
 }
 
 module.exports = {

@@ -1,6 +1,7 @@
 'use strict';
 
 const shared = require('./allowlisted-provider-catalog');
+const { adapterResult } = require('../adapter-result');
 const { loadXaiSuppressions } = require('../openclaw-suppressions');
 
 const BASE_URL = 'https://api.x.ai/v1';
@@ -13,10 +14,13 @@ async function discover(options = {}) {
     resolveBaseUrl: (value) => shared.exactBaseUrl(value, [BASE_URL], BASE_URL),
   });
   const suppressed = new Set(suppressions.models);
-  return {
+  return adapterResult({
     models: result.models.filter((model) => !suppressed.has(model.id)),
     warnings: [...suppressions.warnings, ...result.warnings],
-  };
+    origin: result.origin,
+    complete: result.complete,
+    fallback: result.fallback,
+  });
 }
 
 function endpointFor(baseUrl) {

@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { adapterResult } = require('../adapter-result');
 const { emptyMetadataSources, isObviousNonTextModelId, normalizeModelId } = require('../normalize');
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai';
@@ -62,7 +63,12 @@ async function discover(options = {}) {
     const model = parseRow(row);
     if (model && !models.has(model.id)) models.set(model.id, model);
   }
-  return { models: [...models.values()], warnings: [] };
+  return adapterResult({
+    models: [...models.values()],
+    warnings: [],
+    origin: 'live',
+    complete: true,
+  });
 }
 
 function endpointFor(baseUrl) {

@@ -642,15 +642,19 @@ test('provider cache returns fresh data then the last successful stale data on r
     };
     const first = await withProviderCache({ ...common, now: () => 1000 }, async () => {
       refreshes += 1;
-      return [model];
+      return { models: [model], origin: 'live', complete: true };
     });
     assert.equal(first.cacheStatus, 'refreshed');
+    assert.equal(first.origin, 'live');
+    assert.equal(first.complete, true);
 
     const fresh = await withProviderCache({ ...common, now: () => 1500 }, async () => {
       refreshes += 1;
       throw new Error('must not refresh');
     });
     assert.equal(fresh.cacheStatus, 'fresh');
+    assert.equal(fresh.origin, 'live');
+    assert.equal(fresh.complete, true);
     assert.equal(refreshes, 1);
 
     const stale = await withProviderCache({ ...common, now: () => 3000 }, async () => {
@@ -658,6 +662,8 @@ test('provider cache returns fresh data then the last successful stale data on r
       throw new Error('provider offline');
     });
     assert.equal(stale.cacheStatus, 'stale');
+    assert.equal(stale.origin, 'live');
+    assert.equal(stale.complete, true);
     assert.deepEqual(stale.models.map((entry) => entry.id), ['provider/model']);
     assert.match(stale.warnings[0], /refresh failed/i);
 

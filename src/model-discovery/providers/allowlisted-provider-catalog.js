@@ -1,56 +1,43 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { adapterResult } = require('../adapter-result');
 const { loadOpenClawCatalog } = require('../openclaw-catalog');
 const {
   MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
-  boundedPositiveInteger,
   emptyMetadataSources,
   isObviousNonTextModelId,
   normalizeModelId,
   normalizeReasoningLevels,
 } = require('../normalize');
+const {
+  firstBoundedPositiveInteger,
+  isUnavailableModelRow,
+  normalizedStrings,
+  record,
+} = require('../model-row-utils');
 
 const CACHE_TTL_MS = 60000;
 const KNOWN_MODALITIES = new Set(['text', 'image', 'audio', 'video', 'document']);
 
-function record(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
-}
-
-function positiveInteger(maximum, ...values) {
-  for (const value of values) {
-    const parsed = boundedPositiveInteger(value, maximum);
-    if (parsed !== null) return parsed;
-  }
-  return null;
-}
-
-function strings(value) {
-  return Array.isArray(value)
-    ? value.filter((entry) => typeof entry === 'string').map((entry) => entry.trim().toLowerCase())
-    : [];
-}
-
 function parseLiveRow(row, source) {
   const value = record(row);
-  if (!value || value.active === false || value.enabled === false || value.available === false) return null;
-  if (value.archived === true || value.deprecated === true) return null;
+  if (isUnavailableModelRow(value)) return null;
   let id;
   try { id = normalizeModelId(value.id || value.name || value.model); } catch { return null; }
   if (isObviousNonTextModelId(id)) return null;
-  const outputModalities = strings(value.output_modalities || value.outputModalities);
+  const outputModalities = normalizedStrings(value.output_modalities || value.outputModalities);
   if (outputModalities.length && !outputModalities.includes('text')) return null;
-  const input = strings(value.input_modalities || value.inputModalities)
+  const input = normalizedStrings(value.input_modalities || value.inputModalities)
     .filter((modality) => KNOWN_MODALITIES.has(modality));
-  const contextWindow = positiveInteger(
+  const contextWindow = firstBoundedPositiveInteger(
     MAX_CONTEXT_WINDOW,
     value.context_window,
     value.contextWindow,
     value.context_length,
   );
-  const maxOutputTokens = positiveInteger(
+  const maxOutputTokens = firstBoundedPositiveInteger(
     MAX_OUTPUT_TOKENS,
     value.max_output_tokens,
     value.maxOutputTokens,
@@ -140,18 +127,25 @@ async function discoverCompatible(options, config) {
       const live = parseLiveRow(row, `${config.provider}-catalog`);
       if (live && !unique.has(live.id)) unique.set(live.id, enrichLiveModel(live, seeds.get(live.id)));
     }
-    return { models: [...unique.values()], warnings: staticCatalog.warnings };
+    return adapterResult({
+      models: [...unique.values()],
+      warnings: staticCatalog.warnings,
+      origin: 'live',
+      complete: true,
+    });
   } catch (error) {
     if (options.signal && options.signal.aborted) throw error;
     if (!staticCatalog.models.length) throw error;
-    return {
+    return adapterResult({
       models: staticCatalog.models,
       warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its OpenClaw static catalog.`],
+      origin: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
+      complete: false,
       fallback: {
         cacheStatus: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
         warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its OpenClaw static catalog.`],
       },
-    };
+    });
   }
 }
 
@@ -168,8 +162,27 @@ function exactBaseUrl(value, allowed, fallback) {
   return normalized;
 }
 
+function defineCompatibleProvider(config) {
+  const baseUrls = [...config.baseUrls];
+  const defaultBaseUrl = config.defaultBaseUrl || baseUrls[0];
+  const resolveBaseUrl = (value) => exactBaseUrl(value, baseUrls, defaultBaseUrl);
+  return {
+    BASE_URL: defaultBaseUrl,
+    CACHE_TTL_MS,
+    ENDPOINT: `${defaultBaseUrl}/models`,
+    discover: (options = {}) => discoverCompatible(options, {
+      provider: config.provider,
+      staticProvider: config.staticProvider,
+      resolveBaseUrl,
+    }),
+    endpointFor: (baseUrl) => `${resolveBaseUrl(baseUrl)}/models`,
+    resolveBaseUrl,
+  };
+}
+
 module.exports = {
   CACHE_TTL_MS,
+  defineCompatibleProvider,
   discoverCompatible,
   exactBaseUrl,
   parseLiveRow,

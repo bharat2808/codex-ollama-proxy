@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { adapterResult } = require('../adapter-result');
 const {
   CACHE_TTL_MS,
   parseLiveRow,
@@ -42,7 +43,11 @@ function modelRows(payload) {
 
 async function discover(options = {}) {
   const suppliedIds = Array.isArray(options.suppliedModels) ? options.suppliedModels : [];
-  if (suppliedIds.length === 0) return { models: [], warnings: [] };
+  if (suppliedIds.length === 0) {
+    return adapterResult({
+      models: [], warnings: [], origin: 'supplied', complete: false,
+    });
+  }
   const baseUrl = resolveBaseUrl(options.baseUrl);
   try {
     const payload = await fetchJson({
@@ -63,15 +68,19 @@ async function discover(options = {}) {
       const model = parseLiveRow(row, 'custom-catalog');
       if (model && !unique.has(model.id)) unique.set(model.id, model);
     }
-    return { models: [...unique.values()], warnings: [] };
+    return adapterResult({
+      models: [...unique.values()], warnings: [], origin: 'live', complete: false,
+    });
   } catch (error) {
     if (options.signal && options.signal.aborted) throw error;
     const warnings = ['Custom model catalog refresh failed; using supplied model IDs.'];
-    return {
+    return adapterResult({
       models: [],
       warnings,
+      origin: 'supplied',
+      complete: false,
       fallback: { cacheStatus: 'supplied', warnings },
-    };
+    });
   }
 }
 
