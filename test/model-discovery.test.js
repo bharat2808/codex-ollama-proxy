@@ -88,6 +88,57 @@ test('Ollama Cloud catalog parsing requires the distinct cloud provider base URL
   assert.throws(() => parseOpenClawCatalog('ollama-cloud', payload), /base URL/i);
 });
 
+test('bundled provider snapshots preserve provider-native Ollama and Moonshot capabilities', () => {
+  const ollamaCloud = require('../src/model-discovery/catalogs/openclaw/ollama-cloud.json');
+  const ollamaModels = new Map(
+    ollamaCloud.modelCatalog.providers['ollama-cloud'].models.map((model) => [model.id, model]),
+  );
+  assert.equal(ollamaModels.get('kimi-k2.5:cloud').contextWindow, 262144);
+  assert.deepEqual(ollamaModels.get('kimi-k2.5:cloud').input, ['text', 'image']);
+  assert.equal(ollamaModels.get('minimax-m2.7:cloud').contextWindow, 196608);
+  assert.equal(ollamaModels.get('glm-5.1:cloud').contextWindow, 202752);
+
+  const moonshotCatalog = require('../src/model-discovery/catalogs/openclaw/moonshot.json');
+  const moonshotModels = new Map(
+    moonshotCatalog.modelCatalog.providers.moonshot.models.map((model) => [model.id, model]),
+  );
+  assert.equal(moonshotModels.get('kimi-k2.6').reasoning, true);
+  assert.equal(moonshotModels.get('kimi-k2.5').reasoning, true);
+});
+
+test('provider-native corrections override stale OpenClaw catalog metadata', () => {
+  const ollamaModels = parseOpenClawCatalog('ollama-cloud', {
+    modelCatalog: { providers: { 'ollama-cloud': {
+      baseUrl: 'https://ollama.com',
+      models: [
+        { id: 'kimi-k2.5:cloud', input: ['text'], contextWindow: 128000 },
+        { id: 'minimax-m2.7:cloud', input: ['text'], contextWindow: 128000 },
+        { id: 'glm-5.1:cloud', input: ['text'], contextWindow: 128000 },
+      ],
+    } } },
+  });
+  assert.deepEqual(ollamaModels.map((model) => ({
+    id: model.id,
+    contextWindow: model.contextWindow,
+    inputModalities: model.inputModalities,
+  })), [
+    { id: 'kimi-k2.5:cloud', contextWindow: 262144, inputModalities: ['text', 'image'] },
+    { id: 'minimax-m2.7:cloud', contextWindow: 196608, inputModalities: ['text'] },
+    { id: 'glm-5.1:cloud', contextWindow: 202752, inputModalities: ['text'] },
+  ]);
+
+  const moonshotModels = parseOpenClawCatalog('moonshot', {
+    modelCatalog: { providers: { moonshot: {
+      baseUrl: 'https://api.moonshot.ai/v1',
+      models: [
+        { id: 'kimi-k2.6', input: ['text', 'image'] },
+        { id: 'kimi-k2.5', input: ['text', 'image'] },
+      ],
+    } } },
+  });
+  assert.deepEqual(moonshotModels.map((model) => model.reasoning), [true, true]);
+});
+
 test('OpenClaw catalog parsing validates provider identity and drops deprecated models', () => {
   const payload = {
     modelCatalog: {

@@ -17,6 +17,17 @@ const {
 const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_ROWS = 1000;
 const MODALITIES = new Set(['text', 'image', 'audio', 'video', 'document']);
+const PROVIDER_MODEL_CORRECTIONS = Object.freeze({
+  'ollama-cloud': Object.freeze({
+    'kimi-k2.5:cloud': Object.freeze({ contextWindow: 262144, input: ['text', 'image'] }),
+    'minimax-m2.7:cloud': Object.freeze({ contextWindow: 196608 }),
+    'glm-5.1:cloud': Object.freeze({ contextWindow: 202752 }),
+  }),
+  moonshot: Object.freeze({
+    'kimi-k2.6': Object.freeze({ reasoning: true }),
+    'kimi-k2.5': Object.freeze({ reasoning: true }),
+  }),
+});
 const OPENCLAW_CATALOGS = Object.freeze({
   nvidia: Object.freeze({
     url: 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/nvidia/openclaw.plugin.json',
@@ -85,6 +96,14 @@ function inputModalities(value) {
   return normalized.length ? normalized : null;
 }
 
+function applyProviderModelCorrections(provider, row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.id !== 'string') {
+    return row;
+  }
+  const correction = PROVIDER_MODEL_CORRECTIONS[provider]?.[row.id];
+  return correction ? { ...row, ...correction } : row;
+}
+
 function parseRow(row) {
   if (!row || typeof row !== 'object' || Array.isArray(row) || row.status === 'deprecated') return null;
   let id;
@@ -149,7 +168,7 @@ function parseOpenClawCatalog(provider, payload) {
   const models = [];
   const seen = new Set();
   for (const row of providerCatalog.models.slice(0, MAX_ROWS)) {
-    const model = parseRow(row);
+    const model = parseRow(applyProviderModelCorrections(provider, row));
     if (!model || seen.has(model.id)) continue;
     seen.add(model.id);
     models.push(model);
