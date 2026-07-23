@@ -9,6 +9,7 @@ const {
   emptyMetadataSources,
   isObviousNonTextModelId,
   normalizeModelId,
+  normalizeReasoningLevels,
 } = require('../normalize');
 
 const CACHE_TTL_MS = 60000;
@@ -58,6 +59,9 @@ function parseLiveRow(row, source) {
   const reasoning = typeof value.reasoning === 'boolean'
     ? value.reasoning
     : typeof value.supports_reasoning === 'boolean' ? value.supports_reasoning : null;
+  const reasoningLevels = normalizeReasoningLevels(
+    value.reasoning_levels || value.reasoningLevels || value.supported_reasoning_levels,
+  );
   const toolCalling = typeof value.supports_tools === 'boolean'
     ? value.supports_tools
     : typeof value.tool_calling === 'boolean' ? value.tool_calling : null;
@@ -65,7 +69,9 @@ function parseLiveRow(row, source) {
   if (contextWindow !== null) metadataSources.contextWindow = 'provider-catalog';
   if (maxOutputTokens !== null) metadataSources.maxOutputTokens = 'provider-catalog';
   if (input.length) metadataSources.inputModalities = 'provider-catalog';
+  if (outputModalities.length) metadataSources.outputModalities = 'provider-catalog';
   if (reasoning !== null) metadataSources.reasoning = 'provider-catalog';
+  if (reasoningLevels !== null) metadataSources.reasoningLevels = 'provider-catalog';
   if (toolCalling !== null) metadataSources.toolCalling = 'provider-catalog';
   return {
     id,
@@ -73,7 +79,9 @@ function parseLiveRow(row, source) {
     contextWindow,
     maxOutputTokens,
     inputModalities: input.length ? [...new Set(input)] : null,
+    outputModalities: outputModalities.length ? [...new Set(outputModalities.filter((modality) => KNOWN_MODALITIES.has(modality)))] : null,
     reasoning,
+    reasoningLevels,
     toolCalling,
     metadataSources,
     source,
@@ -83,7 +91,7 @@ function parseLiveRow(row, source) {
 function enrichLiveModel(live, seed) {
   if (!seed) return live;
   const enriched = { ...live, metadataSources: { ...live.metadataSources } };
-  for (const field of ['contextWindow', 'maxOutputTokens', 'inputModalities', 'reasoning', 'toolCalling']) {
+  for (const field of ['contextWindow', 'maxOutputTokens', 'inputModalities', 'outputModalities', 'reasoning', 'reasoningLevels', 'toolCalling']) {
     if (enriched[field] === null && seed[field] !== null) {
       enriched[field] = seed[field];
       enriched.metadataSources[field] = 'provider-seed';

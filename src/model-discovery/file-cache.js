@@ -20,6 +20,7 @@ const METADATA_SOURCE_VALUES = new Set([
   'provider-seed',
 ]);
 const MODALITIES = new Set(['text', 'image', 'audio', 'video', 'document']);
+const REASONING_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
 function digest(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -43,15 +44,36 @@ function validModel(model) {
   if (typeof model.displayName !== 'string' || !model.displayName.trim()) return false;
   if (!nullableBoundedPositiveInteger(model.contextWindow, MAX_CONTEXT_WINDOW)) return false;
   if (!nullableBoundedPositiveInteger(model.maxOutputTokens, MAX_OUTPUT_TOKENS)) return false;
-  if (model.inputModalities !== null) {
-    if (!Array.isArray(model.inputModalities) || model.inputModalities.length === 0) return false;
-    if (model.inputModalities.some((value) => !MODALITIES.has(value))) return false;
+  for (const field of ['inputModalities', 'outputModalities']) {
+    if (model[field] === undefined && field === 'outputModalities') continue;
+    if (model[field] !== null) {
+      if (!Array.isArray(model[field]) || model[field].length === 0) return false;
+      if (model[field].some((value) => !MODALITIES.has(value))) return false;
+    }
   }
   if (![true, false, null].includes(model.reasoning)) return false;
+  if (model.reasoningLevels !== null && model.reasoningLevels !== undefined) {
+    if (!Array.isArray(model.reasoningLevels) || model.reasoningLevels.length === 0) return false;
+    if (model.reasoningLevels.some((value) => !REASONING_LEVELS.has(value))) return false;
+  }
   if (![true, false, null].includes(model.toolCalling)) return false;
   if (!model.metadataSources || typeof model.metadataSources !== 'object') return false;
-  if (METADATA_FIELDS.some((field) => !METADATA_SOURCE_VALUES.has(model.metadataSources[field]))) return false;
+  if (METADATA_FIELDS.some((field) => model.metadataSources[field] !== undefined
+    && !METADATA_SOURCE_VALUES.has(model.metadataSources[field]))) return false;
   return typeof model.source === 'string' && Boolean(model.source);
+}
+
+function upgradeModel(model) {
+  return {
+    ...model,
+    outputModalities: model.outputModalities ?? null,
+    reasoningLevels: model.reasoningLevels ?? null,
+    metadataSources: {
+      ...model.metadataSources,
+      outputModalities: model.metadataSources.outputModalities ?? null,
+      reasoningLevels: model.metadataSources.reasoningLevels ?? null,
+    },
+  };
 }
 
 function sanitizeModelForCache(model) {
@@ -79,6 +101,7 @@ function readCache(options, identity) {
     if (!stat.isFile() || stat.size > MAX_CACHE_BYTES) throw new Error('unsafe cache file');
     const document = JSON.parse(fs.readFileSync(identity.file, 'utf8'));
     if (!validDocument(document, options, identity)) throw new Error('invalid cache schema');
+    document.models = document.models.map(upgradeModel);
     return { document, warning: null };
   } catch {
     return { document: null, warning: 'Ignored an invalid provider discovery cache file.' };

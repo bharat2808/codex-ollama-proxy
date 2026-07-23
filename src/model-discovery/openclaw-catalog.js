@@ -11,6 +11,8 @@ const {
   boundedPositiveInteger,
   emptyMetadataSources,
   normalizeModelId,
+  normalizeReasoningLevels,
+  REASONING_LEVELS,
 } = require('./normalize');
 
 const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -91,7 +93,12 @@ function parseRow(row) {
   const contextWindow = boundedPositiveInteger(row.contextWindow, MAX_CONTEXT_WINDOW);
   const maxOutputTokens = boundedPositiveInteger(row.maxTokens, MAX_OUTPUT_TOKENS);
   const modalities = inputModalities(row.input);
+  const outputModalities = inputModalities(row.output);
   const reasoning = typeof row.reasoning === 'boolean' ? row.reasoning : null;
+  const explicitLevels = row.thinkingLevelMap && typeof row.thinkingLevelMap === 'object'
+    ? Object.keys(row.thinkingLevelMap) : null;
+  const reasoningLevels = normalizeReasoningLevels(explicitLevels)
+    || (row.compat && row.compat.supportsReasoningEffort === true ? [...REASONING_LEVELS] : null);
   const toolCalling = row.compat && typeof row.compat.supportsTools === 'boolean'
     ? row.compat.supportsTools
     : null;
@@ -100,7 +107,9 @@ function parseRow(row) {
     ['contextWindow', contextWindow],
     ['maxOutputTokens', maxOutputTokens],
     ['inputModalities', modalities],
+    ['outputModalities', outputModalities],
     ['reasoning', reasoning],
+    ['reasoningLevels', reasoningLevels],
     ['toolCalling', toolCalling],
   ]) {
     if (value !== null) metadataSources[field] = 'provider-seed';
@@ -111,7 +120,9 @@ function parseRow(row) {
     contextWindow,
     maxOutputTokens,
     inputModalities: modalities,
+    outputModalities,
     reasoning,
+    reasoningLevels,
     toolCalling,
     metadataSources,
     source: 'openclaw-static',

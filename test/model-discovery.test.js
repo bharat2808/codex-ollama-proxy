@@ -130,6 +130,34 @@ test('OpenClaw catalog parsing validates provider identity and drops deprecated 
   assert.throws(() => parseOpenClawCatalog('ollama', payload), /unsupported OpenClaw catalog/i);
 });
 
+test('OpenClaw catalog retains output capabilities and normalized reasoning levels', () => {
+  const payload = {
+    modelCatalog: {
+      providers: {
+        zai: {
+          baseUrl: 'https://api.z.ai/api/paas/v4',
+          models: [{
+            id: 'glm-capable',
+            name: 'GLM Capable',
+            input: ['text', 'image'],
+            output: ['text'],
+            reasoning: true,
+            contextWindow: 128000,
+            maxTokens: 8192,
+            compat: { supportsReasoningEffort: true },
+          }],
+        },
+      },
+    },
+  };
+  const [model] = parseOpenClawCatalog('zai', payload);
+  assert.deepEqual(model.inputModalities, ['text', 'image']);
+  assert.deepEqual(model.outputModalities, ['text']);
+  assert.deepEqual(model.reasoningLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.equal(model.metadataSources.outputModalities, 'provider-seed');
+  assert.equal(model.metadataSources.reasoningLevels, 'provider-seed');
+});
+
 test('OpenClaw catalog sync refreshes at most daily and retains the last successful file', async () => {
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-catalog-sync-'));
   let calls = 0;
@@ -315,13 +343,17 @@ test('supplied model ids are validated, deduplicated, and retain unknown metadat
     contextWindow: null,
     maxOutputTokens: null,
     inputModalities: null,
+    outputModalities: null,
     reasoning: null,
+    reasoningLevels: null,
     toolCalling: null,
     metadataSources: {
       contextWindow: null,
       maxOutputTokens: null,
       inputModalities: null,
+      outputModalities: null,
       reasoning: null,
+      reasoningLevels: null,
       toolCalling: null,
     },
     source: 'supplied',
@@ -591,6 +623,64 @@ test('provider cache propagates caller cancellation instead of returning stale d
   }
 });
 
+test('provider cache round-trips output capabilities and reasoning levels', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-rich-cache-'));
+  const model = normalizeSuppliedModels(['provider/model'])[0];
+  model.outputModalities = ['text'];
+  model.reasoning = true;
+  model.reasoningLevels = ['low', 'high', 'max'];
+  model.metadataSources.outputModalities = 'provider-catalog';
+  model.metadataSources.reasoning = 'provider-catalog';
+  model.metadataSources.reasoningLevels = 'provider-catalog';
+  try {
+    const options = {
+      provider: 'zai', endpoint: 'https://catalog.example/models', apiKey: 'secret',
+      cacheDir, ttlMs: 60000, now: () => 1000,
+    };
+    await withProviderCache(options, async () => [model]);
+    const fresh = await withProviderCache({ ...options, now: () => 1500 }, async () => {
+      throw new Error('must not refresh');
+    });
+    assert.deepEqual(fresh.models[0].outputModalities, ['text']);
+    assert.deepEqual(fresh.models[0].reasoningLevels, ['low', 'high', 'max']);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('provider cache upgrades legacy models with unknown rich capability metadata', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-legacy-cache-'));
+  const options = {
+    provider: 'zai', endpoint: 'https://catalog.example/models', apiKey: 'secret',
+    cacheDir, ttlMs: 60000, now: () => 1500,
+  };
+  try {
+    const identity = cacheIdentity(options);
+    fs.mkdirSync(identity.directory, { recursive: true });
+    const legacy = normalizeSuppliedModels(['provider/model'])[0];
+    delete legacy.outputModalities;
+    delete legacy.reasoningLevels;
+    delete legacy.metadataSources.outputModalities;
+    delete legacy.metadataSources.reasoningLevels;
+    fs.writeFileSync(identity.file, JSON.stringify({
+      schemaVersion: 1,
+      provider: options.provider,
+      endpointDigest: identity.endpointDigest,
+      authScopeDigest: identity.authScopeDigest,
+      fetchedAt: 1000,
+      models: [legacy],
+    }));
+    const fresh = await withProviderCache(options, async () => { throw new Error('must not refresh'); });
+    assert.equal(fresh.cacheStatus, 'fresh');
+    assert.equal(fresh.models[0].outputModalities, null);
+    assert.equal(fresh.models[0].reasoningLevels, null);
+    assert.equal(fresh.models[0].metadataSources.outputModalities, null);
+    assert.equal(fresh.models[0].metadataSources.reasoningLevels, null);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
 test('provider cache isolates endpoint and authentication scopes', async () => {
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-scope-'));
   try {
@@ -680,13 +770,17 @@ test('NVIDIA discovery maps bounded featured rows and preserves feed order', asy
     contextWindow: 131072,
     maxOutputTokens: 8192,
     inputModalities: ['text'],
+    outputModalities: ['text'],
     reasoning: null,
+    reasoningLevels: null,
     toolCalling: null,
     metadataSources: {
       contextWindow: 'provider-catalog',
       maxOutputTokens: 'provider-catalog',
       inputModalities: 'provider-catalog',
+      outputModalities: 'provider-catalog',
       reasoning: null,
+      reasoningLevels: null,
       toolCalling: null,
     },
     source: 'nvidia-featured',
@@ -747,13 +841,17 @@ test('OpenRouter discovery preserves authoritative metadata and rejects non-text
   assert.equal(rich.contextWindow, 200000);
   assert.equal(rich.maxOutputTokens, 16384);
   assert.deepEqual(rich.inputModalities, ['text', 'image']);
+  assert.deepEqual(rich.outputModalities, ['text']);
+  assert.deepEqual(rich.reasoningLevels, null);
   assert.equal(rich.reasoning, true);
   assert.equal(rich.toolCalling, true);
   assert.deepEqual(rich.metadataSources, {
     contextWindow: 'provider-catalog',
     maxOutputTokens: 'provider-catalog',
     inputModalities: 'provider-catalog',
+    outputModalities: 'provider-catalog',
     reasoning: 'provider-catalog',
+    reasoningLevels: null,
     toolCalling: 'provider-catalog',
   });
   assert.equal(models[0].contextWindow, null);
@@ -1048,6 +1146,18 @@ test('OpenAI-compatible input metadata preserves known modalities instead of inv
     output_modalities: ['text'],
   }, 'test-catalog');
   assert.deepEqual(audio.inputModalities, ['audio']);
+  assert.deepEqual(audio.outputModalities, ['text']);
+});
+
+test('OpenAI-compatible live rows normalize explicit reasoning levels', () => {
+  const model = require('../src/model-discovery/providers/openai-compatible-catalog').parseLiveRow({
+    id: 'reasoning-model',
+    output_modalities: ['text'],
+    reasoning: true,
+    reasoning_levels: ['HIGH', 'low', 'high', 'unsupported'],
+  }, 'test-catalog');
+  assert.deepEqual(model.reasoningLevels, ['low', 'high']);
+  assert.equal(model.metadataSources.reasoningLevels, 'provider-catalog');
 });
 
 test('xAI discovery removes OpenClaw-suppressed models without sending its API key to GitHub', async () => {

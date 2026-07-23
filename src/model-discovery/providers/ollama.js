@@ -80,7 +80,9 @@ function modelFromInspection(id, inspection, capabilitySource) {
     contextWindow: inspection.contextWindow,
     maxOutputTokens: null,
     inputModalities,
+    outputModalities: inspection.capabilities !== null ? ['text'] : null,
     reasoning,
+    reasoningLevels: null,
     toolCalling,
     metadataSources,
     source: inspection.contextWindow !== null || inspection.capabilities !== null

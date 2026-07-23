@@ -40,13 +40,16 @@ function parseRow(row) {
   metadataSources.contextWindow = 'provider-catalog';
   metadataSources.maxOutputTokens = 'provider-catalog';
   metadataSources.inputModalities = 'provider-catalog';
+  metadataSources.outputModalities = 'provider-catalog';
   return {
     id,
     displayName,
     contextWindow: row.context,
     maxOutputTokens: row['max-output'],
     inputModalities: ['text'],
+    outputModalities: ['text'],
     reasoning: null,
+    reasoningLevels: null,
     toolCalling: null,
     metadataSources,
     source: 'nvidia-featured',

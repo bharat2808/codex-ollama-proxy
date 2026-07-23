@@ -7,9 +7,21 @@ const METADATA_FIELDS = [
   'contextWindow',
   'maxOutputTokens',
   'inputModalities',
+  'outputModalities',
   'reasoning',
+  'reasoningLevels',
   'toolCalling',
 ];
+const REASONING_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+
+function normalizeReasoningLevels(value) {
+  if (!Array.isArray(value)) return null;
+  const requested = new Set(value
+    .filter((entry) => typeof entry === 'string')
+    .map((entry) => entry.trim().toLowerCase()));
+  const levels = REASONING_LEVELS.filter((level) => requested.has(level));
+  return levels.length ? levels : null;
+}
 const NON_TEXT_MODEL_ID_PATTERN =
   /(?:^|[/_:.-])(?:embed(?:ding)?|rerank(?:er)?|whisper|transcri(?:be|ption)|tts|speech|moderation|guard|gpt-image|dall-e|flux|sdxl|stable-diffusion|imagen|image-gen(?:eration)?|text-to-image|veo|sora|video-gen(?:eration)?|text-to-video)(?:$|[/_:.-])/i;
 
@@ -41,7 +53,9 @@ function suppliedModel(id) {
     contextWindow: null,
     maxOutputTokens: null,
     inputModalities: null,
+    outputModalities: null,
     reasoning: null,
+    reasoningLevels: null,
     toolCalling: null,
     metadataSources: emptyMetadataSources(),
     source: 'supplied',
@@ -87,6 +101,8 @@ module.exports = {
   mergeDiscoveredWithSupplied,
   isObviousNonTextModelId: (id) => NON_TEXT_MODEL_ID_PATTERN.test(id),
   normalizeModelId,
+  normalizeReasoningLevels,
   normalizeSuppliedModels,
+  REASONING_LEVELS,
   suppliedModel,
 };

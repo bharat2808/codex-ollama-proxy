@@ -25,13 +25,17 @@ function fallbackModels() {
     contextWindow,
     maxOutputTokens,
     inputModalities: ['text', 'image'],
+    outputModalities: ['text'],
     reasoning,
+    reasoningLevels: null,
     toolCalling: null,
     metadataSources: {
       contextWindow: 'provider-seed',
       maxOutputTokens: 'provider-seed',
       inputModalities: 'provider-seed',
+      outputModalities: 'provider-seed',
       reasoning: 'provider-seed',
+      reasoningLevels: null,
       toolCalling: null,
     },
     source: 'openclaw-static',
@@ -98,6 +102,7 @@ function parseRow(row) {
   if (contextWindow !== null) metadataSources.contextWindow = 'provider-catalog';
   if (maxOutputTokens !== null) metadataSources.maxOutputTokens = 'provider-catalog';
   metadataSources.inputModalities = 'provider-catalog';
+  if (outputModalities.length) metadataSources.outputModalities = 'provider-catalog';
   if (reasoning !== null) metadataSources.reasoning = 'provider-catalog';
   if (toolCalling !== null) metadataSources.toolCalling = 'provider-catalog';
   return {
@@ -106,7 +111,9 @@ function parseRow(row) {
     contextWindow,
     maxOutputTokens,
     inputModalities: input.includes('image') ? ['text', 'image'] : ['text'],
+    outputModalities: outputModalities.length ? [...new Set(outputModalities)] : null,
     reasoning,
+    reasoningLevels: null,
     toolCalling,
     metadataSources,
     source: 'openrouter-catalog',

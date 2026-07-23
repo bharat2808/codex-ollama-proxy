@@ -66,7 +66,9 @@ function parseRow(row, seeds = new Map()) {
   const contextWindow = liveContext ?? seed?.contextWindow ?? null;
   const maxOutputTokens = liveOutput ?? seed?.maxOutputTokens ?? null;
   const inputModalities = liveInput ?? seed?.inputModalities ?? ['text'];
+  const outputModalities = seed?.outputModalities ?? ['text'];
   const reasoning = liveReasoning ?? seed?.reasoning ?? null;
+  const reasoningLevels = seed?.reasoningLevels ?? null;
   const toolCalling = liveTools ?? seed?.toolCalling ?? null;
   const metadataSources = emptyMetadataSources();
   for (const [field, liveValue] of [
@@ -80,13 +82,17 @@ function parseRow(row, seeds = new Map()) {
     else if (seed && seed[field] !== null) metadataSources[field] = 'provider-seed';
   }
   if (!metadataSources.inputModalities) metadataSources.inputModalities = 'provider-catalog';
+  metadataSources.outputModalities = seed?.outputModalities ? 'provider-seed' : 'provider-catalog';
+  if (reasoningLevels !== null) metadataSources.reasoningLevels = 'provider-seed';
   return {
     id,
     displayName: seed?.displayName || id,
     contextWindow,
     maxOutputTokens,
     inputModalities,
+    outputModalities,
     reasoning,
+    reasoningLevels,
     toolCalling,
     metadataSources,
     source: 'cohere-catalog',
