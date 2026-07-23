@@ -8,7 +8,7 @@ const {
 } = require('../src/model-discovery/adapter-result');
 
 test('adapter result has one validated provider-facing contract', () => {
-  const fallback = { cacheStatus: 'bundled', warnings: ['offline'] };
+  const fallback = { state: 'bundled', warnings: ['offline'] };
   const result = adapterResult({
     models: [{ id: 'model-a' }],
     warnings: ['warning'],

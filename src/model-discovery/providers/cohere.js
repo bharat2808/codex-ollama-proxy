@@ -138,10 +138,10 @@ async function discover(options = {}) {
         ...staticCatalog.warnings,
         'Cohere live catalog refresh failed; using the OpenClaw static catalog.',
       ],
-      origin: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
+      origin: staticCatalog.state === 'bundled' ? 'bundled' : 'static',
       complete: false,
       fallback: {
-        cacheStatus: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
+        state: staticCatalog.state === 'bundled' ? 'bundled' : 'static',
         warnings: ['Cohere live catalog refresh failed; using the OpenClaw static catalog.'],
       },
     });

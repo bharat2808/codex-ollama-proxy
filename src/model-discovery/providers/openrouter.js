@@ -128,7 +128,7 @@ async function discover(options = {}) {
       warnings,
       origin: 'bundled',
       complete: false,
-      fallback: { cacheStatus: 'bundled', warnings },
+      fallback: { state: 'bundled', warnings },
     });
   }
   const rows = payload && typeof payload === 'object' && Array.isArray(payload.data) ? payload.data : [];

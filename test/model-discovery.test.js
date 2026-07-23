@@ -54,7 +54,7 @@ test('extended OpenClaw static catalogs use bundled first-run fallbacks', async 
         cacheDir,
         fetchImpl: async () => { throw new Error('offline'); },
       });
-      assert.equal(result.cacheStatus, 'bundled');
+      assert.equal(result.state, 'bundled');
       assert.ok(result.models.length > 0, `${provider} must bundle model rows`);
     }
   } finally {
@@ -265,7 +265,7 @@ test('OpenClaw catalog sync refreshes at most daily and retains the last success
       },
     };
     const refreshed = await loadOpenClawCatalog(options);
-    assert.equal(refreshed.cacheStatus, 'refreshed');
+    assert.equal(refreshed.state, 'refreshed');
     assert.deepEqual(refreshed.models.map((model) => model.id), ['command-test']);
 
     const fresh = await loadOpenClawCatalog({
@@ -276,7 +276,7 @@ test('OpenClaw catalog sync refreshes at most daily and retains the last success
         throw new Error('fresh catalog must not fetch');
       },
     });
-    assert.equal(fresh.cacheStatus, 'fresh');
+    assert.equal(fresh.state, 'fresh');
     assert.equal(calls, 1);
 
     const stale = await loadOpenClawCatalog({
@@ -287,7 +287,7 @@ test('OpenClaw catalog sync refreshes at most daily and retains the last success
         throw new Error('offline');
       },
     });
-    assert.equal(stale.cacheStatus, 'stale');
+    assert.equal(stale.state, 'stale');
     assert.deepEqual(stale.models.map((model) => model.id), ['command-test']);
     assert.match(stale.warnings[0], /last successful/i);
     assert.equal(calls, 2);
@@ -304,7 +304,7 @@ test('OpenClaw catalog sync uses its bundled snapshot on first-run network failu
       cacheDir,
       fetchImpl: async () => { throw new Error('offline'); },
     });
-    assert.equal(result.cacheStatus, 'bundled');
+    assert.equal(result.state, 'bundled');
     assert.ok(result.models.length > 0);
     assert.match(result.warnings[0], /bundled OpenClaw catalog/i);
   } finally {
@@ -644,7 +644,7 @@ test('provider cache returns fresh data then the last successful stale data on r
       refreshes += 1;
       return { models: [model], origin: 'live', complete: true };
     });
-    assert.equal(first.cacheStatus, 'refreshed');
+    assert.equal(first.state, 'refreshed');
     assert.equal(first.origin, 'live');
     assert.equal(first.complete, true);
 
@@ -652,7 +652,7 @@ test('provider cache returns fresh data then the last successful stale data on r
       refreshes += 1;
       throw new Error('must not refresh');
     });
-    assert.equal(fresh.cacheStatus, 'fresh');
+    assert.equal(fresh.state, 'fresh');
     assert.equal(fresh.origin, 'live');
     assert.equal(fresh.complete, true);
     assert.equal(refreshes, 1);
@@ -661,7 +661,7 @@ test('provider cache returns fresh data then the last successful stale data on r
       refreshes += 1;
       throw new Error('provider offline');
     });
-    assert.equal(stale.cacheStatus, 'stale');
+    assert.equal(stale.state, 'stale');
     assert.equal(stale.origin, 'live');
     assert.equal(stale.complete, true);
     assert.deepEqual(stale.models.map((entry) => entry.id), ['provider/model']);
@@ -729,65 +729,6 @@ test('provider cache round-trips output capabilities and reasoning levels', asyn
   }
 });
 
-test('provider cache upgrades legacy models with unknown rich capability metadata', async () => {
-  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-legacy-cache-'));
-  const options = {
-    provider: 'zai', endpoint: 'https://catalog.example/models', apiKey: 'secret',
-    cacheDir, ttlMs: 60000, now: () => 1500,
-  };
-  try {
-    const identity = cacheIdentity(options);
-    fs.mkdirSync(identity.directory, { recursive: true });
-    const legacy = normalizeSuppliedModels(['provider/model'])[0];
-    delete legacy.outputModalities;
-    delete legacy.reasoningLevels;
-    delete legacy.metadataSources.outputModalities;
-    delete legacy.metadataSources.reasoningLevels;
-    fs.writeFileSync(identity.file, JSON.stringify({
-      schemaVersion: 1,
-      provider: options.provider,
-      endpointDigest: identity.endpointDigest,
-      authScopeDigest: identity.authScopeDigest,
-      fetchedAt: 1000,
-      models: [legacy],
-    }));
-    const fresh = await withProviderCache(options, async () => { throw new Error('must not refresh'); });
-    assert.equal(fresh.cacheStatus, 'fresh');
-    assert.equal(fresh.models[0].outputModalities, null);
-    assert.equal(fresh.models[0].reasoningLevels, null);
-    assert.equal(fresh.models[0].metadataSources.outputModalities, null);
-    assert.equal(fresh.models[0].metadataSources.reasoningLevels, null);
-  } finally {
-    fs.rmSync(cacheDir, { recursive: true, force: true });
-  }
-});
-
-test('provider cache writes schema version 2 after upgrading version 1', async () => {
-  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-v2-cache-'));
-  const options = {
-    provider: 'zai', endpoint: 'https://catalog.example/models', apiKey: 'secret',
-    cacheDir, ttlMs: 1, now: () => 2000,
-  };
-  try {
-    const identity = cacheIdentity(options);
-    fs.mkdirSync(identity.directory, { recursive: true });
-    const legacy = normalizeSuppliedModels(['provider/legacy'])[0];
-    delete legacy.outputModalities;
-    delete legacy.reasoningLevels;
-    delete legacy.metadataSources.outputModalities;
-    delete legacy.metadataSources.reasoningLevels;
-    fs.writeFileSync(identity.file, JSON.stringify({
-      schemaVersion: 1, provider: options.provider,
-      endpointDigest: identity.endpointDigest, authScopeDigest: identity.authScopeDigest,
-      fetchedAt: 1000, models: [legacy],
-    }));
-    await withProviderCache(options, async () => normalizeSuppliedModels(['provider/current']));
-    assert.equal(JSON.parse(fs.readFileSync(identity.file, 'utf8')).schemaVersion, 2);
-  } finally {
-    fs.rmSync(cacheDir, { recursive: true, force: true });
-  }
-});
-
 test('provider cache rejects schema version 2 models missing rich capability fields', async () => {
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-invalid-v2-cache-'));
   const options = {
@@ -806,7 +747,7 @@ test('provider cache rejects schema version 2 models missing rich capability fie
       fetchedAt: 1000, models: [malformed],
     }));
     const result = await withProviderCache(options, async () => normalizeSuppliedModels(['provider/refreshed']));
-    assert.equal(result.cacheStatus, 'refreshed');
+    assert.equal(result.state, 'refreshed');
     assert.match(result.warnings[0], /invalid provider discovery cache/i);
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });
@@ -843,7 +784,7 @@ test('provider cache ignores a corrupt matching file and replaces it after a suc
     fs.mkdirSync(identity.directory, { recursive: true });
     fs.writeFileSync(identity.file, '{broken', 'utf8');
     const result = await withProviderCache(options, async () => normalizeSuppliedModels(['new/model']));
-    assert.equal(result.cacheStatus, 'refreshed');
+    assert.equal(result.state, 'refreshed');
     assert.match(result.warnings[0], /invalid provider discovery cache/i);
     assert.doesNotThrow(() => JSON.parse(fs.readFileSync(identity.file, 'utf8')));
   } finally {
@@ -1002,7 +943,7 @@ test('OpenRouter first-run failure exposes its bundled OpenClaw seed', async () 
     'moonshotai/kimi-k2.6',
     'moonshotai/kimi-k2.5',
   ]);
-  assert.equal(result.fallback.cacheStatus, 'bundled');
+  assert.equal(result.fallback.state, 'bundled');
 });
 
 test('Cohere discovery rejects deprecated rows and fills only exact-model seed metadata', async (t) => {
@@ -1208,7 +1149,7 @@ test('static fallback never replaces the last authenticated model cache', async 
       now: () => 62000,
       fetchImpl: async () => { throw new Error('provider offline'); },
     });
-    assert.equal(stale.cacheStatus, 'stale');
+    assert.equal(stale.cache.state, 'stale');
     assert.deepEqual(stale.models.map((model) => model.id), ['account/private-model']);
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });
@@ -1480,7 +1421,7 @@ test('custom discovery skips the network when no models are supplied', async () 
     nativeInspection: false,
     supportsCloudPull: false,
   });
-  assert.equal(result.cacheStatus, 'none');
+  assert.equal(result.cache.state, 'none');
   assert.equal(result.discoverySkipped, true);
   assert.deepEqual(result.models, []);
 });
@@ -1575,7 +1516,7 @@ test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unm
       nativeInspection: false,
       supportsCloudPull: false,
     });
-    assert.equal(refreshed.cacheStatus, 'refreshed');
+    assert.equal(refreshed.cache.state, 'refreshed');
     assert.equal(refreshed.discoverySkipped, false);
     assert.deepEqual(refreshed.models.map((model) => model.id), [
       'nvidia/featured',
@@ -1590,7 +1531,7 @@ test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unm
         throw new Error('fresh cache should avoid fetch');
       },
     });
-    assert.equal(fresh.cacheStatus, 'fresh');
+    assert.equal(fresh.cache.state, 'fresh');
     assert.equal(calls, 2);
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });

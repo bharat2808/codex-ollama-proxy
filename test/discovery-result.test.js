@@ -23,7 +23,6 @@ test('discovery result constructor supplies one stable public shape', () => {
     providerResolution: 'ollama-native',
     traits: { inventoryComplete: true },
     source: 'ollama',
-    cacheStatus: 'none',
     cache: { state: 'none' },
     dataOrigin: 'live',
     discoverySkipped: false,

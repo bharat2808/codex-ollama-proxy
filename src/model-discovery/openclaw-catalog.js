@@ -208,7 +208,7 @@ async function loadOpenClawCatalog(options = {}) {
     const bundledPayload = require(catalog.bundledFile);
     return {
       models: parseOpenClawCatalog(provider, bundledPayload),
-      cacheStatus: 'bundled',
+      state: 'bundled',
       warnings: ['OpenClaw catalog sync failed; using the bundled OpenClaw catalog snapshot.'],
     };
   }
@@ -220,7 +220,7 @@ function loadBundledOpenClawCatalog(provider) {
   const bundledPayload = require(catalog.bundledFile);
   return {
     models: parseOpenClawCatalog(provider, bundledPayload),
-    cacheStatus: 'bundled',
+    state: 'bundled',
     warnings: [],
   };
 }

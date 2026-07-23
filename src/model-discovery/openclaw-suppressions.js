@@ -69,7 +69,7 @@ async function loadXaiSuppressions(options = {}) {
   const now = typeof options.now === 'function' ? options.now() : Date.now();
   const cached = readDocument(file);
   if (cached && now - cached.fetchedAt <= CATALOG_TTL_MS) {
-    return { models: cached.models, cacheStatus: 'fresh', warnings: [] };
+    return { models: cached.models, state: 'fresh', warnings: [] };
   }
   try {
     const payload = await fetchJson({
@@ -84,20 +84,20 @@ async function loadXaiSuppressions(options = {}) {
     const models = parseSuppressions(payload);
     if (models.length === 0) throw new TypeError('OpenClaw xAI suppression catalog contained no xAI models.');
     writeDocument(file, models, now);
-    return { models, cacheStatus: 'refreshed', warnings: [] };
+    return { models, state: 'refreshed', warnings: [] };
   } catch (error) {
     if (options.signal && options.signal.aborted) throw error;
     if (cached) {
       return {
         models: cached.models,
-        cacheStatus: 'stale',
+        state: 'stale',
         warnings: ['OpenClaw xAI suppression refresh failed; using the last successful cache file.'],
       };
     }
     const bundled = JSON.parse(fs.readFileSync(BUNDLED_FILE, 'utf8'));
     return {
       models: parseSuppressions(bundled),
-      cacheStatus: 'bundled',
+      state: 'bundled',
       warnings: ['OpenClaw xAI suppression refresh failed; using the bundled snapshot.'],
     };
   }

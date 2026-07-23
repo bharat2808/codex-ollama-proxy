@@ -102,8 +102,6 @@ function cacheEndpointFor(provider, options = {}) {
 }
 
 module.exports = {
-  ALIASES,
-  CANONICAL_URLS,
   PROVIDERS,
   cacheEndpointFor,
   providerForAlias,

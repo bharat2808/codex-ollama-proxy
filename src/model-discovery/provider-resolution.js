@@ -3,8 +3,6 @@
 const { fetchJson } = require('./live-catalog');
 const ollama = require('./providers/ollama');
 const {
-  ALIASES: PROVIDER_ALIASES,
-  CANONICAL_URLS,
   PROVIDERS,
   providerForAlias,
   providerForCanonicalUrl,
@@ -70,8 +68,5 @@ async function resolveProvider(options = {}) {
 }
 
 module.exports = {
-  CANONICAL_URLS,
-  KNOWN_PROVIDERS,
-  PROVIDER_ALIASES,
   resolveProvider,
 };

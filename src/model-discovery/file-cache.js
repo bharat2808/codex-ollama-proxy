@@ -14,7 +14,6 @@ const {
 } = require('./normalize');
 
 const SCHEMA_VERSION = 2;
-const LEGACY_SCHEMA_VERSION = 1;
 const MAX_CACHE_BYTES = 4 * 1024 * 1024;
 const METADATA_SOURCE_VALUES = new Set([
   null,
@@ -42,22 +41,20 @@ function nullableBoundedPositiveInteger(value, maximum) {
   return value === null || (Number.isSafeInteger(value) && value > 0 && value <= maximum);
 }
 
-function validModel(model, allowLegacy = false) {
+function validModel(model) {
   if (!model || typeof model !== 'object' || Array.isArray(model)) return false;
   try { normalizeModelId(model.id); } catch { return false; }
   if (typeof model.displayName !== 'string' || !model.displayName.trim()) return false;
   if (!nullableBoundedPositiveInteger(model.contextWindow, MAX_CONTEXT_WINDOW)) return false;
   if (!nullableBoundedPositiveInteger(model.maxOutputTokens, MAX_OUTPUT_TOKENS)) return false;
   for (const field of ['inputModalities', 'outputModalities']) {
-    if (model[field] === undefined && field === 'outputModalities' && allowLegacy) continue;
     if (model[field] !== null) {
       if (!Array.isArray(model[field]) || model[field].length === 0) return false;
       if (model[field].some((value) => !MODALITY_SET.has(value))) return false;
     }
   }
   if (![true, false, null].includes(model.reasoning)) return false;
-  if (model.reasoningLevels === undefined && !allowLegacy) return false;
-  if (model.reasoningLevels !== null && model.reasoningLevels !== undefined) {
+  if (model.reasoningLevels !== null) {
     if (!Array.isArray(model.reasoningLevels) || model.reasoningLevels.length === 0) return false;
     if (model.reasoningLevels.some((value) => !REASONING_LEVEL_SET.has(value))) return false;
   }
@@ -68,19 +65,6 @@ function validModel(model, allowLegacy = false) {
   return typeof model.source === 'string' && Boolean(model.source);
 }
 
-function upgradeModel(model) {
-  return {
-    ...model,
-    outputModalities: model.outputModalities ?? null,
-    reasoningLevels: model.reasoningLevels ?? null,
-    metadataSources: {
-      ...model.metadataSources,
-      outputModalities: model.metadataSources.outputModalities ?? null,
-      reasoningLevels: model.metadataSources.reasoningLevels ?? null,
-    },
-  };
-}
-
 function sanitizeModelForCache(model) {
   const clone = JSON.parse(JSON.stringify(model));
   if (/^https?:\/\//iu.test(clone.source)) clone.source = 'provider-catalog';
@@ -89,19 +73,16 @@ function sanitizeModelForCache(model) {
 
 function validDocument(document, options, identity) {
   return document && typeof document === 'object' && !Array.isArray(document)
-    && (document.schemaVersion === SCHEMA_VERSION || document.schemaVersion === LEGACY_SCHEMA_VERSION)
+    && document.schemaVersion === SCHEMA_VERSION
     && document.provider === options.provider
     && document.endpointDigest === identity.endpointDigest
     && document.authScopeDigest === identity.authScopeDigest
     && Number.isFinite(document.fetchedAt)
-    && (document.origin === undefined || DATA_ORIGINS.has(document.origin))
-    && (document.complete === undefined || typeof document.complete === 'boolean')
+    && DATA_ORIGINS.has(document.origin)
+    && typeof document.complete === 'boolean'
     && Array.isArray(document.models)
     && document.models.length > 0
-    && document.models.every((model) => validModel(
-      model,
-      document.schemaVersion === LEGACY_SCHEMA_VERSION,
-    ));
+    && document.models.every(validModel);
 }
 
 function readCache(options, identity) {
@@ -111,10 +92,6 @@ function readCache(options, identity) {
     if (!stat.isFile() || stat.size > MAX_CACHE_BYTES) throw new Error('unsafe cache file');
     const document = JSON.parse(fs.readFileSync(identity.file, 'utf8'));
     if (!validDocument(document, options, identity)) throw new Error('invalid cache schema');
-    document.models = document.models.map(upgradeModel);
-    document.schemaVersion = SCHEMA_VERSION;
-    document.origin = document.origin || 'cache';
-    document.complete = document.complete === true;
     return { document, warning: null };
   } catch {
     return { document: null, warning: 'Ignored an invalid provider discovery cache file.' };
@@ -159,7 +136,7 @@ async function withProviderCache(options, refresh) {
   if (cached.document && now - cached.document.fetchedAt <= options.ttlMs) {
     return {
       models: cached.document.models,
-      cacheStatus: 'fresh',
+      state: 'fresh',
       warnings,
       origin: cached.document.origin,
       complete: cached.document.complete,
@@ -178,7 +155,7 @@ async function withProviderCache(options, refresh) {
         warnings.push(...(fallback.warnings || []), 'Provider catalog refresh failed; using the last successful cache file.');
         return {
           models: cached.document.models,
-          cacheStatus: 'stale',
+          state: 'stale',
           warnings,
           origin: cached.document.origin,
           complete: cached.document.complete,
@@ -186,20 +163,20 @@ async function withProviderCache(options, refresh) {
       }
       return {
         models,
-        cacheStatus: fallback.cacheStatus || 'fallback',
+        state: fallback.state || 'fallback',
         warnings: [...warnings, ...(fallback.warnings || [])],
         ...metadata,
       };
     }
     writeCache(options, identity, models, now, metadata);
-    return { models, cacheStatus: 'refreshed', warnings, ...metadata };
+    return { models, state: 'refreshed', warnings, ...metadata };
   } catch (error) {
     if ((options.signal && options.signal.aborted) || (error && error.code === 'CANCELLED')) throw error;
     if (cached.document) {
       warnings.push('Provider catalog refresh failed; using the last successful cache file.');
       return {
         models: cached.document.models,
-        cacheStatus: 'stale',
+        state: 'stale',
         warnings,
         origin: cached.document.origin,
         complete: cached.document.complete,

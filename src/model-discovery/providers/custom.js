@@ -79,7 +79,7 @@ async function discover(options = {}) {
       warnings,
       origin: 'supplied',
       complete: false,
-      fallback: { cacheStatus: 'supplied', warnings },
+      fallback: { state: 'supplied', warnings },
     });
   }
 }

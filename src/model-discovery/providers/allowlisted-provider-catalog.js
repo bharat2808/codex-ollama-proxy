@@ -139,10 +139,10 @@ async function discoverCompatible(options, config) {
     return adapterResult({
       models: staticCatalog.models,
       warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its OpenClaw static catalog.`],
-      origin: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
+      origin: staticCatalog.state === 'bundled' ? 'bundled' : 'static',
       complete: false,
       fallback: {
-        cacheStatus: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
+        state: staticCatalog.state === 'bundled' ? 'bundled' : 'static',
         warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its OpenClaw static catalog.`],
       },
     });

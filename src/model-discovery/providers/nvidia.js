@@ -88,7 +88,7 @@ async function discover(options = {}) {
   return adapterResult({
     models: [...liveModels, ...staticCatalog.models.filter((model) => !seen.has(model.id))],
     warnings,
-    origin: liveModels.length ? 'live' : (staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static'),
+    origin: liveModels.length ? 'live' : (staticCatalog.state === 'bundled' ? 'bundled' : 'static'),
     complete: false,
   });
 }
