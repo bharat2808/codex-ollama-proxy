@@ -5,6 +5,7 @@ const http = require('http');
 const crypto = require('crypto');
 
 const DEFAULT_PORT = 8787;
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 function now() {
   return Math.floor(Date.now() / 1000);
@@ -229,11 +230,25 @@ async function callChatCompletion(body, options, stream) {
   const target = new URL(options.baseUrl.replace(/\/+$/u, '') + '/chat/completions');
   const headers = { 'content-type': 'application/json' };
   if (options.apiKey) headers.authorization = 'Bearer ' + options.apiKey;
-  const response = await fetch(target, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(buildChatBody(body, options, stream)),
-  });
+  const timeoutMs = Number.isFinite(options.requestTimeoutMs) && options.requestTimeoutMs > 0
+    ? options.requestTimeoutMs
+    : DEFAULT_REQUEST_TIMEOUT_MS;
+  let response;
+  try {
+    response = await fetch(target, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(buildChatBody(body, options, stream)),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+      const timeoutError = new Error('upstream request timed out after ' + timeoutMs + 'ms');
+      timeoutError.statusCode = 504;
+      throw timeoutError;
+    }
+    throw error;
+  }
   if (!response.ok) {
     const detail = await response.text();
     throw new Error('upstream ' + response.status + ': ' + detail);
@@ -382,6 +397,7 @@ function envOptions(env = process.env) {
     apiKey: env.CHAT_COMPLETION_API_KEY || env.COMPLETION_API_KEY || '',
     defaultModel: env.CHAT_COMPLETION_MODEL || env.COMPLETION_MODEL || env.MODEL || '',
     maxTokens: parseInt(env.CHAT_COMPLETION_MAX_TOKENS || env.COMPLETION_MAX_TOKENS || '16384', 10),
+    requestTimeoutMs: parseInt(env.CHAT_COMPLETION_REQUEST_TIMEOUT_MS || env.COMPLETION_REQUEST_TIMEOUT_MS || String(DEFAULT_REQUEST_TIMEOUT_MS), 10),
     verbose: parseBool(env.CHAT_COMPLETION_ADAPTOR_VERBOSE, false),
   };
 }
@@ -433,7 +449,7 @@ function startServer(options = {}) {
       return jsonResponse(res, 404, { error: 'not found' });
     } catch (error) {
       if (config.verbose) console.error('[completion-api-adaptor]', error);
-      if (!res.headersSent) return jsonResponse(res, 500, { error: error.message });
+      if (!res.headersSent) return jsonResponse(res, error.statusCode || 500, { error: error.message });
       sse(res, 'response.error', { type: 'response.error', error: { message: error.message } });
       res.end();
     }

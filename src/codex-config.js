@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { discoverModels } = require('./model-discovery');
+const { isObviousNonTextModelId } = require('./model-discovery/normalize');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
@@ -497,6 +498,12 @@ async function fetchUpstreamModels() {
   }
 }
 
+function upstreamModelIds(upstreamModels) {
+  return new Set((Array.isArray(upstreamModels) ? upstreamModels : [])
+    .map((model) => model && (model.id || model.name || model.model))
+    .filter((id) => typeof id === 'string' && id.length > 0 && !isObviousNonTextModelId(id)));
+}
+
 function applyDiscoveredMetadata(catalogModels, discoveredModels) {
   const discovered = new Map((Array.isArray(discoveredModels) ? discoveredModels : [])
     .filter((model) => model && typeof model.id === 'string')
@@ -652,9 +659,7 @@ async function refreshCatalog() {
 
   // Fetch model IDs from GET /v1/models
   const { models: upstreamModels, error: upstreamError } = await fetchUpstreamModels();
-  const upstreamIds = new Set(
-    upstreamModels.map((m) => m && (m.id || m.name || m.model)).filter(Boolean),
-  );
+  const upstreamIds = upstreamModelIds(upstreamModels);
 
   // Merge: all upstream IDs + supplied models (dedupe)
   const allKnownIds = new Set([...upstreamIds, ...suppliedModels]);
@@ -905,6 +910,7 @@ module.exports = {
   fetchUpstreamModels,
   isOllamaUpstream,
   probeOllamaVisionCapabilities,
+  upstreamModelIds,
   refreshCatalog,
   ensureTableKey,
   main,

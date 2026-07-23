@@ -226,6 +226,35 @@ test('completion API adaptor streams upstream errors without crashing', async ()
   }
 });
 
+test('completion API adaptor bounds stalled upstream requests', async () => {
+  const chatServer = http.createServer(() => {});
+  const chatPort = await listen(chatServer);
+
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    apiKey: 'test-key',
+    defaultModel: 'stalled-model',
+    requestTimeoutMs: 50,
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+  const adaptorPort = adaptorServer.address().port;
+
+  try {
+    const response = await postJson(adaptorPort, '/v1/responses', {
+      input: 'do not wait forever',
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 504);
+    assert.match(response.body.error, /timed out after 50ms/u);
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
 test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstream config', async () => {
   const received = [];
   const provider = http.createServer((req, res) => {

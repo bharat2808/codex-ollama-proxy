@@ -839,3 +839,24 @@ test('discovered metadata maps into supported Codex catalog fields without guess
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
 });
+
+test('upstream catalog IDs exclude models that are obviously not generative text models', () => {
+  const previousCodexHome = process.env.CODEX_HOME;
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-filter-upstream-'));
+  process.env.CODEX_HOME = codexHome;
+  delete require.cache[require.resolve('../src/codex-config')];
+  const { upstreamModelIds } = require('../src/codex-config');
+  try {
+    assert.deepEqual([...upstreamModelIds([
+      { id: 'meta/llama-3.3-70b-instruct' },
+      { id: 'nvidia/embed-qa-4' },
+      { id: 'meta/llama-guard-4-12b' },
+      { name: 'z-ai/glm-5.2' },
+    ])], ['meta/llama-3.3-70b-instruct', 'z-ai/glm-5.2']);
+  } finally {
+    delete require.cache[require.resolve('../src/codex-config')];
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
