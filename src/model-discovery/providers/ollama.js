@@ -1,7 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
-const { loadOpenClawCatalog } = require('../openclaw-catalog');
+const { loadBundledOpenClawCatalog } = require('../openclaw-catalog');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
@@ -105,14 +105,7 @@ async function mapLimit(values, limit, mapper) {
 
 async function discover(options = {}) {
   const apiBase = resolveApiBase(options.baseUrl);
-  const cloudCatalog = await loadOpenClawCatalog({
-    provider: 'ollama-cloud',
-    cacheDir: options.cacheDir,
-    fetchImpl: options.fetchImpl,
-    timeoutMs: options.timeoutMs,
-    signal: options.signal,
-    now: options.now,
-  });
+  const cloudCatalog = loadBundledOpenClawCatalog('ollama-cloud');
   const tagsPayload = options.detectionPayload || await fetchJson({
     url: `${apiBase}/api/tags`,
     provider: 'ollama',

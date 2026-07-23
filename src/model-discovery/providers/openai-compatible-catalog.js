@@ -12,6 +12,7 @@ const {
 } = require('../normalize');
 
 const CACHE_TTL_MS = 60000;
+const KNOWN_MODALITIES = new Set(['text', 'image', 'audio', 'video', 'document']);
 
 function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
@@ -40,7 +41,8 @@ function parseLiveRow(row, source) {
   if (isObviousNonTextModelId(id)) return null;
   const outputModalities = strings(value.output_modalities || value.outputModalities);
   if (outputModalities.length && !outputModalities.includes('text')) return null;
-  const input = strings(value.input_modalities || value.inputModalities);
+  const input = strings(value.input_modalities || value.inputModalities)
+    .filter((modality) => KNOWN_MODALITIES.has(modality));
   const contextWindow = positiveInteger(
     MAX_CONTEXT_WINDOW,
     value.context_window,
@@ -70,7 +72,7 @@ function parseLiveRow(row, source) {
     displayName: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : id,
     contextWindow,
     maxOutputTokens,
-    inputModalities: input.length ? (input.includes('image') ? ['text', 'image'] : ['text']) : null,
+    inputModalities: input.length ? [...new Set(input)] : null,
     reasoning,
     toolCalling,
     metadataSources,
@@ -137,6 +139,10 @@ async function discoverCompatible(options, config) {
     return {
       models: staticCatalog.models,
       warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its OpenClaw static catalog.`],
+      fallback: {
+        cacheStatus: staticCatalog.cacheStatus === 'bundled' ? 'bundled' : 'static',
+        warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its OpenClaw static catalog.`],
+      },
     };
   }
 }

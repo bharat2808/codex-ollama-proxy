@@ -123,10 +123,20 @@ async function withProviderCache(options, refresh) {
   }
 
   try {
-    const models = await refresh();
+    const refreshed = await refresh();
+    const models = Array.isArray(refreshed) ? refreshed : refreshed.models;
+    const fallback = Array.isArray(refreshed) ? null : refreshed.fallback;
+    if (fallback) {
+      if (cached.document) {
+        warnings.push(...(fallback.warnings || []), 'Provider catalog refresh failed; using the last successful cache file.');
+        return { models: cached.document.models, cacheStatus: 'stale', warnings };
+      }
+      return { models, cacheStatus: fallback.cacheStatus || 'fallback', warnings: [...warnings, ...(fallback.warnings || [])] };
+    }
     writeCache(options, identity, models, now);
     return { models, cacheStatus: 'refreshed', warnings };
   } catch (error) {
+    if ((options.signal && options.signal.aborted) || (error && error.code === 'CANCELLED')) throw error;
     if (cached.document) {
       warnings.push('Provider catalog refresh failed; using the last successful cache file.');
       return { models: cached.document.models, cacheStatus: 'stale', warnings };

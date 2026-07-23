@@ -183,9 +183,21 @@ async function loadOpenClawCatalog(options = {}) {
   }
 }
 
+function loadBundledOpenClawCatalog(provider) {
+  const catalog = OPENCLAW_CATALOGS[provider];
+  if (!catalog) throw new TypeError(`Unsupported OpenClaw catalog provider: ${provider}`);
+  const bundledPayload = require(catalog.bundledFile);
+  return {
+    models: parseOpenClawCatalog(provider, bundledPayload),
+    cacheStatus: 'bundled',
+    warnings: [],
+  };
+}
+
 module.exports = {
   CATALOG_TTL_MS,
   OPENCLAW_CATALOGS,
+  loadBundledOpenClawCatalog,
   loadOpenClawCatalog,
   parseOpenClawCatalog,
 };

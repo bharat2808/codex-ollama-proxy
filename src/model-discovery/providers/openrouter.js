@@ -12,6 +12,31 @@ const {
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/models';
 const CACHE_TTL_MS = 60000;
+const FALLBACK_MODELS = Object.freeze([
+  ['openrouter/auto', 'OpenRouter Auto', 200000, 8192, false],
+  ['moonshotai/kimi-k2.6', 'MoonshotAI: Kimi K2.6', 262144, 262144, true],
+  ['moonshotai/kimi-k2.5', 'MoonshotAI: Kimi K2.5', 262144, 262144, true],
+]);
+
+function fallbackModels() {
+  return FALLBACK_MODELS.map(([id, displayName, contextWindow, maxOutputTokens, reasoning]) => ({
+    id,
+    displayName,
+    contextWindow,
+    maxOutputTokens,
+    inputModalities: ['text', 'image'],
+    reasoning,
+    toolCalling: null,
+    metadataSources: {
+      contextWindow: 'provider-seed',
+      maxOutputTokens: 'provider-seed',
+      inputModalities: 'provider-seed',
+      reasoning: 'provider-seed',
+      toolCalling: null,
+    },
+    source: 'openclaw-static',
+  }));
+}
 
 function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
@@ -89,16 +114,27 @@ function parseRow(row) {
 }
 
 async function discover(options = {}) {
-  const payload = await fetchJson({
-    url: ENDPOINT,
-    provider: 'openrouter',
-    apiKey: options.apiKey,
-    fetchImpl: options.fetchImpl,
-    timeoutMs: options.timeoutMs,
-    signal: options.signal,
-    requireHttps: true,
-    allowedHostname: 'openrouter.ai',
-  });
+  let payload;
+  try {
+    payload = await fetchJson({
+      url: ENDPOINT,
+      provider: 'openrouter',
+      apiKey: options.apiKey,
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+      requireHttps: true,
+      allowedHostname: 'openrouter.ai',
+    });
+  } catch (error) {
+    if (options.signal && options.signal.aborted) throw error;
+    const warnings = ['OpenRouter live catalog refresh failed; using the bundled OpenClaw seed.'];
+    return {
+      models: fallbackModels(),
+      warnings,
+      fallback: { cacheStatus: 'bundled', warnings },
+    };
+  }
   const rows = payload && typeof payload === 'object' && Array.isArray(payload.data) ? payload.data : [];
   const unique = new Map();
   for (const row of rows) {
@@ -111,4 +147,4 @@ async function discover(options = {}) {
   };
 }
 
-module.exports = { CACHE_TTL_MS, ENDPOINT, discover, parseRow };
+module.exports = { CACHE_TTL_MS, ENDPOINT, discover, fallbackModels, parseRow };

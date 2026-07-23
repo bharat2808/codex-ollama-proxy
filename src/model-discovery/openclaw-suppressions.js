@@ -17,9 +17,10 @@ function defaultCacheDir() {
 }
 
 function parseSuppressions(payload) {
-  const rows = payload && payload.modelCatalog && Array.isArray(payload.modelCatalog.suppressions)
-    ? payload.modelCatalog.suppressions
-    : [];
+  if (!payload || !payload.modelCatalog || !Array.isArray(payload.modelCatalog.suppressions)) {
+    throw new TypeError('OpenClaw xAI suppression catalog is missing suppressions[].');
+  }
+  const rows = payload.modelCatalog.suppressions;
   const ids = [];
   const seen = new Set();
   for (const row of rows.slice(0, 1000)) {
@@ -81,6 +82,7 @@ async function loadXaiSuppressions(options = {}) {
       allowedHostname: 'raw.githubusercontent.com',
     });
     const models = parseSuppressions(payload);
+    if (models.length === 0) throw new TypeError('OpenClaw xAI suppression catalog contained no xAI models.');
     writeDocument(file, models, now);
     return { models, cacheStatus: 'refreshed', warnings: [] };
   } catch (error) {

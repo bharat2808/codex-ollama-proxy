@@ -109,10 +109,13 @@ async function discoverModels(options = {}) {
     cacheDir: options.cacheDir || defaultCacheDir(),
     ttlMs: adapter.CACHE_TTL_MS,
     now: options.now,
+    signal: options.signal,
   }, async () => {
     const result = await adapter.discover(adapterOptions);
     adapterWarnings = result.warnings;
-    return result.models;
+    return result.fallback
+      ? { models: result.models, fallback: result.fallback }
+      : result.models;
   });
 
   return {

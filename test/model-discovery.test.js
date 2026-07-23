@@ -565,6 +565,32 @@ test('provider cache returns fresh data then the last successful stale data on r
   }
 });
 
+test('provider cache propagates caller cancellation instead of returning stale data', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-cache-cancel-'));
+  const controller = new AbortController();
+  const common = {
+    provider: 'nvidia',
+    endpoint: 'https://catalog.example/models',
+    apiKey: 'cache-secret',
+    cacheDir,
+    ttlMs: 1000,
+  };
+  try {
+    await withProviderCache({ ...common, now: () => 1000 }, async () => normalizeSuppliedModels(['provider/model']));
+    controller.abort();
+    await assert.rejects(
+      withProviderCache({ ...common, now: () => 3000, signal: controller.signal }, async () => {
+        const error = new Error('cancelled');
+        error.code = 'CANCELLED';
+        throw error;
+      }),
+      (error) => error.code === 'CANCELLED',
+    );
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
 test('provider cache isolates endpoint and authentication scopes', async () => {
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-scope-'));
   try {
@@ -734,6 +760,19 @@ test('OpenRouter discovery preserves authoritative metadata and rejects non-text
   assert.equal(models[0].maxOutputTokens, null);
   assert.equal(models[1].contextWindow, null);
   assert.equal(models[1].maxOutputTokens, null);
+});
+
+test('OpenRouter first-run failure exposes its bundled OpenClaw seed', async () => {
+  const result = await openrouter.discover({
+    apiKey: 'openrouter-key',
+    fetchImpl: async () => { throw new Error('offline'); },
+  });
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'openrouter/auto',
+    'moonshotai/kimi-k2.6',
+    'moonshotai/kimi-k2.5',
+  ]);
+  assert.equal(result.fallback.cacheStatus, 'bundled');
 });
 
 test('Cohere discovery rejects deprecated rows and fills only exact-model seed metadata', async (t) => {
@@ -915,22 +954,100 @@ test('static-backed discovery treats a malformed successful payload as refresh f
   }
 });
 
-test('Google discovery uses only its authenticated runtime model list', async () => {
+test('static fallback never replaces the last authenticated model cache', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zai-live-cache-precedence-'));
+  const common = {
+    provider: 'zai',
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+    apiKey: 'zai-secret',
+    cacheDir,
+  };
+  try {
+    const first = await discoverModels({
+      ...common,
+      now: () => 1000,
+      fetchImpl: async (url) => {
+        if (url === OPENCLAW_CATALOGS.zai.url) throw new Error('use bundled catalog');
+        return new Response(JSON.stringify({ data: [{ id: 'account/private-model' }] }));
+      },
+    });
+    assert.deepEqual(first.models.map((model) => model.id), ['account/private-model']);
+
+    const stale = await discoverModels({
+      ...common,
+      now: () => 62000,
+      fetchImpl: async () => { throw new Error('provider offline'); },
+    });
+    assert.equal(stale.cacheStatus, 'stale');
+    assert.deepEqual(stale.models.map((model) => model.id), ['account/private-model']);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('Google discovery uses the native catalog and keeps only generateContent text models', async () => {
   const result = await google.discover({
     apiKey: 'google-secret',
     fetchImpl: async (url, options) => {
-      assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/openai/models');
-      assert.equal(options.headers.Authorization, 'Bearer google-secret');
+      assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000');
+      assert.equal(options.headers.Authorization, undefined);
+      assert.equal(options.headers['x-goog-api-key'], 'google-secret');
       return new Response(JSON.stringify({
-        data: [
-          { id: 'gemini-3.1-pro', input_modalities: ['text', 'image'] },
-          { id: 'text-embedding-004' },
+        models: [
+          {
+            name: 'models/gemini-3.1-pro',
+            displayName: 'Gemini 3.1 Pro',
+            supportedGenerationMethods: ['generateContent'],
+            inputTokenLimit: 1048576,
+            outputTokenLimit: 65536,
+          },
+          {
+            name: 'models/text-embedding-004',
+            supportedGenerationMethods: ['embedContent'],
+            inputTokenLimit: 2048,
+            outputTokenLimit: 1,
+          },
+          {
+            name: 'models/imagen-4.0-generate-001',
+            supportedGenerationMethods: ['predict'],
+            inputTokenLimit: 480,
+            outputTokenLimit: 1,
+          },
         ],
       }));
     },
   });
   assert.deepEqual(result.models.map((model) => model.id), ['gemini-3.1-pro']);
   assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
+});
+
+test('malformed xAI suppression refresh retains the bundled suppressions', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xai-suppressions-malformed-'));
+  try {
+    const result = await xai.discover({
+      apiKey: 'xai-secret',
+      cacheDir,
+      fetchImpl: async (url) => {
+        if (url.includes('raw.githubusercontent.com')) {
+          return new Response(JSON.stringify({ unexpected: true }));
+        }
+        return new Response(JSON.stringify({ data: [{ id: 'grok-4' }, { id: 'grok-4.20-multi-agent' }] }));
+      },
+    });
+    assert.deepEqual(result.models.map((model) => model.id), ['grok-4']);
+    assert.match(result.warnings[0], /bundled snapshot/i);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('OpenAI-compatible input metadata preserves known modalities instead of inventing text', () => {
+  const audio = require('../src/model-discovery/providers/openai-compatible-catalog').parseLiveRow({
+    id: 'audio-model',
+    input_modalities: ['audio'],
+    output_modalities: ['text'],
+  }, 'test-catalog');
+  assert.deepEqual(audio.inputModalities, ['audio']);
 });
 
 test('xAI discovery removes OpenClaw-suppressed models without sending its API key to GitHub', async () => {
@@ -1034,24 +1151,6 @@ test('Ollama discovery appends cloud candidates without inspecting or pulling th
       apiKey: 'must-not-reach-local-ollama',
       fetchImpl: async (url, options) => {
         calls.push({ url: String(url), authorization: options.headers.Authorization });
-        if (String(url) === 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/ollama/openclaw.plugin.json') {
-          return new Response(JSON.stringify({
-            modelCatalog: {
-              providers: {
-                'ollama-cloud': {
-                  baseUrl: 'https://ollama.com',
-                  models: [{
-                    id: 'cloud-model:cloud',
-                    name: 'Cloud Model',
-                    input: ['text'],
-                    contextWindow: 128000,
-                    maxTokens: 8192,
-                  }],
-                },
-              },
-            },
-          }));
-        }
         assert.equal(url, 'http://localhost:11434/api/show');
         assert.equal(JSON.parse(options.body).name, 'local-model');
         return new Response(JSON.stringify({
@@ -1061,10 +1160,40 @@ test('Ollama discovery appends cloud candidates without inspecting or pulling th
       },
     });
 
-    assert.deepEqual(result.models.map((model) => model.id), ['local-model', 'cloud-model:cloud']);
-    assert.deepEqual(calls.map((call) => call.authorization), [undefined, undefined]);
+    assert.equal(result.models[0].id, 'local-model');
+    assert.ok(result.models.slice(1).every((model) => model.id.endsWith(':cloud')));
+    assert.ok(result.models.length > 1);
+    assert.deepEqual(calls.map((call) => call.authorization), [undefined]);
     assert.equal(calls.some((call) => call.url.endsWith('/api/pull')), false);
   } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('Ollama local discovery does not wait for a stalled cloud catalog refresh', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ollama-cloud-nonblocking-'));
+  let releaseCloud;
+  const cloudBlocked = new Promise((resolve) => { releaseCloud = resolve; });
+  try {
+    const discovery = ollama.discover({
+      baseUrl: 'http://localhost:11434/v1',
+      detectionPayload: { models: [{ name: 'local-model' }] },
+      cacheDir,
+      fetchImpl: async (url) => {
+        if (String(url).includes('raw.githubusercontent.com')) {
+          await cloudBlocked;
+          throw new Error('offline');
+        }
+        return new Response(JSON.stringify({ capabilities: ['completion'] }));
+      },
+    });
+    const winner = await Promise.race([
+      discovery.then(() => 'discovered'),
+      new Promise((resolve) => setTimeout(() => resolve('blocked'), 50)),
+    ]);
+    assert.equal(winner, 'discovered');
+  } finally {
+    releaseCloud();
     fs.rmSync(cacheDir, { recursive: true, force: true });
   }
 });
@@ -1171,6 +1300,19 @@ test('public discovery dispatches all five extended providers and retains suppli
           if (String(url).startsWith('https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/')) {
             assert.equal(options.headers.Authorization, undefined);
             throw new Error('use bundled metadata');
+          }
+          if (provider === 'google') {
+            assert.equal(url, google.ENDPOINT);
+            assert.equal(options.headers.Authorization, undefined);
+            assert.equal(options.headers['x-goog-api-key'], 'provider-secret');
+            return new Response(JSON.stringify({
+              models: [{
+                name: `models/${liveId}`,
+                supportedGenerationMethods: ['generateContent'],
+                inputTokenLimit: 100000,
+                outputTokenLimit: 8192,
+              }],
+            }));
           }
           assert.equal(url, `${baseUrl}/models`);
           assert.equal(options.headers.Authorization, 'Bearer provider-secret');
