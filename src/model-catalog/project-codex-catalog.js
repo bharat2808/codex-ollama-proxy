@@ -69,9 +69,7 @@ function applyCapabilities(model, options) {
   model.web_search_tool_type = options.canonical.web_search_tool_type;
   model.use_responses_lite = options.canonical.use_responses_lite;
 
-  const hasVision = options.isOllama
-    ? lookupIds.some((id) => options.visionCapable.has(id))
-    : lookupIds.includes(options.imageModel);
+  const hasVision = lookupIds.some((id) => options.visionCapable.has(id));
   model.input_modalities = hasVision ? ['text', 'image'] : ['text'];
   model.supports_image_detail_original = hasVision;
   model.supports_reasoning_summary_parameter = true;

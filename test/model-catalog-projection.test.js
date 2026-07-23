@@ -68,19 +68,28 @@ test('projects normalized Ollama discovery into the Codex catalog without I/O', 
   assert.deepEqual(result.localModelIds, ['text-only', 'vision-tools']);
 });
 
-test('projects non-Ollama inventory without inventing native image support', () => {
+test('projects explicit non-Ollama vision support without guessing unknown capabilities', () => {
   const result = projectCodexCatalog({
     existingModels: [],
-    knownIds: new Set(['remote-text', 'remote-image']),
+    knownIds: new Set(['remote-unknown', 'remote-vision', 'remote-image']),
     discovery: {
       provider: 'custom',
-      models: [{
-        id: 'remote-text',
-        inputModalities: null,
-        reasoningLevels: null,
-        toolCalling: null,
-        source: 'supplied',
-      }],
+      models: [
+        {
+          id: 'remote-unknown',
+          inputModalities: null,
+          reasoningLevels: null,
+          toolCalling: null,
+          source: 'supplied',
+        },
+        {
+          id: 'remote-vision',
+          inputModalities: ['text', 'image'],
+          reasoningLevels: null,
+          toolCalling: null,
+          source: 'provider-catalog',
+        },
+      ],
     },
     imageModel: 'remote-image',
     canonical,
@@ -89,5 +98,8 @@ test('projects non-Ollama inventory without inventing native image support', () 
   assert.equal(result.isOllama, false);
   assert.deepEqual(result.models[0].input_modalities, ['text']);
   assert.deepEqual(result.models[1].input_modalities, ['text', 'image']);
+  assert.equal(result.models[1].supports_image_detail_original, true);
+  assert.deepEqual(result.models[2].input_modalities, ['text', 'image']);
   assert.equal(result.models[0].supports_parallel_tool_calls, true);
+  assert.deepEqual([...result.visionCapable], ['remote-vision', 'remote-image']);
 });
