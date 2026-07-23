@@ -56,6 +56,7 @@ function cacheEndpoint(provider, options) {
 function providerTraits(provider, baseUrl) {
   const localOllama = provider === 'ollama' && ollama.isLocalBaseUrl(baseUrl);
   return {
+    inventoryComplete: provider === 'ollama',
     local: localOllama,
     nativeInspection: provider === 'ollama',
     supportsCloudPull: localOllama,

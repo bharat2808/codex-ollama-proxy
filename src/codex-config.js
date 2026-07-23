@@ -4,7 +4,11 @@
 const fs = require('fs');
 const path = require('path');
 const { discoverModels } = require('./model-discovery');
-const { isObviousNonTextModelId } = require('./model-discovery/normalize');
+const { projectCodexCatalog } = require('./model-catalog/project-codex-catalog');
+const {
+  resolveModelInventory,
+  upstreamModelIds,
+} = require('./model-catalog/resolve-model-inventory');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
@@ -479,38 +483,6 @@ async function fetchUpstreamModels() {
   }
 }
 
-function upstreamModelIds(upstreamModels) {
-  return new Set((Array.isArray(upstreamModels) ? upstreamModels : [])
-    .map((model) => model && (model.id || model.name || model.model))
-    .filter((id) => typeof id === 'string' && id.length > 0 && !isObviousNonTextModelId(id)));
-}
-
-function applyDiscoveredMetadata(catalogModels, discoveredModels) {
-  const discovered = new Map((Array.isArray(discoveredModels) ? discoveredModels : [])
-    .filter((model) => model && typeof model.id === 'string')
-    .map((model) => [model.id, model]));
-  for (const entry of Array.isArray(catalogModels) ? catalogModels : []) {
-    if (!entry) continue;
-    const metadata = discovered.get(entry.slug) || discovered.get(entry.display_name);
-    if (!metadata) continue;
-    if (Array.isArray(metadata.inputModalities) && metadata.inputModalities.length > 0) {
-      entry.input_modalities = [...metadata.inputModalities];
-      entry.supports_image_detail_original = metadata.inputModalities.includes('image');
-    }
-    if (Array.isArray(metadata.reasoningLevels) && metadata.reasoningLevels.length > 0) {
-      entry.supported_reasoning_levels = [...metadata.reasoningLevels];
-      if (!metadata.reasoningLevels.includes(entry.default_reasoning_level)) {
-        entry.default_reasoning_level = null;
-      }
-    }
-    if (Number.isSafeInteger(metadata.contextWindow) && metadata.contextWindow > 0) {
-      entry.context_window = metadata.contextWindow;
-      entry.max_context_window = metadata.contextWindow;
-    }
-  }
-  return catalogModels;
-}
-
 async function discoverUpstreamModels(routeCfg, suppliedModels) {
   try {
     return await discoverModels({
@@ -522,22 +494,6 @@ async function discoverUpstreamModels(routeCfg, suppliedModels) {
   } catch {
     return null;
   }
-}
-
-function nativeCapabilitiesFromDiscovery(discovery, imageModel) {
-  const models = discovery && Array.isArray(discovery.models) ? discovery.models : [];
-  const isOllama = Boolean(discovery && discovery.provider === 'ollama');
-  const visionCapable = new Set();
-  const toolCalling = new Map();
-  for (const model of models) {
-    if (!model || typeof model.id !== 'string') continue;
-    if (Array.isArray(model.inputModalities) && model.inputModalities.includes('image')) {
-      visionCapable.add(model.id);
-    }
-    if (typeof model.toolCalling === 'boolean') toolCalling.set(model.id, model.toolCalling);
-  }
-  if (imageModel) visionCapable.add(imageModel);
-  return { isOllama, visionCapable, toolCalling };
 }
 
 async function refreshCatalog() {
@@ -557,96 +513,36 @@ async function refreshCatalog() {
   if (routeCfg.text_model) suppliedModels.add(routeCfg.text_model);
   if (routeCfg.image_model) suppliedModels.add(routeCfg.image_model);
 
-  // Fetch model IDs from GET /v1/models
-  const { models: upstreamModels, error: upstreamError } = await fetchUpstreamModels();
-  const upstreamIds = upstreamModelIds(upstreamModels);
-
-  // Merge: all upstream IDs + supplied models (dedupe)
-  const allKnownIds = new Set([...upstreamIds, ...suppliedModels]);
   const discovery = await discoverUpstreamModels(routeCfg, suppliedModels);
-  const discoveredModels = discovery && Array.isArray(discovery.models) ? discovery.models : [];
-  for (const model of discoveredModels) allKnownIds.add(model.id);
-
-  const nativeCapabilities = nativeCapabilitiesFromDiscovery(discovery, routeCfg.image_model);
-  const { isOllama, visionCapable, toolCalling } = nativeCapabilities;
-
-  const template = models.length ? JSON.parse(JSON.stringify(models[0])) : {};
-  let changed = 0;
-  let pruned = 0;
-
-  // Prune models not in upstream OR supplied — keep only what's known
-  models = models.filter((m) => {
-    if (!m || !m.slug) return false;
-    if (allKnownIds.has(m.slug) || allKnownIds.has(m.display_name)) return true;
-    pruned += 1;
-    return false;
+  const inventory = await resolveModelInventory({
+    discovery,
+    suppliedModels,
+    fetchUpstreamModels,
   });
+  const {
+    allKnownIds,
+    discoveredModels,
+    inventorySource,
+    upstreamError,
+    upstreamIds,
+  } = inventory;
 
-  // Patch capabilities for surviving models
-  for (const m of models) {
-    if (!m) continue;
-    const before = Object.fromEntries(TOOL_CAPABILITY_FIELDS.map((key) => [key, m[key]]));
-    const nativeToolCalling = toolCalling.has(m.slug)
-      ? toolCalling.get(m.slug)
-      : toolCalling.get(m.display_name);
-    m.apply_patch_tool_type = canonical.apply_patch_tool_type;
-    m.supports_parallel_tool_calls = typeof nativeToolCalling === 'boolean'
-      ? nativeToolCalling
-      : canonical.supports_parallel_tool_calls;
-    m.supports_search_tool = canonical.supports_search_tool;
-    m.shell_type = canonical.shell_type;
-    m.web_search_tool_type = canonical.web_search_tool_type;
-    m.use_responses_lite = canonical.use_responses_lite;
-
-    // Ollama: use probed vision capability. Non-Ollama: text-only by default.
-    // image_model is always vision-capable.
-    const hasVision = isOllama
-      ? visionCapable.has(m.slug) || visionCapable.has(m.display_name)
-      : (m.slug === routeCfg.image_model || m.display_name === routeCfg.image_model);
-    const newMods = hasVision ? ['text', 'image'] : ['text'];
-    if (JSON.stringify(m.input_modalities) !== JSON.stringify(newMods)) m.input_modalities = newMods;
-    if (m.supports_image_detail_original !== hasVision) m.supports_image_detail_original = hasVision;
-
-    // Set reasoning summary fields so the UI renders summaries under the thinking header
-    m.supports_reasoning_summary_parameter = true;
-    m.default_reasoning_summary = 'auto';
-    const after = Object.fromEntries(TOOL_CAPABILITY_FIELDS.map((key) => [key, m[key]]));
-    if (JSON.stringify(before) !== JSON.stringify(after)) changed += 1;
-  }
-
-  // Add new models from upstream + supplied (dedupe against existing)
-  const existingSlugs = new Set(models.map((m) => m && m.slug).filter(Boolean));
-  const added = [];
-  for (const id of allKnownIds) {
-    if (existingSlugs.has(id)) continue;
-    const entry = JSON.parse(JSON.stringify(template));
-    entry.slug = id;
-    entry.display_name = id;
-    entry.description = isOllama ? 'Ollama local model' : 'Upstream model';
-    entry.apply_patch_tool_type = canonical.apply_patch_tool_type;
-    entry.supports_parallel_tool_calls = toolCalling.has(id)
-      ? toolCalling.get(id)
-      : canonical.supports_parallel_tool_calls;
-    entry.supports_search_tool = canonical.supports_search_tool;
-    entry.shell_type = canonical.shell_type;
-    entry.web_search_tool_type = canonical.web_search_tool_type;
-    entry.use_responses_lite = canonical.use_responses_lite;
-    // Ollama: use probed vision. Non-Ollama: image_model is vision, rest text-only.
-    const hasVision = isOllama
-      ? visionCapable.has(id)
-      : (id === routeCfg.image_model);
-    entry.input_modalities = hasVision ? ['text', 'image'] : ['text'];
-    entry.supports_image_detail_original = hasVision;
-    entry.supports_reasoning_summary_parameter = true;
-    entry.default_reasoning_summary = 'auto';
-    models.push(entry);
-    added.push(id);
-    existingSlugs.add(id);
-  }
-
-  applyDiscoveredMetadata(models, discoveredModels);
-
-  catalog.models = models;
+  const projection = projectCodexCatalog({
+    existingModels: models,
+    knownIds: allKnownIds,
+    discovery,
+    imageModel: routeCfg.image_model,
+    canonical,
+  });
+  const {
+    added,
+    changed,
+    isOllama,
+    localModelIds,
+    pruned,
+    visionCapable,
+  } = projection;
+  catalog.models = projection.models;
   const instructionsPatched = applyFreshInstructionValues(catalog, freshInstructions);
   // Note: do NOT call forceImageCapabilityForRouteModel here. The catalog on disk
   // must contain TRUE capabilities (from Ollama probes or optimistic defaults).
@@ -674,7 +570,7 @@ async function refreshCatalog() {
     `models_patched=${changed}`,
     `models_pruned=${pruned}`,
     `models_added=${added.length}`,
-    `catalog_source=${isOllama ? 'normalized Ollama discovery' : 'GET /v1/models'}`,
+    `catalog_source=${inventorySource}`,
     `vision_capable=${visionCapable.size}`,
     upstreamError ? `upstream_error=${upstreamError}` : null,
     `auto_route_image=${routeCfg.auto_route_image ? 'true' : 'false'}`,
@@ -683,14 +579,8 @@ async function refreshCatalog() {
     lines.push(`auto_route_text_model=${routeCfg.text_model}`);
   }
   if (added.length) lines.push(`added=${added.join(',')}`);
-  const localNames = isOllama
-    ? discoveredModels
-      .filter((model) => model.source === 'ollama-show' || model.source === 'ollama-tags')
-      .map((model) => model.id)
-      .sort()
-    : [];
   if (isOllama) {
-    lines.push(localNames.length ? `local_ollama_models=${localNames.join(',')}` : 'local_ollama_models=(unreachable; skipped sync)');
+    lines.push(localModelIds.length ? `local_ollama_models=${localModelIds.join(',')}` : 'local_ollama_models=(unreachable; skipped sync)');
   } else {
     lines.push(`upstream_models=${upstreamIds.size > 0 ? [...upstreamIds].join(',') : '(none)'}`);
   }
@@ -799,10 +689,7 @@ module.exports = {
   FRESH_INSTRUCTION_FIELDS,
   canonicalInstructionValuesFromCache,
   applyFreshInstructionValues,
-  applyDiscoveredMetadata,
   fetchUpstreamModels,
-  nativeCapabilitiesFromDiscovery,
-  upstreamModelIds,
   refreshCatalog,
   ensureTableKey,
   main,

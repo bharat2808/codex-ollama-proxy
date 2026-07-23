@@ -1469,6 +1469,7 @@ test('custom discovery skips the network when no models are supplied', async () 
   assert.equal(result.provider, 'custom');
   assert.equal(result.providerResolution, 'custom-url');
   assert.deepEqual(result.traits, {
+    inventoryComplete: false,
     local: false,
     nativeInspection: false,
     supportsCloudPull: false,
@@ -1563,6 +1564,7 @@ test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unm
     assert.equal(refreshed.provider, 'nvidia');
     assert.equal(refreshed.providerResolution, 'canonical-url');
     assert.deepEqual(refreshed.traits, {
+      inventoryComplete: false,
       local: false,
       nativeInspection: false,
       supportsCloudPull: false,
@@ -1605,6 +1607,7 @@ test('public Ollama discovery exposes local native-inspection traits', async () 
 
   assert.equal(result.provider, 'ollama');
   assert.deepEqual(result.traits, {
+    inventoryComplete: true,
     local: true,
     nativeInspection: true,
     supportsCloudPull: true,

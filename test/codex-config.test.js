@@ -747,7 +747,7 @@ test('CLI preset use stops when the route reset fails', () => {
 test('catalog capability state comes only from normalized discovery metadata', () => {
   const {
     nativeCapabilitiesFromDiscovery,
-  } = require('../src/codex-config');
+  } = require('../src/model-catalog/project-codex-catalog');
   const capabilities = nativeCapabilitiesFromDiscovery({
     provider: 'ollama',
     traits: {
@@ -774,7 +774,9 @@ test('discovered metadata maps into supported Codex catalog fields without guess
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-discovered-metadata-'));
   process.env.CODEX_HOME = codexHome;
   delete require.cache[require.resolve('../src/codex-config')];
-  const { applyDiscoveredMetadata } = require('../src/codex-config');
+  const {
+    applyDiscoveredMetadata,
+  } = require('../src/model-catalog/project-codex-catalog');
   try {
     const catalogModels = [
       { slug: 'vision-reasoning', input_modalities: ['text'], supported_reasoning_levels: [] },
@@ -813,7 +815,9 @@ test('upstream catalog IDs exclude models that are obviously not generative text
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-filter-upstream-'));
   process.env.CODEX_HOME = codexHome;
   delete require.cache[require.resolve('../src/codex-config')];
-  const { upstreamModelIds } = require('../src/codex-config');
+  const {
+    upstreamModelIds,
+  } = require('../src/model-catalog/resolve-model-inventory');
   try {
     assert.deepEqual([...upstreamModelIds([
       { id: 'meta/llama-3.3-70b-instruct' },
