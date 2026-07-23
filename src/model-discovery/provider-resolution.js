@@ -4,7 +4,7 @@ const { fetchJson } = require('./live-catalog');
 
 const KNOWN_PROVIDERS = new Set([
   'nvidia', 'openrouter', 'cohere', 'ollama',
-  'zai', 'moonshot', 'deepseek', 'google', 'xai',
+  'zai', 'moonshot', 'deepseek', 'google', 'xai', 'custom',
 ]);
 const PROVIDER_ALIASES = new Map([
   ['z-ai', 'zai'],
@@ -84,6 +84,10 @@ async function resolveProvider(options = {}) {
     if (payload) {
       return { provider: 'ollama', providerResolution: 'ollama-native', detectionPayload: payload };
     }
+  }
+
+  if (url && !url.search && !url.hash) {
+    return { provider: 'custom', providerResolution: 'custom-url', detectionPayload: null };
   }
 
   return { provider: null, providerResolution: 'unknown', detectionPayload: null };

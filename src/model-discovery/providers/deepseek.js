@@ -1,6 +1,6 @@
 'use strict';
 
-const shared = require('./openai-compatible-catalog');
+const shared = require('./allowlisted-provider-catalog');
 
 const BASE_URL = 'https://api.deepseek.com';
 const V1_BASE_URL = 'https://api.deepseek.com/v1';

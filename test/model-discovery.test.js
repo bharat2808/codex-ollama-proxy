@@ -516,7 +516,7 @@ test('five extended providers resolve from canonical URLs and explicit aliases w
   assert.equal(fetchCalls, 0);
 });
 
-test('local Ollama auto-detection reuses tags while unknown remote endpoints are not probed', async () => {
+test('local Ollama auto-detection reuses tags while remote endpoints resolve as custom without probing', async () => {
   const calls = [];
   const payload = { models: [{ name: 'qwen3:8b' }] };
   const fetchImpl = async (url, options) => {
@@ -543,8 +543,8 @@ test('local Ollama auto-detection reuses tags while unknown remote endpoints are
     fetchImpl,
   });
   assert.deepEqual(remote, {
-    provider: null,
-    providerResolution: 'unknown',
+    provider: 'custom',
+    providerResolution: 'custom-url',
     detectionPayload: null,
   });
   assert.equal(calls.length, 1);
@@ -1267,7 +1267,7 @@ test('malformed xAI suppression refresh retains the bundled suppressions', async
 });
 
 test('OpenAI-compatible input metadata preserves known modalities instead of inventing text', () => {
-  const audio = require('../src/model-discovery/providers/openai-compatible-catalog').parseLiveRow({
+  const audio = require('../src/model-discovery/providers/allowlisted-provider-catalog').parseLiveRow({
     id: 'audio-model',
     input_modalities: ['audio'],
     output_modalities: ['text'],
@@ -1277,7 +1277,7 @@ test('OpenAI-compatible input metadata preserves known modalities instead of inv
 });
 
 test('OpenAI-compatible live rows normalize explicit reasoning levels', () => {
-  const model = require('../src/model-discovery/providers/openai-compatible-catalog').parseLiveRow({
+  const model = require('../src/model-discovery/providers/allowlisted-provider-catalog').parseLiveRow({
     id: 'reasoning-model',
     output_modalities: ['text'],
     reasoning: true,
@@ -1436,11 +1436,10 @@ test('Ollama local discovery does not wait for a stalled cloud catalog refresh',
   }
 });
 
-test('public discovery returns supplied models without probing an unresolved provider', async () => {
+test('custom discovery skips the network when no models are supplied', async () => {
   let fetched = false;
   const result = await discoverModels({
     baseUrl: 'https://custom-provider.example/v1',
-    suppliedModels: ['custom/b', 'custom/a'],
     fetchImpl: async () => {
       fetched = true;
       throw new Error('must not fetch');
@@ -1448,12 +1447,56 @@ test('public discovery returns supplied models without probing an unresolved pro
   });
 
   assert.equal(fetched, false);
-  assert.equal(result.provider, null);
-  assert.equal(result.providerResolution, 'unknown');
-  assert.equal(result.source, 'supplied');
+  assert.equal(result.provider, 'custom');
+  assert.equal(result.providerResolution, 'custom-url');
   assert.equal(result.cacheStatus, 'none');
   assert.equal(result.discoverySkipped, true);
-  assert.deepEqual(result.models.map((model) => model.id), ['custom/b', 'custom/a']);
+  assert.deepEqual(result.models, []);
+});
+
+test('custom discovery retains only supplied model families from noisy catalogs', async () => {
+  const unrelated = Array.from({ length: 2000 }, (_, index) => ({ id: `noise/model-${index}` }));
+  const result = await discoverModels({
+    baseUrl: 'https://custom-provider.example/v1',
+    apiKey: 'custom-secret',
+    suppliedModels: ['deepseek-v4-pro', 'private/model'],
+    fetchImpl: async (url, options) => {
+      assert.equal(url, 'https://custom-provider.example/v1/models');
+      assert.equal(options.headers.Authorization, 'Bearer custom-secret');
+      return new Response(JSON.stringify({ data: [
+        ...unrelated,
+        { id: 'deepseek-v4-flash' },
+        { id: 'deepseek-v4-pro', context_window: 1000000 },
+        { id: 'vendor/deepseek-v4-pro', context_window: 262144 },
+        { id: 'deepseek-v4-pro:latest', context_window: 128000 },
+      ] }));
+    },
+  });
+
+  assert.equal(result.provider, 'custom');
+  assert.equal(result.providerResolution, 'custom-url');
+  assert.equal(result.discoverySkipped, false);
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'deepseek-v4-pro',
+    'vendor/deepseek-v4-pro',
+    'deepseek-v4-pro:latest',
+    'private/model',
+  ]);
+  assert.equal(result.models[0].contextWindow, 1000000);
+});
+
+test('custom discovery falls back to supplied models when its catalog fails', async () => {
+  const result = await discoverModels({
+    baseUrl: 'https://custom-provider.example/v1',
+    suppliedModels: ['deepseek-v4-pro'],
+    fetchImpl: async () => {
+      throw new Error('offline');
+    },
+  });
+
+  assert.equal(result.provider, 'custom');
+  assert.deepEqual(result.models.map((model) => model.id), ['deepseek-v4-pro']);
+  assert.match(result.warnings[0], /custom model catalog refresh failed/i);
 });
 
 test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unmatched supplied ids', async () => {

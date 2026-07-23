@@ -1,6 +1,6 @@
 'use strict';
 
-const shared = require('./openai-compatible-catalog');
+const shared = require('./allowlisted-provider-catalog');
 const { loadXaiSuppressions } = require('../openclaw-suppressions');
 
 const BASE_URL = 'https://api.x.ai/v1';

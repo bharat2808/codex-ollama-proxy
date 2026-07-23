@@ -17,10 +17,11 @@ const moonshot = require('./providers/moonshot');
 const deepseek = require('./providers/deepseek');
 const google = require('./providers/google');
 const xai = require('./providers/xai');
+const custom = require('./providers/custom');
 
 const ADAPTERS = {
   nvidia, openrouter, cohere, ollama,
-  zai, moonshot, deepseek, google, xai,
+  zai, moonshot, deepseek, google, xai, custom,
 };
 
 function defaultCacheDir() {
@@ -88,6 +89,17 @@ async function discoverModels(options = {}) {
     now: options.now,
   };
   const endpoint = cacheEndpoint(resolution.provider, options);
+  if (resolution.provider === 'custom' && supplied.length === 0) {
+    return {
+      provider: 'custom',
+      providerResolution: resolution.providerResolution,
+      source: 'custom',
+      cacheStatus: 'none',
+      discoverySkipped: true,
+      models: [],
+      warnings: [],
+    };
+  }
   if (!endpoint) {
     const result = await adapter.discover(adapterOptions);
     return {

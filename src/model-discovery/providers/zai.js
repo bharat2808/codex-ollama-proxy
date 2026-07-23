@@ -1,6 +1,6 @@
 'use strict';
 
-const shared = require('./openai-compatible-catalog');
+const shared = require('./allowlisted-provider-catalog');
 
 const BASE_URL = 'https://api.z.ai/api/paas/v4';
 const ENDPOINT = `${BASE_URL}/models`;

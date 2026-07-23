@@ -1,6 +1,6 @@
 'use strict';
 
-const shared = require('./openai-compatible-catalog');
+const shared = require('./allowlisted-provider-catalog');
 
 const BASE_URL = 'https://api.moonshot.ai/v1';
 const CN_BASE_URL = 'https://api.moonshot.cn/v1';
