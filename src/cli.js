@@ -30,19 +30,19 @@ function usage() {
   codex-ollama-proxy serve [--adaptor chat-completion] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
   codex-ollama-proxy serve --preset NAME [--api-key KEY] [--replace]
   codex-ollama-proxy serve --adaptor chat-completion [--completion-model MODEL] [--adaptor-port PORT]
-  codex-ollama-proxy preset add NAME [--adaptor chat-completion|none] --url URL (--text-model MODEL | --model MODEL) [--image-model MODEL] [--api-key KEY]
+  codex-ollama-proxy preset add NAME [--adaptor chat-completion|none] --url URL --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
     [--auto-image|--no-auto-image] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
     [--persist-images|--no-persist-images] [--image-retention-days DAYS]
     [--verbose-tools|--no-verbose-tools] [--log-upstream-body|--no-log-upstream-body]
     [--enable-find-skill|--no-enable-find-skill] [--stream-loop|--no-stream-loop]
   codex-ollama-proxy preset list
   codex-ollama-proxy preset show NAME
-  codex-ollama-proxy preset use NAME [--api-key KEY] [--model MODEL] [--no-start]
-  codex-ollama-proxy run NAME [--api-key KEY] [--model MODEL] [--adaptor-port PORT] [--replace] [--foreground]
+  codex-ollama-proxy preset use NAME [--api-key KEY] [--default-model MODEL] [--no-start]
+  codex-ollama-proxy run NAME [--api-key KEY] [--default-model MODEL] [--adaptor-port PORT] [--replace] [--foreground]
   codex-ollama-proxy status
   codex-ollama-proxy switch openai
   codex-ollama-proxy switch ollama [--model MODEL] [--no-start]
-  codex-ollama-proxy route --text-model MODEL --image-model MODEL [--auto-image|--no-auto-image]
+  codex-ollama-proxy route --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--auto-image|--no-auto-image]
                            [--persist-images|--no-persist-images] [--image-retention-days DAYS]
   codex-ollama-proxy upstream [--url URL] [--api-key KEY] [--status]
   codex-ollama-proxy logs [--tail N]
@@ -178,10 +178,12 @@ function writeRouteValue(text, key, value) {
   // Render booleans/numbers bare and strings quoted; match an existing
   // quoted-string, boolean, or bare-number assignment so numeric config keys
   // (e.g. duplicate_input_min_chars) are replaced in place rather than appended.
-  const rendered = typeof value === 'boolean' ? String(value)
+  const rendered = Array.isArray(value)
+    ? `[${value.map((entry) => `"${String(entry).replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`).join(', ')}]`
+    : typeof value === 'boolean' ? String(value)
     : typeof value === 'number' ? String(value)
     : `"${value}"`;
-  const pattern = new RegExp(`^(\\s*${key}\\s*=\\s*)(?:"[^"]*"|true|false|-?\\d+\\b).*`, 'm');
+  const pattern = new RegExp(`^(\\s*${key}\\s*=\\s*)(?:\\[[^\\]]*\\]|"[^"]*"|true|false|-?\\d+\\b).*`, 'm');
   if (pattern.test(text)) return text.replace(pattern, (_match, prefix) => prefix + rendered);
   return `${text.replace(/\s+$/u, '')}\n${key} = ${rendered}\n`;
 }
@@ -208,10 +210,14 @@ function applyPreset(name, flags = {}) {
   // top (the stored preset file is not modified), mirroring `switch ollama
   // --model`.
   const values = Object.assign({}, preset.values);
-  const overrideModel = flags.model || '';
-  if (overrideModel) {
-    values.text_model = overrideModel;
-    values.image_model = overrideModel;
+  if (flags.textModel) {
+    values.models = [flags.textModel];
+    values.default_model = flags.textModel;
+    values.image_model = flags.textModel;
+  }
+  if (flags.defaultModel) {
+    if (!values.models.includes(flags.defaultModel)) die('Error: --default-model must occur in the preset models.');
+    values.default_model = flags.defaultModel;
   }
   if (flags.apiKey === '') {
     die('Error: --api-key was passed but empty. Check your shell variable with: echo ${NVIDIA_API_KEY:+set}');
@@ -264,7 +270,7 @@ function resetRouteForOllama(flags = {}) {
   fs.mkdirSync(RUNTIME_DIR, { recursive: true });
   let text = fs.readFileSync(DEFAULT_ROUTE_CONFIG, 'utf8');
   if (flags.model) {
-    text = writeRouteValue(text, 'text_model', flags.model);
+    text = writeRouteValue(text, 'default_model', flags.model);
     text = writeRouteValue(text, 'image_model', flags.model);
   }
   text = applyImagineConfigToText(text);
@@ -274,7 +280,15 @@ function resetRouteForOllama(flags = {}) {
 
 function route(flags) {
   let text = readRouteConfig();
-  if (flags.textModel) text = writeRouteValue(text, 'text_model', flags.textModel);
+  const routedModels = flags.models
+    ? String(flags.models).split(',').map((entry) => entry.trim()).filter(Boolean)
+    : flags.textModel ? [flags.textModel] : null;
+  if (routedModels) {
+    text = writeRouteValue(text, 'models', [...new Set(routedModels)]);
+    text = writeRouteValue(text, 'default_model', flags.defaultModel || routedModels[0]);
+  } else if (flags.defaultModel) {
+    text = writeRouteValue(text, 'default_model', flags.defaultModel);
+  }
   if (flags.imageModel) text = writeRouteValue(text, 'image_model', flags.imageModel);
   if (flags.autoImage) text = writeRouteValue(text, 'auto_route_image', true);
   if (flags.noAutoImage) text = writeRouteValue(text, 'auto_route_image', false);
@@ -613,7 +627,7 @@ async function serveCmd(flags = {}) {
   const adaptorPort = String(flags.adaptorPort || process.env.CHAT_COMPLETION_ADAPTOR_PORT || process.env.COMPLETION_ADAPTOR_PORT || '8787');
   const providerUrl = readRouteValue(routeConfig, 'upstream_url');
   const providerApiKey = readRouteValue(routeConfig, 'upstream_api_key');
-  const providerModel = flags.completionModel || readRouteValue(routeConfig, 'text_model');
+  const providerModel = flags.completionModel || readRouteValue(routeConfig, 'default_model');
   if (!providerUrl) die('Error: configure the chat-completion provider with: codex-ollama-proxy upstream --url URL [--api-key KEY]');
 
   const savedLauncherState = {
@@ -790,7 +804,7 @@ async function imagineCmd(flags) {
 
 function readImagineConfig() {
   const cfg = imagineConfig.read(IMAGINE_CONFIG);
-  cfg.text_model = readRouteValue(readRouteConfig(), 'text_model', null);
+  cfg.default_model = readRouteValue(readRouteConfig(), 'default_model', null);
   return cfg;
 }
 async function main() {

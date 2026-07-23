@@ -293,7 +293,7 @@ test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstre
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     `upstream_url = "http://127.0.0.1:${providerPort}/v1"`,
     'upstream_api_key = "provider-secret"',
@@ -676,7 +676,7 @@ test('CLI serve --adaptor chat-completion reports occupied unhealthy proxy port 
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     'image_model = "test-model"',
     'upstream_url = "http://127.0.0.1:9/v1"',
     'upstream_api_key = "provider-secret"',
@@ -743,7 +743,7 @@ test('CLI serve --adaptor chat-completion treats an existing healthy proxy as al
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     'image_model = "test-model"',
     'upstream_url = "http://127.0.0.1:9/v1"',
     'upstream_api_key = "provider-secret"',

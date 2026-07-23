@@ -126,7 +126,7 @@ async function withProxy(upstreamHandler, run, config = []) {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-stream-test-'));
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     ...config,
     '',
@@ -161,7 +161,7 @@ async function withLocalOllamaProxy(ollamaHandler, run, cloudModels = ['glm-5.2:
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-ollama-cloud-test-'));
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
-    'text_model = "local-default"',
+    'default_model = "local-default"',
     `upstream_url = "http://127.0.0.1:${ollamaPort}/v1"`,
     '',
   ].join('\n'));
@@ -246,7 +246,7 @@ test('proxy module loads when image routing snapshots a populated model catalog'
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = true',
     '',
@@ -507,7 +507,7 @@ function writeFunctionTurn(res, item, ending) {
 
 function routeModel(body, autoRouteImage = true) {
   return withRouteConfig([
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = ' + autoRouteImage,
   ], ({ translateRequestBody }) => {
@@ -656,7 +656,7 @@ function countRepeatedBlocks(body, repeated) {
 
 test('translateRequestBody does not dedupe large developer blocks by default (protects provider caching)', () => {
   const repeated = '<skills_instructions>' + 'x'.repeat(600) + '</skills_instructions>';
-  const retained = withRouteConfig(['text_model = "test-model"'], ({ translateRequestBody }) => {
+  const retained = withRouteConfig(['default_model = "test-model"'], ({ translateRequestBody }) => {
     const body = duplicateDeveloperBody(repeated);
     translateRequestBody(body);
     return countRepeatedBlocks(body, repeated);
@@ -666,7 +666,7 @@ test('translateRequestBody does not dedupe large developer blocks by default (pr
 
 test('translateRequestBody dedupes large developer blocks when enabled via route config', () => {
   const repeated = '<skills_instructions>' + 'x'.repeat(600) + '</skills_instructions>';
-  const retained = withRouteConfig(['text_model = "test-model"', 'dedupe_large_input = true'], ({ translateRequestBody }) => {
+  const retained = withRouteConfig(['default_model = "test-model"', 'dedupe_large_input = true'], ({ translateRequestBody }) => {
     const body = duplicateDeveloperBody(repeated);
     translateRequestBody(body);
     return countRepeatedBlocks(body, repeated);
@@ -679,7 +679,7 @@ test('PROXY_DEDUPE_LARGE_INPUT=1 opts in to large-input dedupe at proxy start (C
   const previous = process.env.PROXY_DEDUPE_LARGE_INPUT;
   process.env.PROXY_DEDUPE_LARGE_INPUT = '1';
   try {
-    const retained = withRouteConfig(['text_model = "test-model"'], ({ translateRequestBody }) => {
+    const retained = withRouteConfig(['default_model = "test-model"'], ({ translateRequestBody }) => {
       const body = duplicateDeveloperBody(repeated);
       translateRequestBody(body);
       return countRepeatedBlocks(body, repeated);
@@ -934,7 +934,7 @@ test('HTTP persistence stays in the proxy-owned cache and preserves active image
     assert.equal(path.dirname(path.dirname(historicalPath)), path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images'));
     assert.equal(fs.existsSync(path.join(unrelatedDir, 'pasted-text.txt')), true);
   }, [
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = true',
     'persist_inline_images = true',
@@ -944,7 +944,7 @@ test('HTTP persistence stays in the proxy-owned cache and preserves active image
 
 test('inline image persistence deduplicates historical images and preserves the incoming model on text turns', () => {
   withRouteConfig([
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = true',
     'persist_inline_images = true',
@@ -1030,7 +1030,7 @@ test('inline image persistence repairs a corrupt existing hash file', () => {
 
 test('inline image persistence keeps active image-turn pixels and dereferences history', () => {
   withRouteConfig([
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = true',
     'persist_inline_images = true',
@@ -1070,7 +1070,7 @@ test('inline image persistence keeps active image-turn pixels and dereferences h
 
 test('inline image persistence is bypassed when image auto-routing is disabled', () => {
   withRouteConfig([
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = false',
     'persist_inline_images = true',
@@ -1231,7 +1231,7 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-test-'));
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     'upstream_api_key = "secret-token"',
     '',
@@ -1328,7 +1328,7 @@ test('streaming SSE preserves ordering and translates tool_search_call', async (
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-test-'));
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     '',
   ].join('\n'));

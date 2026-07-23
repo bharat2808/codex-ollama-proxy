@@ -1,7 +1,8 @@
 # proxy-models.toml — drives use-ollama-via-proxy.sh routing + proxy.js per-request
 # auto-rewrite of the `model` field.
 #
-# text_model  : default model Codex runs (good orchestrator, no vision needed).
+# models      : ordered models explicitly included in discovery/catalog.
+# default_model: model Codex preselects for a new thread.
 # image_model : model the proxy rewrites the request to when a message contains
 #               an input_image content block. Must be vision-capable in the catalog
 #               (ollama-launch-models.json input_modalities includes "image").
@@ -9,7 +10,8 @@
 # Both slugs must exist in ollama-launch-models.json and be available on the
 # upstream Responses API server.
 
-text_model  = "glm-5.2:cloud"
+models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]
+default_model = "glm-5.2:cloud"
 image_model = "kimi-k2.7-code:cloud"
 
 # Base URL for the upstream Responses API server. The proxy appends

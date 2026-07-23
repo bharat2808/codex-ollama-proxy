@@ -17,7 +17,8 @@ const ROUTE_KEY_DEFS = [
   // stored preset mirrors the order of the runtime proxy-models.toml).
   { key: 'upstream_url', type: 'string', default: upstreamLib.DEFAULT_UPSTREAM_URL },
   { key: 'upstream_api_key', type: 'string', default: '' },
-  { key: 'text_model', type: 'string', default: '' },
+  { key: 'models', type: 'string-array', default: [] },
+  { key: 'default_model', type: 'string', default: '' },
   { key: 'image_model', type: 'string', default: '' },
   { key: 'auto_route_image', type: 'bool', default: false },
   { key: 'persist_inline_images', type: 'bool', default: true },
@@ -53,7 +54,7 @@ const KEY_TYPES = {};
 for (const def of ROUTE_KEY_DEFS) KEY_TYPES[def.key] = def.type;
 
 // Required keys for a preset to be valid.
-const REQUIRED_PRESET_KEYS = ['upstream_url', 'text_model'];
+const REQUIRED_PRESET_KEYS = ['upstream_url', 'models', 'default_model'];
 
 module.exports = {
   ROUTE_KEY_DEFS,

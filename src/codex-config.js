@@ -103,7 +103,8 @@ function ensureModelCatalog() {
 
 function loadRouteConfig() {
   const cfg = {
-    text_model: null,
+    models: [],
+    default_model: null,
     image_model: null,
     upstream_url: null,
     upstream_api_key: null,
@@ -111,6 +112,8 @@ function loadRouteConfig() {
   };
   if (!exists(PROXY_MODELS)) return cfg;
   const text = readText(PROXY_MODELS);
+  const modelsMatch = text.match(/^\s*models\s*=\s*\[([^\]]*)\]/m);
+  if (modelsMatch) cfg.models = [...modelsMatch[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
   for (const line of text.split(/\n/)) {
     const stringMatch = line.match(/^\s*([A-Za-z_]+)\s*=\s*"([^"]*)"/);
     if (stringMatch && Object.prototype.hasOwnProperty.call(cfg, stringMatch[1])) {
@@ -126,7 +129,7 @@ function loadRouteConfig() {
 
 function defaultOllamaModel() {
   const routeCfg = loadRouteConfig();
-  return routeCfg.text_model || DEFAULT_OLLAMA_MODEL;
+  return routeCfg.default_model || DEFAULT_OLLAMA_MODEL;
 }
 
 function forceImageCapabilityForRouteModel(catalog) {
@@ -507,10 +510,11 @@ async function refreshCatalog() {
   const freshInstructions = canonicalInstructionValues();
   const routeCfg = loadRouteConfig();
 
-  // Always include the configured text_model and image_model from proxy-models.toml
+  // Always include the configured default_model and image_model from proxy-models.toml
   // even if the upstream endpoint doesn't return them.
   const suppliedModels = new Set();
-  if (routeCfg.text_model) suppliedModels.add(routeCfg.text_model);
+  for (const model of routeCfg.models) suppliedModels.add(model);
+  if (routeCfg.default_model) suppliedModels.add(routeCfg.default_model);
   if (routeCfg.image_model) suppliedModels.add(routeCfg.image_model);
 
   const discovery = await discoverUpstreamModels(routeCfg, suppliedModels);
@@ -532,6 +536,7 @@ async function refreshCatalog() {
     knownIds: allKnownIds,
     discovery,
     imageModel: routeCfg.image_model,
+    defaultModel: routeCfg.default_model,
     canonical,
   });
   const {
@@ -575,8 +580,8 @@ async function refreshCatalog() {
     upstreamError ? `upstream_error=${upstreamError}` : null,
     `auto_route_image=${routeCfg.auto_route_image ? 'true' : 'false'}`,
   ];
-  if (routeCfg.auto_route_image && routeCfg.text_model) {
-    lines.push(`auto_route_text_model=${routeCfg.text_model}`);
+  if (routeCfg.auto_route_image && routeCfg.default_model) {
+    lines.push(`auto_route_default_model=${routeCfg.default_model}`);
   }
   if (added.length) lines.push(`added=${added.join(',')}`);
   if (isOllama) {

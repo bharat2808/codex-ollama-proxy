@@ -199,7 +199,7 @@ function extractTextFromResponse(response) {
 async function enhancePrompt(upstream, userPrompt, config, systemPrompt, inputImageBase64, inputImageMime) {
   try {
     const body = {
-      model: config.text_model,
+      model: config.default_model,
       input: inputImageBase64
         ? [
             {
@@ -788,7 +788,7 @@ function fulfillProxyStatus(call, config, log, ctx) {
 
   const status = {
     current_config: {
-      text_model: config.text_model || null,
+      default_model: config.default_model || null,
       image_model: config.image_model || null,
       auto_route_image: config.auto_route_image || false,
       routing: {

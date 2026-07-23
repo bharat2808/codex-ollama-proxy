@@ -66,7 +66,7 @@ test('normalizeOllama enables apps feature in [features]', () => {
     '',
   ].join('\n'), 'utf8');
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "glm-5.2:cloud"',
+    'default_model = "glm-5.2:cloud"',
     '',
   ].join('\n'), 'utf8');
 
@@ -141,7 +141,7 @@ test('normalizeOllama sets requires_openai_auth on provider table (no reference)
     '',
   ].join('\n'), 'utf8');
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "glm-5.2:cloud"',
+    'default_model = "glm-5.2:cloud"',
     '',
   ].join('\n'), 'utf8');
 

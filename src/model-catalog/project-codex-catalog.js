@@ -122,6 +122,10 @@ function projectCodexCatalog(options) {
   }
 
   applyDiscoveredMetadata(models, discoveredModels);
+  const defaultIndex = models.findIndex((model) => model
+    && (model.slug === options.defaultModel || model.display_name === options.defaultModel));
+  if (defaultIndex > 0) models.unshift(models.splice(defaultIndex, 1)[0]);
+  models.forEach((model, index) => { model.priority = index + 1; });
   const localModelIds = native.isOllama
     ? discoveredModels
       .filter((model) => model.source === 'ollama-show' || model.source === 'ollama-tags')

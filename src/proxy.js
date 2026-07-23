@@ -39,6 +39,8 @@ function loadRouteConfig() {
       const n = line.match(/^\s*([A-Za-z_]+)\s*=\s*(\d+)\b/);
       if (n && n[1] in ROUTE_CFG && typeof ROUTE_CFG[n[1]] === 'number') ROUTE_CFG[n[1]] = Number(n[2]);
     }
+    const modelsMatch = raw.match(/^\s*models\s*=\s*\[([^\]]*)\]/m);
+    if (modelsMatch) ROUTE_CFG.models = [...modelsMatch[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
   } catch (e) {
     // Missing file is fine; auto-routing just stays off.
   }
@@ -52,7 +54,7 @@ function loadRouteConfig() {
     const minChars = parseInt(process.env.PROXY_DEDUPE_MIN_CHARS, 10);
     if (Number.isFinite(minChars) && minChars >= 0) ROUTE_CFG.duplicate_input_min_chars = minChars;
   }
-  log('route config: text=' + ROUTE_CFG.text_model + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
+  log('route config: text=' + ROUTE_CFG.default_model + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
 }
 
 function getUpstream() {
@@ -1792,7 +1794,7 @@ const server = http.createServer((clientReq, clientRes) => {
   clientReq.on('error', (e) => log('client error: ' + e.message));
 });
 
-// Best-effort startup check that the configured text_model / image_model
+// Best-effort startup check that the configured default_model / image_model
 // resolve in the local Ollama registry. Only runs when the upstream is the
 // local Ollama daemon (host is 127.0.0.1/localhost AND the OpenAI mount path
 // is /v1, the standard Ollama topology). Remote Responses-API upstreams, the
@@ -1805,7 +1807,7 @@ const server = http.createServer((clientReq, clientRes) => {
 // Non-fatal: Ollama may start after the proxy, and the proxy still serves; the
 // per-request path already handles upstream errors.
 async function verifyConfiguredModels() {
-  const slugs = [ROUTE_CFG.text_model, ROUTE_CFG.image_model].filter(Boolean);
+  const slugs = [...new Set([...ROUTE_CFG.models, ROUTE_CFG.default_model, ROUTE_CFG.image_model].filter(Boolean))];
   if (!slugs.length) return;
   const upstream = getUpstream();
   const base = upstream && upstream.baseUrl ? upstream.baseUrl : null;
@@ -1862,7 +1864,7 @@ async function verifyConfiguredModels() {
       }
       if (data && typeof data.error === 'string') {
         log('model check: WARNING model "' + slug + '" not found in Ollama registry — ' + data.error);
-        log('  check proxy-models.toml text_model/image_model; if the slug is correct run: ollama pull ' + slug);
+        log('  check proxy-models.toml default_model/image_model; if the slug is correct run: ollama pull ' + slug);
         continue;
       }
       // Unexpected shape (not Ollama): skip silently.

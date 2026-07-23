@@ -15,7 +15,7 @@ test('inline image persistence is enabled by default in schema and packaged conf
   assert.match(packaged, /^persist_inline_images\s*=\s*true$/m);
 });
 
-test('model_config ollama defaults to proxy route text_model', () => {
+test('model_config ollama defaults to proxy route default_model', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-route-model-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
@@ -27,7 +27,7 @@ test('model_config ollama defaults to proxy route text_model', () => {
     '',
   ].join('\n'), 'utf8');
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "z-ai/glm-5.2"',
+    'default_model = "z-ai/glm-5.2"',
     'image_model = "thinkingmachines/inkling"',
     'auto_route_image = true',
     '',
@@ -60,7 +60,7 @@ test('CLI switch ollama resets chat-completion upstream config to local Ollama r
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "z-ai/glm-5.2"',
+    'default_model = "z-ai/glm-5.2"',
     'image_model = "thinkingmachines/inkling"',
     'upstream_url = "https://integrate.api.nvidia.com/v1"',
     'upstream_api_key = "secret"',
@@ -86,7 +86,7 @@ test('CLI switch ollama resets chat-completion upstream config to local Ollama r
     assert.match(result.stdout, /route_reset=ollama/);
     assert.match(result.stdout, /switched=ollama/);
     const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
-    assert.match(route, /^text_model\s*=\s*"glm-5\.2:cloud"$/m);
+    assert.match(route, /^default_model\s*=\s*"glm-5\.2:cloud"$/m);
     assert.match(route, /^image_model\s*=\s*"kimi-k2\.7-code:cloud"$/m);
     assert.match(route, /^upstream_url\s*=\s*"http:\/\/127\.0\.0\.1:11434\/v1"$/m);
     assert.match(route, /^upstream_api_key\s*=\s*""$/m);
@@ -158,7 +158,9 @@ test('CLI preset add stores provider config without API key and preset use appli
       'chat-completion',
       '--url',
       'https://integrate.api.nvidia.com/v1',
-      '--text-model',
+      '--models',
+      'z-ai/glm-5.2,thinkingmachines/inkling,z-ai/glm-5.2',
+      '--default-model',
       'z-ai/glm-5.2',
       '--image-model',
       'thinkingmachines/inkling',
@@ -175,6 +177,8 @@ test('CLI preset add stores provider config without API key and preset use appli
     const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^adaptor\s*=\s*"chat-completion"$/m);
     assert.match(preset, /^upstream_url\s*=\s*"https:\/\/integrate\.api\.nvidia\.com\/v1"$/m);
+    assert.match(preset, /^models\s*=\s*\["z-ai\/glm-5\.2", "thinkingmachines\/inkling"\]$/m);
+    assert.match(preset, /^default_model\s*=\s*"z-ai\/glm-5\.2"$/m);
     assert.doesNotMatch(preset, /api_key|secret|nvapi/u);
 
     const use = spawnSync(process.execPath, [
@@ -198,7 +202,9 @@ test('CLI preset add stores provider config without API key and preset use appli
     const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
     assert.match(route, /^upstream_url\s*=\s*"https:\/\/integrate\.api\.nvidia\.com\/v1"$/m);
     assert.match(route, /^upstream_api_key\s*=\s*"provider-secret"$/m);
-    assert.match(route, /^text_model\s*=\s*"z-ai\/glm-5\.2"$/m);
+    assert.doesNotMatch(route, /^text_model\s*=/m);
+    assert.match(route, /^models\s*=\s*\["z-ai\/glm-5\.2", "thinkingmachines\/inkling"\]$/m);
+    assert.match(route, /^default_model\s*=\s*"z-ai\/glm-5\.2"$/m);
     assert.match(route, /^image_model\s*=\s*"thinkingmachines\/inkling"$/m);
     assert.match(route, /^auto_route_image\s*=\s*true$/m);
   } finally {
@@ -413,7 +419,7 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
       'single',
       '--url',
       'https://provider.example.com/v1',
-      '--model',
+      '--text-model',
       'single-model',
     ], {
       cwd: path.join(__dirname, '..'),
@@ -425,7 +431,7 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
     const presetPath = path.join(runtimeDir, 'presets', 'single.toml');
     const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^adaptor\s*=\s*"none"$/m);
-    assert.match(preset, /^text_model\s*=\s*"single-model"$/m);
+    assert.match(preset, /^default_model\s*=\s*"single-model"$/m);
     assert.match(preset, /^image_model\s*=\s*"single-model"$/m);
 
     // --model at use time overrides both text and image for this run only,
@@ -435,7 +441,7 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
       'preset',
       'use',
       'single',
-      '--model',
+      '--text-model',
       'override-model',
       '--no-refresh',
       '--no-backup',
@@ -449,13 +455,13 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
     assert.match(use.stdout, /preset_applied=single/);
 
     const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
-    assert.match(route, /^text_model\s*=\s*"override-model"$/m);
+    assert.match(route, /^default_model\s*=\s*"override-model"$/m);
     assert.match(route, /^image_model\s*=\s*"override-model"$/m);
     assert.match(route, /^upstream_url\s*=\s*"https:\/\/provider\.example\.com\/v1"$/m);
 
     // The stored preset is unchanged.
     const presetAfter = fs.readFileSync(presetPath, 'utf8');
-    assert.match(presetAfter, /^text_model\s*=\s*"single-model"$/m);
+    assert.match(presetAfter, /^default_model\s*=\s*"single-model"$/m);
     assert.match(presetAfter, /^image_model\s*=\s*"single-model"$/m);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
@@ -594,7 +600,7 @@ test('preset normalize rejects an unknown key (schema validation)', () => {
       '# codex-ollama-proxy preset',
       'adaptor = "none"',
       'upstream_url = "https://provider.example.com/v1"',
-      'text_model = "m"',
+      'default_model = "m"',
       'not_a_real_key = true',
     ].join('\n')),
     /unknown key "not_a_real_key"/,
@@ -616,7 +622,7 @@ test('CLI preset use preserves replacement-token sequences in API keys', () => {
       'literal-key',
       '--url',
       'https://provider.example.com/v1',
-      '--model',
+      '--text-model',
       'test-model',
       '--api-key',
       apiKey,
@@ -660,7 +666,7 @@ test('CLI preset add rejects a fractional dedupe threshold', () => {
       'fractional',
       '--url',
       'https://provider.example.com/v1',
-      '--model',
+      '--text-model',
       'test-model',
       '--dedupe-min-chars',
       '0.5',
@@ -691,7 +697,7 @@ test('CLI preset use stops when the route reset fails', () => {
       'reset-failure',
       '--url',
       'https://provider.example.com/v1',
-      '--model',
+      '--text-model',
       'provider-model',
     ], {
       cwd: path.join(__dirname, '..'),

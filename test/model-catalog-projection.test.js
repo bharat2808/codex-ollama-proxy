@@ -47,23 +47,26 @@ test('projects normalized Ollama discovery into the Codex catalog without I/O', 
       ],
     },
     imageModel: 'forced-image',
+    defaultModel: 'text-only',
     canonical,
   });
 
   assert.deepEqual(result.models.map((model) => model.slug), [
-    'vision-tools',
     'text-only',
+    'vision-tools',
     'forced-image',
   ]);
+  assert.deepEqual(result.models.map((model) => model.priority), [1, 2, 3]);
   assert.equal(result.pruned, 1);
   assert.deepEqual(result.added, ['text-only', 'forced-image']);
   assert.deepEqual([...result.visionCapable], ['vision-tools', 'forced-image']);
-  assert.equal(result.models[0].supports_parallel_tool_calls, true);
-  assert.deepEqual(result.models[0].input_modalities, ['text', 'image']);
-  assert.equal(result.models[0].context_window, 131072);
-  assert.deepEqual(result.models[0].supported_reasoning_levels, ['low', 'high']);
-  assert.equal(result.models[1].supports_parallel_tool_calls, false);
-  assert.deepEqual(result.models[1].input_modalities, ['text']);
+  const projected = new Map(result.models.map((model) => [model.slug, model]));
+  assert.equal(projected.get('vision-tools').supports_parallel_tool_calls, true);
+  assert.deepEqual(projected.get('vision-tools').input_modalities, ['text', 'image']);
+  assert.equal(projected.get('vision-tools').context_window, 131072);
+  assert.deepEqual(projected.get('vision-tools').supported_reasoning_levels, ['low', 'high']);
+  assert.equal(projected.get('text-only').supports_parallel_tool_calls, false);
+  assert.deepEqual(projected.get('text-only').input_modalities, ['text']);
   assert.equal(result.models[2].supports_image_detail_original, true);
   assert.deepEqual(result.localModelIds, ['text-only', 'vision-tools']);
 });
