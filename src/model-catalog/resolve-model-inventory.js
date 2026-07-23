@@ -11,11 +11,11 @@ function upstreamModelIds(upstreamModels) {
 async function resolveModelInventory(options) {
   const discovery = options.discovery || null;
   const discoveredModels = discovery && Array.isArray(discovery.models) ? discovery.models : [];
-  const inventoryComplete = Boolean(discovery && discovery.traits
-    && discovery.traits.inventoryComplete);
+  const useDiscoveryInventory = Boolean(discovery && discovery.provider
+    && discovery.provider !== 'custom');
   let upstreamError = null;
   let upstreamIds;
-  if (inventoryComplete) {
+  if (useDiscoveryInventory) {
     upstreamIds = new Set(discoveredModels.map((model) => model.id));
   } else {
     const upstream = await options.fetchUpstreamModels();
@@ -27,8 +27,7 @@ async function resolveModelInventory(options) {
   return {
     allKnownIds,
     discoveredModels,
-    inventoryComplete,
-    inventorySource: inventoryComplete ? 'normalized provider discovery' : 'GET /v1/models',
+    inventorySource: useDiscoveryInventory ? 'normalized provider discovery' : 'GET /v1/models',
     upstreamError,
     upstreamIds,
   };

@@ -7,11 +7,12 @@ const {
   resolveModelInventory,
 } = require('../src/model-catalog/resolve-model-inventory');
 
-test('complete Ollama discovery skips the fallback inventory request', async () => {
+test('recognized provider discovery is the inventory even when the provider catalog is partial', async () => {
   let fetchCalls = 0;
   const result = await resolveModelInventory({
     discovery: {
-      traits: { inventoryComplete: true },
+      provider: 'nvidia',
+      traits: { inventoryComplete: false },
       models: [{ id: 'local-model' }, { id: 'cloud-model:cloud' }],
     },
     suppliedModels: new Set(['configured-model']),
@@ -31,10 +32,11 @@ test('complete Ollama discovery skips the fallback inventory request', async () 
   assert.equal(result.upstreamError, null);
 });
 
-test('incomplete custom discovery retains the upstream inventory fallback', async () => {
+test('custom provider discovery retains the upstream inventory fallback', async () => {
   let fetchCalls = 0;
   const result = await resolveModelInventory({
     discovery: {
+      provider: 'custom',
       traits: { inventoryComplete: false },
       models: [{ id: 'configured-model' }],
     },
