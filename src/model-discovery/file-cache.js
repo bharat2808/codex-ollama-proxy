@@ -8,10 +8,13 @@ const {
   MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
   METADATA_FIELDS,
+  MODALITIES,
   normalizeModelId,
+  REASONING_LEVELS,
 } = require('./normalize');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const LEGACY_SCHEMA_VERSION = 1;
 const MAX_CACHE_BYTES = 4 * 1024 * 1024;
 const METADATA_SOURCE_VALUES = new Set([
   null,
@@ -19,8 +22,8 @@ const METADATA_SOURCE_VALUES = new Set([
   'provider-inspection',
   'provider-seed',
 ]);
-const MODALITIES = new Set(['text', 'image', 'audio', 'video', 'document']);
-const REASONING_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const MODALITY_SET = new Set(MODALITIES);
+const REASONING_LEVEL_SET = new Set(REASONING_LEVELS);
 
 function digest(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -38,23 +41,24 @@ function nullableBoundedPositiveInteger(value, maximum) {
   return value === null || (Number.isSafeInteger(value) && value > 0 && value <= maximum);
 }
 
-function validModel(model) {
+function validModel(model, allowLegacy = false) {
   if (!model || typeof model !== 'object' || Array.isArray(model)) return false;
   try { normalizeModelId(model.id); } catch { return false; }
   if (typeof model.displayName !== 'string' || !model.displayName.trim()) return false;
   if (!nullableBoundedPositiveInteger(model.contextWindow, MAX_CONTEXT_WINDOW)) return false;
   if (!nullableBoundedPositiveInteger(model.maxOutputTokens, MAX_OUTPUT_TOKENS)) return false;
   for (const field of ['inputModalities', 'outputModalities']) {
-    if (model[field] === undefined && field === 'outputModalities') continue;
+    if (model[field] === undefined && field === 'outputModalities' && allowLegacy) continue;
     if (model[field] !== null) {
       if (!Array.isArray(model[field]) || model[field].length === 0) return false;
-      if (model[field].some((value) => !MODALITIES.has(value))) return false;
+      if (model[field].some((value) => !MODALITY_SET.has(value))) return false;
     }
   }
   if (![true, false, null].includes(model.reasoning)) return false;
+  if (model.reasoningLevels === undefined && !allowLegacy) return false;
   if (model.reasoningLevels !== null && model.reasoningLevels !== undefined) {
     if (!Array.isArray(model.reasoningLevels) || model.reasoningLevels.length === 0) return false;
-    if (model.reasoningLevels.some((value) => !REASONING_LEVELS.has(value))) return false;
+    if (model.reasoningLevels.some((value) => !REASONING_LEVEL_SET.has(value))) return false;
   }
   if (![true, false, null].includes(model.toolCalling)) return false;
   if (!model.metadataSources || typeof model.metadataSources !== 'object') return false;
@@ -84,14 +88,17 @@ function sanitizeModelForCache(model) {
 
 function validDocument(document, options, identity) {
   return document && typeof document === 'object' && !Array.isArray(document)
-    && document.schemaVersion === SCHEMA_VERSION
+    && (document.schemaVersion === SCHEMA_VERSION || document.schemaVersion === LEGACY_SCHEMA_VERSION)
     && document.provider === options.provider
     && document.endpointDigest === identity.endpointDigest
     && document.authScopeDigest === identity.authScopeDigest
     && Number.isFinite(document.fetchedAt)
     && Array.isArray(document.models)
     && document.models.length > 0
-    && document.models.every(validModel);
+    && document.models.every((model) => validModel(
+      model,
+      document.schemaVersion === LEGACY_SCHEMA_VERSION,
+    ));
 }
 
 function readCache(options, identity) {
@@ -102,6 +109,7 @@ function readCache(options, identity) {
     const document = JSON.parse(fs.readFileSync(identity.file, 'utf8'));
     if (!validDocument(document, options, identity)) throw new Error('invalid cache schema');
     document.models = document.models.map(upgradeModel);
+    document.schemaVersion = SCHEMA_VERSION;
     return { document, warning: null };
   } catch {
     return { document: null, warning: 'Ignored an invalid provider discovery cache file.' };

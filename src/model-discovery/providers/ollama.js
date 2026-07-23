@@ -71,6 +71,7 @@ function modelFromInspection(id, inspection, capabilitySource) {
     reasoning = inspection.capabilities.includes('thinking');
     toolCalling = inspection.capabilities.includes('tools');
     metadataSources.inputModalities = capabilitySource;
+    metadataSources.outputModalities = capabilitySource;
     metadataSources.reasoning = capabilitySource;
     metadataSources.toolCalling = capabilitySource;
   }

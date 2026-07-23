@@ -13,6 +13,7 @@ const METADATA_FIELDS = [
   'toolCalling',
 ];
 const REASONING_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+const MODALITIES = Object.freeze(['text', 'image', 'audio', 'video', 'document']);
 
 function normalizeReasoningLevels(value) {
   if (!Array.isArray(value)) return null;
@@ -96,6 +97,7 @@ module.exports = {
   MAX_MODEL_ID_LENGTH,
   MAX_OUTPUT_TOKENS,
   METADATA_FIELDS,
+  MODALITIES,
   boundedPositiveInteger,
   emptyMetadataSources,
   mergeDiscoveredWithSupplied,

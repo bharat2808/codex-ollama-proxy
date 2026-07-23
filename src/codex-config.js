@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { discoverModels } = require('./model-discovery');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
@@ -496,6 +497,45 @@ async function fetchUpstreamModels() {
   }
 }
 
+function applyDiscoveredMetadata(catalogModels, discoveredModels) {
+  const discovered = new Map((Array.isArray(discoveredModels) ? discoveredModels : [])
+    .filter((model) => model && typeof model.id === 'string')
+    .map((model) => [model.id, model]));
+  for (const entry of Array.isArray(catalogModels) ? catalogModels : []) {
+    if (!entry) continue;
+    const metadata = discovered.get(entry.slug) || discovered.get(entry.display_name);
+    if (!metadata) continue;
+    if (Array.isArray(metadata.inputModalities) && metadata.inputModalities.length > 0) {
+      entry.input_modalities = [...metadata.inputModalities];
+      entry.supports_image_detail_original = metadata.inputModalities.includes('image');
+    }
+    if (Array.isArray(metadata.reasoningLevels) && metadata.reasoningLevels.length > 0) {
+      entry.supported_reasoning_levels = [...metadata.reasoningLevels];
+      if (!metadata.reasoningLevels.includes(entry.default_reasoning_level)) {
+        entry.default_reasoning_level = null;
+      }
+    }
+    if (Number.isSafeInteger(metadata.contextWindow) && metadata.contextWindow > 0) {
+      entry.context_window = metadata.contextWindow;
+      entry.max_context_window = metadata.contextWindow;
+    }
+  }
+  return catalogModels;
+}
+
+async function discoverUpstreamModels(routeCfg, suppliedModels) {
+  try {
+    return await discoverModels({
+      baseUrl: routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1',
+      apiKey: routeCfg.upstream_api_key || null,
+      suppliedModels: [...suppliedModels],
+      cacheDir: path.join(CODEX_DIR, 'ollama-shape-proxy', 'model-discovery-cache'),
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function isOllamaUpstream() {
   const routeCfg = loadRouteConfig();
   const rawUrl = routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1';
@@ -618,6 +658,9 @@ async function refreshCatalog() {
 
   // Merge: all upstream IDs + supplied models (dedupe)
   const allKnownIds = new Set([...upstreamIds, ...suppliedModels]);
+  const discovery = await discoverUpstreamModels(routeCfg, suppliedModels);
+  const discoveredModels = discovery && Array.isArray(discovery.models) ? discovery.models : [];
+  for (const model of discoveredModels) allKnownIds.add(model.id);
 
   // Detect Ollama and probe vision capabilities
   const isOllama = await isOllamaUpstream();
@@ -705,6 +748,8 @@ async function refreshCatalog() {
     added.push(id);
     existingSlugs.add(id);
   }
+
+  applyDiscoveredMetadata(models, discoveredModels);
 
   catalog.models = models;
   const instructionsPatched = applyFreshInstructionValues(catalog, freshInstructions);
@@ -855,6 +900,7 @@ module.exports = {
   OLLAMA_SHOW_CONCURRENCY,
   canonicalInstructionValuesFromCache,
   applyFreshInstructionValues,
+  applyDiscoveredMetadata,
   localOllamaModels,
   fetchUpstreamModels,
   isOllamaUpstream,

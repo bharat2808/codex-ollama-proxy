@@ -26,6 +26,7 @@ function parseRow(row) {
   metadataSources.contextWindow = 'provider-catalog';
   metadataSources.maxOutputTokens = 'provider-catalog';
   metadataSources.inputModalities = 'provider-catalog';
+  metadataSources.outputModalities = 'provider-catalog';
   const gemmaTextOnly = id.startsWith('gemma-')
     && !/^gemma-3-(?:4b|12b|27b)(?:-|$)/u.test(id)
     && !id.startsWith('gemma-3n-') && !id.startsWith('gemma-4-');

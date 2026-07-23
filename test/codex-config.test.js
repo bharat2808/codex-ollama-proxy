@@ -800,3 +800,42 @@ test('local Ollama capability discovery uses bounded show requests and preserves
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
 });
+
+test('discovered metadata maps into supported Codex catalog fields without guessing unknowns', () => {
+  const previousCodexHome = process.env.CODEX_HOME;
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-discovered-metadata-'));
+  process.env.CODEX_HOME = codexHome;
+  delete require.cache[require.resolve('../src/codex-config')];
+  const { applyDiscoveredMetadata } = require('../src/codex-config');
+  try {
+    const catalogModels = [
+      { slug: 'vision-reasoning', input_modalities: ['text'], supported_reasoning_levels: [] },
+      { slug: 'unknown', input_modalities: ['text'], supported_reasoning_levels: ['high'] },
+    ];
+    const discovered = [
+      {
+        id: 'vision-reasoning', displayName: 'Vision Reasoning', contextWindow: 128000,
+        maxOutputTokens: 8192, inputModalities: ['text', 'image'], outputModalities: ['text'],
+        reasoning: true, reasoningLevels: ['low', 'high'], toolCalling: true,
+      },
+      {
+        id: 'unknown', displayName: 'Unknown', contextWindow: null, maxOutputTokens: null,
+        inputModalities: null, outputModalities: null, reasoning: null,
+        reasoningLevels: null, toolCalling: null,
+      },
+    ];
+    applyDiscoveredMetadata(catalogModels, discovered);
+    assert.deepEqual(catalogModels[0].input_modalities, ['text', 'image']);
+    assert.equal(catalogModels[0].supports_image_detail_original, true);
+    assert.deepEqual(catalogModels[0].supported_reasoning_levels, ['low', 'high']);
+    assert.equal(catalogModels[0].context_window, 128000);
+    assert.equal(catalogModels[0].max_context_window, 128000);
+    assert.deepEqual(catalogModels[1].input_modalities, ['text']);
+    assert.deepEqual(catalogModels[1].supported_reasoning_levels, ['high']);
+  } finally {
+    delete require.cache[require.resolve('../src/codex-config')];
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});

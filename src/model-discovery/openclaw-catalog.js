@@ -12,7 +12,6 @@ const {
   emptyMetadataSources,
   normalizeModelId,
   normalizeReasoningLevels,
-  REASONING_LEVELS,
 } = require('./normalize');
 
 const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -95,10 +94,12 @@ function parseRow(row) {
   const modalities = inputModalities(row.input);
   const outputModalities = inputModalities(row.output);
   const reasoning = typeof row.reasoning === 'boolean' ? row.reasoning : null;
-  const explicitLevels = row.thinkingLevelMap && typeof row.thinkingLevelMap === 'object'
-    ? Object.keys(row.thinkingLevelMap) : null;
-  const reasoningLevels = normalizeReasoningLevels(explicitLevels)
-    || (row.compat && row.compat.supportsReasoningEffort === true ? [...REASONING_LEVELS] : null);
+  const advertisedLevels = row.compat && Array.isArray(row.compat.supportedReasoningEfforts)
+    ? row.compat.supportedReasoningEfforts
+    : row.thinkingLevelMap && typeof row.thinkingLevelMap === 'object'
+      ? Object.values(row.thinkingLevelMap).filter((value) => value !== null)
+      : null;
+  const reasoningLevels = normalizeReasoningLevels(advertisedLevels);
   const toolCalling = row.compat && typeof row.compat.supportsTools === 'boolean'
     ? row.compat.supportsTools
     : null;

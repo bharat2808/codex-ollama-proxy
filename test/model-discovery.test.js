@@ -130,7 +130,7 @@ test('OpenClaw catalog parsing validates provider identity and drops deprecated 
   assert.throws(() => parseOpenClawCatalog('ollama', payload), /unsupported OpenClaw catalog/i);
 });
 
-test('OpenClaw catalog retains output capabilities and normalized reasoning levels', () => {
+test('OpenClaw catalog uses supported provider efforts instead of assuming every Codex level', () => {
   const payload = {
     modelCatalog: {
       providers: {
@@ -144,7 +144,8 @@ test('OpenClaw catalog retains output capabilities and normalized reasoning leve
             reasoning: true,
             contextWindow: 128000,
             maxTokens: 8192,
-            compat: { supportsReasoningEffort: true },
+            thinkingLevelMap: { low: null, high: 'max', max: 'max' },
+            compat: { supportsReasoningEffort: true, supportedReasoningEfforts: ['max'] },
           }],
         },
       },
@@ -153,9 +154,32 @@ test('OpenClaw catalog retains output capabilities and normalized reasoning leve
   const [model] = parseOpenClawCatalog('zai', payload);
   assert.deepEqual(model.inputModalities, ['text', 'image']);
   assert.deepEqual(model.outputModalities, ['text']);
-  assert.deepEqual(model.reasoningLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(model.reasoningLevels, ['max']);
   assert.equal(model.metadataSources.outputModalities, 'provider-seed');
   assert.equal(model.metadataSources.reasoningLevels, 'provider-seed');
+});
+
+test('OpenClaw catalog leaves exact reasoning levels unknown when only configurability is known', () => {
+  const payload = {
+    modelCatalog: { providers: { zai: {
+      baseUrl: 'https://api.z.ai/api/paas/v4',
+      models: [{ id: 'glm-unknown-levels', reasoning: true, compat: { supportsReasoningEffort: true } }],
+    } } },
+  };
+  assert.equal(parseOpenClawCatalog('zai', payload)[0].reasoningLevels, null);
+});
+
+test('OpenClaw catalog normalizes thinking map values when explicit efforts are absent', () => {
+  const payload = {
+    modelCatalog: { providers: { zai: {
+      baseUrl: 'https://api.z.ai/api/paas/v4',
+      models: [{
+        id: 'glm-mapped-levels', reasoning: true,
+        thinkingLevelMap: { low: null, high: 'max', xhigh: 'max' },
+      }],
+    } } },
+  };
+  assert.deepEqual(parseOpenClawCatalog('zai', payload)[0].reasoningLevels, ['max']);
 });
 
 test('OpenClaw catalog sync refreshes at most daily and retains the last successful file', async () => {
@@ -681,6 +705,57 @@ test('provider cache upgrades legacy models with unknown rich capability metadat
   }
 });
 
+test('provider cache writes schema version 2 after upgrading version 1', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-v2-cache-'));
+  const options = {
+    provider: 'zai', endpoint: 'https://catalog.example/models', apiKey: 'secret',
+    cacheDir, ttlMs: 1, now: () => 2000,
+  };
+  try {
+    const identity = cacheIdentity(options);
+    fs.mkdirSync(identity.directory, { recursive: true });
+    const legacy = normalizeSuppliedModels(['provider/legacy'])[0];
+    delete legacy.outputModalities;
+    delete legacy.reasoningLevels;
+    delete legacy.metadataSources.outputModalities;
+    delete legacy.metadataSources.reasoningLevels;
+    fs.writeFileSync(identity.file, JSON.stringify({
+      schemaVersion: 1, provider: options.provider,
+      endpointDigest: identity.endpointDigest, authScopeDigest: identity.authScopeDigest,
+      fetchedAt: 1000, models: [legacy],
+    }));
+    await withProviderCache(options, async () => normalizeSuppliedModels(['provider/current']));
+    assert.equal(JSON.parse(fs.readFileSync(identity.file, 'utf8')).schemaVersion, 2);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('provider cache rejects schema version 2 models missing rich capability fields', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-invalid-v2-cache-'));
+  const options = {
+    provider: 'zai', endpoint: 'https://catalog.example/models', apiKey: 'secret',
+    cacheDir, ttlMs: 60000, now: () => 1500,
+  };
+  try {
+    const identity = cacheIdentity(options);
+    fs.mkdirSync(identity.directory, { recursive: true });
+    const malformed = normalizeSuppliedModels(['provider/model'])[0];
+    delete malformed.outputModalities;
+    delete malformed.reasoningLevels;
+    fs.writeFileSync(identity.file, JSON.stringify({
+      schemaVersion: 2, provider: options.provider,
+      endpointDigest: identity.endpointDigest, authScopeDigest: identity.authScopeDigest,
+      fetchedAt: 1000, models: [malformed],
+    }));
+    const result = await withProviderCache(options, async () => normalizeSuppliedModels(['provider/refreshed']));
+    assert.equal(result.cacheStatus, 'refreshed');
+    assert.match(result.warnings[0], /invalid provider discovery cache/i);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
 test('provider cache isolates endpoint and authentication scopes', async () => {
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-discovery-scope-'));
   try {
@@ -1117,6 +1192,7 @@ test('Google discovery uses the native catalog and keeps only generateContent te
   });
   assert.deepEqual(result.models.map((model) => model.id), ['gemini-3.1-pro']);
   assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
+  assert.equal(result.models[0].metadataSources.outputModalities, 'provider-catalog');
 });
 
 test('malformed xAI suppression refresh retains the bundled suppressions', async () => {
@@ -1239,6 +1315,7 @@ test('Ollama discovery combines native context metadata with num_ctx and tolerat
   assert.equal(result.models[0].contextWindow, 32768);
   assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
   assert.equal(result.models[0].reasoning, true);
+  assert.equal(result.models[0].metadataSources.outputModalities, 'provider-inspection');
   assert.equal(result.models[0].toolCalling, true);
   assert.equal(result.models[0].maxOutputTokens, null);
   assert.equal(result.models[2].contextWindow, 131072);
@@ -1438,7 +1515,7 @@ test('public discovery dispatches all five extended providers and retains suppli
   }
 });
 
-test('only the approved Ollama cloud pull bridge imports standalone model discovery', () => {
+test('only approved catalog consumers import standalone model discovery', () => {
   const sourceDir = path.join(__dirname, '..', 'src');
   const productionFiles = fs.readdirSync(sourceDir)
     .filter((name) => name.endsWith('.js'));
@@ -1446,6 +1523,10 @@ test('only the approved Ollama cloud pull bridge imports standalone model discov
     const source = fs.readFileSync(path.join(sourceDir, name), 'utf8');
     if (name === 'ollama-cloud-pull.js') {
       assert.match(source, /model-discovery\/openclaw-catalog/u);
+      continue;
+    }
+    if (name === 'codex-config.js') {
+      assert.match(source, /require\(['"]\.\/model-discovery['"]\)/u);
       continue;
     }
     assert.doesNotMatch(
