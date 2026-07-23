@@ -2,12 +2,27 @@
 
 const { fetchJson } = require('./live-catalog');
 
-const KNOWN_PROVIDERS = new Set(['nvidia', 'openrouter', 'cohere', 'ollama']);
+const KNOWN_PROVIDERS = new Set([
+  'nvidia', 'openrouter', 'cohere', 'ollama',
+  'zai', 'moonshot', 'deepseek', 'google', 'xai',
+]);
+const PROVIDER_ALIASES = new Map([
+  ['z-ai', 'zai'],
+  ['z.ai', 'zai'],
+  ['grok', 'xai'],
+]);
 const CANONICAL_URLS = new Map([
   ['https://integrate.api.nvidia.com/v1', 'nvidia'],
   ['https://openrouter.ai/api/v1', 'openrouter'],
   ['https://openrouter.ai/v1', 'openrouter'],
   ['https://api.cohere.ai/compatibility/v1', 'cohere'],
+  ['https://api.z.ai/api/paas/v4', 'zai'],
+  ['https://api.moonshot.ai/v1', 'moonshot'],
+  ['https://api.moonshot.cn/v1', 'moonshot'],
+  ['https://api.deepseek.com', 'deepseek'],
+  ['https://api.deepseek.com/v1', 'deepseek'],
+  ['https://generativelanguage.googleapis.com/v1beta/openai', 'google'],
+  ['https://api.x.ai/v1', 'xai'],
 ]);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -49,7 +64,8 @@ async function detectLocalOllama(url, options) {
 }
 
 async function resolveProvider(options = {}) {
-  const explicit = typeof options.provider === 'string' ? options.provider.trim().toLowerCase() : '';
+  const requested = typeof options.provider === 'string' ? options.provider.trim().toLowerCase() : '';
+  const explicit = PROVIDER_ALIASES.get(requested) || requested;
   if (explicit) {
     if (!KNOWN_PROVIDERS.has(explicit)) throw new TypeError(`Unknown provider: ${options.provider}`);
     return { provider: explicit, providerResolution: 'explicit', detectionPayload: null };
@@ -76,5 +92,6 @@ async function resolveProvider(options = {}) {
 module.exports = {
   CANONICAL_URLS,
   KNOWN_PROVIDERS,
+  PROVIDER_ALIASES,
   resolveProvider,
 };

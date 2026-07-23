@@ -155,6 +155,63 @@ async function withProxy(upstreamHandler, run, config = []) {
   }
 }
 
+async function withLocalOllamaProxy(ollamaHandler, run, cloudModels = ['glm-5.2:cloud']) {
+  const ollama = http.createServer(ollamaHandler);
+  const ollamaPort = await listen(ollama);
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-ollama-cloud-test-'));
+  fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
+    'text_model = "local-default"',
+    `upstream_url = "http://127.0.0.1:${ollamaPort}/v1"`,
+    '',
+  ].join('\n'));
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousProxyPort = process.env.PROXY_PORT;
+  const previousFetch = global.fetch;
+  process.env.CODEX_HOME = codexHome;
+  process.env.PROXY_PORT = '0';
+  global.fetch = async (url, options) => {
+    if (String(url) === 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/ollama/openclaw.plugin.json') {
+      return new Response(JSON.stringify({
+        modelCatalog: {
+          providers: {
+            'ollama-cloud': {
+              baseUrl: 'https://ollama.com',
+              models: cloudModels.map((id) => ({
+                id,
+                name: id,
+                input: ['text'],
+                contextWindow: 128000,
+                maxTokens: 8192,
+              })),
+            },
+          },
+        },
+      }));
+    }
+    return previousFetch(url, options);
+  };
+  delete require.cache[require.resolve('../src/proxy')];
+  const proxy = require('../src/proxy');
+  const server = proxy.startServer(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+
+  try {
+    await run(server.address().port, proxy, codexHome);
+  } finally {
+    await close(server);
+    await close(ollama);
+    delete require.cache[require.resolve('../src/proxy')];
+    global.fetch = previousFetch;
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousProxyPort === undefined) delete process.env.PROXY_PORT;
+    else process.env.PROXY_PORT = previousProxyPort;
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+}
+
 function withRouteConfig(config, run) {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-routing-test-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
@@ -209,6 +266,141 @@ test('proxy module loads when image routing snapshots a populated model catalog'
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
+});
+
+test('proxy pulls an allowlisted cloud model before forwarding its first request', async () => {
+  const calls = [];
+  let pulled = false;
+  await withLocalOllamaProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
+      calls.push({ path: req.url, body });
+      if (req.url === '/api/tags') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ models: [] }));
+        return;
+      }
+      if (req.url === '/api/pull') {
+        pulled = true;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'success' }));
+        return;
+      }
+      if (req.url === '/api/show') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        if (body && body.model === 'glm-5.2:cloud' && pulled) {
+          res.end(JSON.stringify({ details: { family: 'cloud' }, capabilities: ['completion', 'tools'] }));
+        } else {
+          res.end(JSON.stringify({ error: 'model not found' }));
+        }
+        return;
+      }
+      assert.equal(req.url, '/v1/responses');
+      assert.equal(pulled, true, 'cloud model must be pulled before forwarding');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'resp_cloud', status: 'completed', output: [] }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'glm-5.2:cloud',
+      stream: false,
+      input: 'hello',
+      tools: [],
+    });
+    assert.equal(response.statusCode, 200, response.body);
+  });
+
+  const relevant = calls.filter((call) =>
+    call.path === '/api/pull'
+    || (call.path === '/api/show' && call.body && call.body.model === 'glm-5.2:cloud')
+    || call.path === '/v1/responses'
+  );
+  assert.deepEqual(relevant.map((call) => call.path), [
+    '/api/pull',
+    '/api/show',
+    '/v1/responses',
+  ]);
+  assert.deepEqual(relevant[0].body, { model: 'glm-5.2:cloud', stream: false });
+});
+
+test('proxy never auto-pulls a missing ordinary local model', async () => {
+  const calls = [];
+  await withLocalOllamaProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
+      calls.push({ path: req.url, body });
+      if (req.url === '/api/tags') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ models: [] }));
+        return;
+      }
+      if (req.url === '/api/show') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'model not found' }));
+        return;
+      }
+      assert.equal(req.url, '/v1/responses');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'resp_local', status: 'completed', output: [] }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'missing-local',
+      stream: false,
+      input: 'hello',
+      tools: [],
+    });
+    assert.equal(response.statusCode, 200, response.body);
+  });
+
+  assert.equal(calls.some((call) => call.path === '/api/pull'), false);
+  assert.equal(calls.some((call) => call.path === '/v1/responses'), true);
+});
+
+test('proxy returns a bounded error when an allowlisted cloud pull fails', async () => {
+  const calls = [];
+  await withLocalOllamaProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      calls.push(req.url);
+      if (req.url === '/api/tags') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ models: [] }));
+        return;
+      }
+      if (req.url === '/api/pull') {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'sensitive upstream detail' }));
+        return;
+      }
+      if (req.url === '/api/show') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'model not found' }));
+        return;
+      }
+      assert.fail(`request must not be forwarded after failed pull: ${req.url}`);
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'glm-5.2:cloud',
+      stream: false,
+      input: 'hello',
+      tools: [],
+    });
+    assert.equal(response.statusCode, 502);
+    const payload = JSON.parse(response.body);
+    assert.equal(payload.error.type, 'ollama_cloud_pull_error');
+    assert.equal(payload.error.code, 'PULL_FAILED');
+    assert.doesNotMatch(payload.error.message, /sensitive upstream detail/i);
+  });
+
+  assert.equal(calls.includes('/api/pull'), true);
+  assert.equal(calls.includes('/v1/responses'), false);
 });
 
 test('dedupeLargeInputBlocks keeps the newest large developer block', () => {

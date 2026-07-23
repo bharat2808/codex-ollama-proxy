@@ -12,8 +12,16 @@ const nvidia = require('./providers/nvidia');
 const openrouter = require('./providers/openrouter');
 const cohere = require('./providers/cohere');
 const ollama = require('./providers/ollama');
+const zai = require('./providers/zai');
+const moonshot = require('./providers/moonshot');
+const deepseek = require('./providers/deepseek');
+const google = require('./providers/google');
+const xai = require('./providers/xai');
 
-const ADAPTERS = { nvidia, openrouter, cohere, ollama };
+const ADAPTERS = {
+  nvidia, openrouter, cohere, ollama,
+  zai, moonshot, deepseek, google, xai,
+};
 
 function defaultCacheDir() {
   const codexDir = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -38,6 +46,9 @@ function cacheEndpoint(provider, options) {
     return normalizedUrl(baseUrl) === cohere.BASE_URL ? cohere.ENDPOINT : null;
   }
   if (provider === 'ollama') return `${ollama.resolveApiBase(options.baseUrl)}/api/tags`;
+  if (ADAPTERS[provider] && typeof ADAPTERS[provider].endpointFor === 'function') {
+    return ADAPTERS[provider].endpointFor(options.baseUrl);
+  }
   return null;
 }
 

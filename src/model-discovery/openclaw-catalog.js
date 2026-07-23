@@ -27,6 +27,27 @@ const OPENCLAW_CATALOGS = Object.freeze({
     baseUrl: 'https://api.cohere.ai/compatibility/v1',
     bundledFile: path.join(__dirname, 'catalogs', 'openclaw', 'cohere.json'),
   }),
+  zai: Object.freeze({
+    url: 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/zai/openclaw.plugin.json',
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+    bundledFile: path.join(__dirname, 'catalogs', 'openclaw', 'zai.json'),
+  }),
+  moonshot: Object.freeze({
+    url: 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/moonshot/openclaw.plugin.json',
+    baseUrl: 'https://api.moonshot.ai/v1',
+    bundledFile: path.join(__dirname, 'catalogs', 'openclaw', 'moonshot.json'),
+  }),
+  deepseek: Object.freeze({
+    url: 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/deepseek/openclaw.plugin.json',
+    baseUrl: 'https://api.deepseek.com',
+    bundledFile: path.join(__dirname, 'catalogs', 'openclaw', 'deepseek.json'),
+  }),
+  'ollama-cloud': Object.freeze({
+    url: 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/ollama/openclaw.plugin.json',
+    baseUrl: 'https://ollama.com',
+    catalogKey: 'ollama-cloud',
+    bundledFile: path.join(__dirname, 'catalogs', 'openclaw', 'ollama-cloud.json'),
+  }),
 });
 
 function defaultCacheDir() {
@@ -100,8 +121,9 @@ function parseRow(row) {
 function parseOpenClawCatalog(provider, payload) {
   const catalog = OPENCLAW_CATALOGS[provider];
   if (!catalog) throw new TypeError(`Unsupported OpenClaw catalog provider: ${provider}`);
+  const catalogKey = catalog.catalogKey || provider;
   const providerCatalog = payload && payload.modelCatalog && payload.modelCatalog.providers
-    ? payload.modelCatalog.providers[provider]
+    ? payload.modelCatalog.providers[catalogKey]
     : null;
   if (!providerCatalog || typeof providerCatalog !== 'object' || Array.isArray(providerCatalog)) {
     throw discoveryError('INVALID_SCHEMA', provider, 'OpenClaw catalog is missing the expected provider.');

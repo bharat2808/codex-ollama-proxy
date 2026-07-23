@@ -7,6 +7,7 @@ const webSearch = require('./web-search');
 const skillFind = require('./skill-find');
 const imagine = require('./imagine');
 const inlineImageCache = require('./inline-image-cache');
+const { createOllamaCloudPuller } = require('./ollama-cloud-pull');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
 
@@ -69,6 +70,29 @@ const VISION_CACHE_PATH = path.join(CODEX_DIR, 'cache', 'vision_capable_models.j
 // Set of model names that actually have vision capability (from Ollama probes).
 // Empty means either non-Ollama (all assumed vision-capable) or not yet probed.
 let visionCapableModels = null;
+let ollamaCloudPuller = null;
+let ollamaCloudPullerBase = '';
+
+function localOllamaUpstreamBase(upstream) {
+  const base = upstream && upstream.baseUrl;
+  if (!base || base.protocol !== 'http:' || base.pathname !== '/v1') return null;
+  if (base.hostname !== '127.0.0.1' && base.hostname !== 'localhost' && base.hostname !== '[::1]') return null;
+  return base.origin + '/v1';
+}
+
+async function ensureCloudModelForRequest(upstream, body) {
+  if (!body || typeof body.model !== 'string') return { status: 'not-cloud' };
+  const baseUrl = localOllamaUpstreamBase(upstream);
+  if (!baseUrl) return { status: 'not-cloud' };
+  if (!ollamaCloudPuller || ollamaCloudPullerBase !== baseUrl) {
+    ollamaCloudPuller = createOllamaCloudPuller({
+      baseUrl,
+      cacheDir: path.join(RUNTIME_DIR, 'model-discovery-cache'),
+    });
+    ollamaCloudPullerBase = baseUrl;
+  }
+  return ollamaCloudPuller.ensureModel(body.model);
+}
 
 // When auto_route_image is on, force ALL catalog entries to claim image
 // capability so Codex emits input_image blocks regardless of which model
@@ -1606,6 +1630,24 @@ const server = http.createServer((clientReq, clientRes) => {
       }
     }
     const upstream = getUpstream();
+    if (isResponses && body) {
+      try {
+        const cloudStatus = await ensureCloudModelForRequest(upstream, body);
+        if (cloudStatus.status === 'pulled') {
+          log('cloud model: registered "' + body.model + '" through local Ollama');
+        }
+      } catch (error) {
+        log('cloud model preparation failed: ' + error.message);
+        sendJsonResponse(clientRes, 502, {
+          error: {
+            message: error.message,
+            type: 'ollama_cloud_pull_error',
+            code: error.code || 'PULL_FAILED',
+          },
+        });
+        return;
+      }
+    }
     if (isResponses && body && originalStream && ROUTE_CFG.stream_proxy_loop) {
       debugLog('streaming response lifecycle enabled');
       await runStreamingLoop(upstream, body, clientRes, info, {
@@ -1867,6 +1909,7 @@ module.exports = {
   translateInputItem,
   translateRequestBody,
   getUpstream,
+  ensureCloudModelForRequest,
   startServer,
   server,
 };

@@ -11,8 +11,13 @@ normalization, bounded live-fetch, and Ollama inspection patterns from:
 - `extensions/openrouter/provider-catalog.ts`
 - `extensions/cohere/provider-catalog.ts`
 - `extensions/ollama/src/provider-models.ts`
+- `extensions/ollama/openclaw.plugin.json`
 - `extensions/nvidia/openclaw.plugin.json`
 - `extensions/cohere/openclaw.plugin.json`
+- `extensions/zai/openclaw.plugin.json`
+- `extensions/moonshot/openclaw.plugin.json`
+- `extensions/deepseek/openclaw.plugin.json`
+- `extensions/xai/openclaw.plugin.json`
 - `src/plugin-sdk/provider-catalog-live-runtime.ts`
 - `src/plugin-sdk/provider-catalog-live-normalize.internal.ts`
 

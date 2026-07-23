@@ -1,0 +1,13 @@
+{
+  "modelCatalog": {
+    "suppressions": [
+      { "provider": "xai", "model": "grok-4.20-multi-agent-0309" },
+      { "provider": "xai", "model": "grok-4.20-multi-agent" },
+      { "provider": "xai", "model": "grok-4.20-multi-agent-latest" },
+      { "provider": "xai", "model": "grok-4.20-multi-agent-beta-latest" },
+      { "provider": "xai", "model": "grok-4.20-multi-agent-experimental-beta-0304" },
+      { "provider": "xai", "model": "grok-4.20-multi-agent-experimental-beta-latest" },
+      { "provider": "xai", "model": "grok-4.20-multi-agent-beta-0309" }
+    ]
+  }
+}

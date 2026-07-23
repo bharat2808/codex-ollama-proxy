@@ -23,10 +23,17 @@ const nvidia = require('../src/model-discovery/providers/nvidia');
 const openrouter = require('../src/model-discovery/providers/openrouter');
 const cohere = require('../src/model-discovery/providers/cohere');
 const ollama = require('../src/model-discovery/providers/ollama');
+const zai = require('../src/model-discovery/providers/zai');
+const moonshot = require('../src/model-discovery/providers/moonshot');
+const deepseek = require('../src/model-discovery/providers/deepseek');
+const google = require('../src/model-discovery/providers/google');
+const xai = require('../src/model-discovery/providers/xai');
 const { discoverModels } = require('../src/model-discovery');
 
-test('OpenClaw catalog sync is allowlisted to NVIDIA and Cohere only', () => {
-  assert.deepEqual(Object.keys(OPENCLAW_CATALOGS).sort(), ['cohere', 'nvidia']);
+test('OpenClaw catalog sync includes the extended static providers and preserves Ollama Cloud', () => {
+  assert.deepEqual(Object.keys(OPENCLAW_CATALOGS).sort(), [
+    'cohere', 'deepseek', 'moonshot', 'nvidia', 'ollama-cloud', 'zai',
+  ]);
   assert.equal(CATALOG_TTL_MS, 24 * 60 * 60 * 1000);
   for (const entry of Object.values(OPENCLAW_CATALOGS)) {
     const url = new URL(entry.url);
@@ -36,7 +43,49 @@ test('OpenClaw catalog sync is allowlisted to NVIDIA and Cohere only', () => {
     assert.match(url.pathname, /\/openclaw\.plugin\.json$/u);
   }
   assert.equal(OPENCLAW_CATALOGS.ollama, undefined);
-  assert.equal(OPENCLAW_CATALOGS['ollama-cloud'], undefined);
+});
+
+test('extended OpenClaw static catalogs use bundled first-run fallbacks', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'extended-openclaw-bundled-'));
+  try {
+    for (const provider of ['zai', 'moonshot', 'deepseek']) {
+      const result = await loadOpenClawCatalog({
+        provider,
+        cacheDir,
+        fetchImpl: async () => { throw new Error('offline'); },
+      });
+      assert.equal(result.cacheStatus, 'bundled');
+      assert.ok(result.models.length > 0, `${provider} must bundle model rows`);
+    }
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('Ollama Cloud catalog parsing requires the distinct cloud provider base URL', () => {
+  const payload = {
+    modelCatalog: {
+      providers: {
+        'ollama-cloud': {
+          baseUrl: 'https://ollama.com',
+          models: [{
+            id: 'cloud-test:cloud',
+            name: 'Cloud Test',
+            input: ['text'],
+            contextWindow: 128000,
+            maxTokens: 8192,
+            compat: { supportsTools: true },
+          }],
+        },
+      },
+    },
+  };
+
+  const models = parseOpenClawCatalog('ollama-cloud', payload);
+  assert.deepEqual(models.map((model) => model.id), ['cloud-test:cloud']);
+  assert.equal(models[0].toolCalling, true);
+  payload.modelCatalog.providers['ollama-cloud'].baseUrl = 'http://localhost:11434';
+  assert.throws(() => parseOpenClawCatalog('ollama-cloud', payload), /base URL/i);
 });
 
 test('OpenClaw catalog parsing validates provider identity and drops deprecated models', () => {
@@ -330,6 +379,34 @@ test('explicit and canonical provider resolution are deterministic and do not fe
   });
   assert.equal(fetchCalls, 0);
   await assert.rejects(resolveProvider({ provider: 'nvidai', fetchImpl }), /unknown provider/i);
+});
+
+test('five extended providers resolve from canonical URLs and explicit aliases without fetching', async () => {
+  let fetchCalls = 0;
+  const fetchImpl = async () => {
+    fetchCalls += 1;
+    throw new Error('unexpected fetch');
+  };
+  const canonical = [
+    ['https://api.z.ai/api/paas/v4/', 'zai'],
+    ['https://api.moonshot.ai/v1', 'moonshot'],
+    ['https://api.moonshot.cn/v1/', 'moonshot'],
+    ['https://api.deepseek.com', 'deepseek'],
+    ['https://api.deepseek.com/v1/', 'deepseek'],
+    ['https://generativelanguage.googleapis.com/v1beta/openai', 'google'],
+    ['https://api.x.ai/v1/', 'xai'],
+  ];
+  for (const [baseUrl, provider] of canonical) {
+    const result = await resolveProvider({ baseUrl, fetchImpl });
+    assert.equal(result.provider, provider);
+    assert.equal(result.providerResolution, 'canonical-url');
+  }
+  for (const [alias, provider] of [['z-ai', 'zai'], ['z.ai', 'zai'], ['grok', 'xai']]) {
+    const result = await resolveProvider({ provider: alias, fetchImpl });
+    assert.equal(result.provider, provider);
+    assert.equal(result.providerResolution, 'explicit');
+  }
+  assert.equal(fetchCalls, 0);
 });
 
 test('local Ollama auto-detection reuses tags while unknown remote endpoints are not probed', async () => {
@@ -763,6 +840,128 @@ test('Cohere discovery skips noncanonical base URLs without probing them', async
   assert.match(result.warnings[0], /noncanonical/i);
 });
 
+test('static-backed compatible providers expose authenticated ids and enrich exact matches', async () => {
+  const cases = [
+    {
+      adapter: zai,
+      provider: 'zai',
+      baseUrl: 'https://api.z.ai/api/paas/v4',
+      staticId: 'glm-5.2',
+      expectedContext: 1000000,
+    },
+    {
+      adapter: moonshot,
+      provider: 'moonshot',
+      baseUrl: 'https://api.moonshot.cn/v1',
+      staticId: 'kimi-k2.6',
+      expectedContext: 262144,
+    },
+    {
+      adapter: deepseek,
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      staticId: 'deepseek-chat',
+      expectedContext: 1000000,
+    },
+  ];
+  for (const entry of cases) {
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), `${entry.provider}-discovery-`));
+    try {
+      const result = await entry.adapter.discover({
+        baseUrl: entry.baseUrl,
+        apiKey: `${entry.provider}-secret`,
+        cacheDir,
+        fetchImpl: async (url, options) => {
+          if (url === OPENCLAW_CATALOGS[entry.provider].url) {
+            assert.equal(options.headers.Authorization, undefined);
+            throw new Error('use bundled catalog');
+          }
+          assert.equal(url, `${entry.baseUrl.replace(/\/+$/u, '')}/models`);
+          assert.equal(options.headers.Authorization, `Bearer ${entry.provider}-secret`);
+          return new Response(JSON.stringify({
+            data: [
+              { id: entry.staticId },
+              { id: 'account/custom', owned_by: 'account' },
+              { id: 'bad embedding model' },
+            ],
+          }));
+        },
+      });
+      assert.deepEqual(result.models.map((model) => model.id), [entry.staticId, 'account/custom']);
+      assert.equal(result.models[0].contextWindow, entry.expectedContext);
+      assert.equal(result.models[0].metadataSources.contextWindow, 'provider-seed');
+      assert.equal(result.models[1].contextWindow, null);
+    } finally {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('static-backed discovery treats a malformed successful payload as refresh failure', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zai-malformed-live-'));
+  try {
+    const result = await zai.discover({
+      cacheDir,
+      apiKey: 'zai-secret',
+      fetchImpl: async (url) => {
+        if (url === OPENCLAW_CATALOGS.zai.url) throw new Error('use bundled catalog');
+        return new Response('{"unexpected":true}');
+      },
+    });
+    assert.ok(result.models.length > 0);
+    assert.match(result.warnings.at(-1), /live catalog refresh failed/i);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('Google discovery uses only its authenticated runtime model list', async () => {
+  const result = await google.discover({
+    apiKey: 'google-secret',
+    fetchImpl: async (url, options) => {
+      assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/openai/models');
+      assert.equal(options.headers.Authorization, 'Bearer google-secret');
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'gemini-3.1-pro', input_modalities: ['text', 'image'] },
+          { id: 'text-embedding-004' },
+        ],
+      }));
+    },
+  });
+  assert.deepEqual(result.models.map((model) => model.id), ['gemini-3.1-pro']);
+  assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
+});
+
+test('xAI discovery removes OpenClaw-suppressed models without sending its API key to GitHub', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xai-suppressions-'));
+  try {
+    const result = await xai.discover({
+      apiKey: 'xai-secret',
+      cacheDir,
+      fetchImpl: async (url, options) => {
+        if (url === 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/xai/openclaw.plugin.json') {
+          assert.equal(options.headers.Authorization, undefined);
+          return new Response(JSON.stringify({
+            modelCatalog: {
+              discovery: { xai: 'refreshable' },
+              suppressions: [{ provider: 'xai', model: 'grok-multi-agent' }],
+            },
+          }));
+        }
+        assert.equal(url, 'https://api.x.ai/v1/models');
+        assert.equal(options.headers.Authorization, 'Bearer xai-secret');
+        return new Response(JSON.stringify({
+          data: [{ id: 'grok-4' }, { id: 'grok-multi-agent' }],
+        }));
+      },
+    });
+    assert.deepEqual(result.models.map((model) => model.id), ['grok-4']);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
 test('Ollama discovery combines native context metadata with num_ctx and tolerates partial failures', async () => {
   const tagsPayload = {
     models: [
@@ -805,7 +1004,7 @@ test('Ollama discovery combines native context metadata with num_ctx and tolerat
   });
 
   assert.equal(maxActive, 2);
-  assert.deepEqual(result.models.map((model) => model.id), [
+  assert.deepEqual(result.models.slice(0, 3).map((model) => model.id), [
     'vision-model',
     'broken-model',
     'extra-model',
@@ -821,7 +1020,53 @@ test('Ollama discovery combines native context metadata with num_ctx and tolerat
   assert.equal(result.models[2].toolCalling, false);
   assert.equal(result.models[1].contextWindow, null);
   assert.equal(result.models[1].inputModalities, null);
-  assert.match(result.warnings[0], /broken-model/);
+  assert.equal(result.warnings.some((warning) => /broken-model/u.test(warning)), true);
+});
+
+test('Ollama discovery appends cloud candidates without inspecting or pulling them', async () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ollama-cloud-catalog-'));
+  const calls = [];
+  try {
+    const result = await ollama.discover({
+      baseUrl: 'http://localhost:11434/v1',
+      detectionPayload: { models: [{ name: 'local-model' }] },
+      cacheDir,
+      apiKey: 'must-not-reach-local-ollama',
+      fetchImpl: async (url, options) => {
+        calls.push({ url: String(url), authorization: options.headers.Authorization });
+        if (String(url) === 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/ollama/openclaw.plugin.json') {
+          return new Response(JSON.stringify({
+            modelCatalog: {
+              providers: {
+                'ollama-cloud': {
+                  baseUrl: 'https://ollama.com',
+                  models: [{
+                    id: 'cloud-model:cloud',
+                    name: 'Cloud Model',
+                    input: ['text'],
+                    contextWindow: 128000,
+                    maxTokens: 8192,
+                  }],
+                },
+              },
+            },
+          }));
+        }
+        assert.equal(url, 'http://localhost:11434/api/show');
+        assert.equal(JSON.parse(options.body).name, 'local-model');
+        return new Response(JSON.stringify({
+          model_info: { 'test.context_length': 8192 },
+          capabilities: ['completion'],
+        }));
+      },
+    });
+
+    assert.deepEqual(result.models.map((model) => model.id), ['local-model', 'cloud-model:cloud']);
+    assert.deepEqual(calls.map((call) => call.authorization), [undefined, undefined]);
+    assert.equal(calls.some((call) => call.url.endsWith('/api/pull')), false);
+  } finally {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
 });
 
 test('public discovery returns supplied models without probing an unresolved provider', async () => {
@@ -905,12 +1150,56 @@ test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unm
   }
 });
 
-test('existing production modules do not import standalone model discovery', () => {
+test('public discovery dispatches all five extended providers and retains supplied ids', async () => {
+  const cases = [
+    ['zai', 'https://api.z.ai/api/paas/v4', 'glm-5.2'],
+    ['moonshot', 'https://api.moonshot.ai/v1', 'kimi-k2.6'],
+    ['deepseek', 'https://api.deepseek.com', 'deepseek-chat'],
+    ['google', 'https://generativelanguage.googleapis.com/v1beta/openai', 'gemini-test'],
+    ['xai', 'https://api.x.ai/v1', 'grok-test'],
+  ];
+  for (const [provider, baseUrl, liveId] of cases) {
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), `${provider}-public-`));
+    try {
+      const result = await discoverModels({
+        provider,
+        baseUrl,
+        apiKey: 'provider-secret',
+        suppliedModels: ['private/model'],
+        cacheDir,
+        fetchImpl: async (url, options) => {
+          if (String(url).startsWith('https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/')) {
+            assert.equal(options.headers.Authorization, undefined);
+            throw new Error('use bundled metadata');
+          }
+          assert.equal(url, `${baseUrl}/models`);
+          assert.equal(options.headers.Authorization, 'Bearer provider-secret');
+          return new Response(JSON.stringify({ data: [{ id: liveId }] }));
+        },
+      });
+      assert.equal(result.provider, provider);
+      assert.equal(result.discoverySkipped, false);
+      assert.deepEqual(result.models.map((model) => model.id), [liveId, 'private/model']);
+    } finally {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('only the approved Ollama cloud pull bridge imports standalone model discovery', () => {
   const sourceDir = path.join(__dirname, '..', 'src');
   const productionFiles = fs.readdirSync(sourceDir)
     .filter((name) => name.endsWith('.js'));
   for (const name of productionFiles) {
     const source = fs.readFileSync(path.join(sourceDir, name), 'utf8');
-    assert.doesNotMatch(source, /model-discovery/u, `${name} must not import standalone discovery`);
+    if (name === 'ollama-cloud-pull.js') {
+      assert.match(source, /model-discovery\/openclaw-catalog/u);
+      continue;
+    }
+    assert.doesNotMatch(
+      source,
+      /require\([^)]*model-discovery/u,
+      `${name} must not import standalone discovery`,
+    );
   }
 });

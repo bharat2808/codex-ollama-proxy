@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('../live-catalog');
+const { loadOpenClawCatalog } = require('../openclaw-catalog');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
@@ -104,6 +105,14 @@ async function mapLimit(values, limit, mapper) {
 
 async function discover(options = {}) {
   const apiBase = resolveApiBase(options.baseUrl);
+  const cloudCatalog = await loadOpenClawCatalog({
+    provider: 'ollama-cloud',
+    cacheDir: options.cacheDir,
+    fetchImpl: options.fetchImpl,
+    timeoutMs: options.timeoutMs,
+    signal: options.signal,
+    now: options.now,
+  });
   const tagsPayload = options.detectionPayload || await fetchJson({
     url: `${apiBase}/api/tags`,
     provider: 'ollama',
@@ -132,7 +141,7 @@ async function discover(options = {}) {
     ids.push(id);
   }
 
-  const warnings = [];
+  const warnings = [...cloudCatalog.warnings];
   const requestedConcurrency = Number.isInteger(options.concurrency) ? options.concurrency : DEFAULT_CONCURRENCY;
   const concurrency = Math.max(1, Math.min(MAX_CONCURRENCY, requestedConcurrency));
   const models = await mapLimit(ids, concurrency, async (id) => {
@@ -162,7 +171,11 @@ async function discover(options = {}) {
       return modelFromInspection(id, { contextWindow: null, capabilities }, 'provider-catalog');
     }
   });
-  return { models, warnings };
+  const discoveredIds = new Set(models.map((model) => model.id));
+  return {
+    models: [...models, ...cloudCatalog.models.filter((model) => !discoveredIds.has(model.id))],
+    warnings,
+  };
 }
 
 module.exports = {
