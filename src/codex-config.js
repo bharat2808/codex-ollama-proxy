@@ -25,7 +25,6 @@ const PROVIDER_NAME = 'ollama-launch-codex-app';
 const STOREFRONT_PLUGIN_PREFIX = '[plugins."storefront-builder@personal"';
 const OLLAMA_PROVIDER_HEADER = `[model_providers.${PROVIDER_NAME}]`;
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
-const OLLAMA_SHOW_CONCURRENCY = 10;
 
 const TOOL_CAPABILITY_FIELDS = [
   'apply_patch_tool_type',
@@ -457,24 +456,6 @@ function applyFreshInstructionValues(catalog, instructionValues) {
   return changed;
 }
 
-async function fetchJson(url, timeoutMs = 5000, body = null) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      method: body ? 'POST' : 'GET',
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body,
-      signal: controller.signal,
-    });
-    return await response.json();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function fetchUpstreamModels() {
   const routeCfg = loadRouteConfig();
   const rawUrl = routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1';
@@ -543,101 +524,20 @@ async function discoverUpstreamModels(routeCfg, suppliedModels) {
   }
 }
 
-async function isOllamaUpstream() {
-  const routeCfg = loadRouteConfig();
-  const rawUrl = routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1';
-  let url;
-  try { url = new URL(rawUrl); } catch { return false; }
-  if (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost') return false;
-  const pathname = url.pathname.replace(/\/+$/u, '');
-  if (pathname !== '/v1') return false;
-  // Probe /api/tags — Ollama-native endpoint
-  const root = new URL(url.href);
-  root.pathname = '/';
-  const tagsUrl = new URL('api/tags', root).href;
-  try {
-    const res = await fetch(tagsUrl, { method: 'GET', signal: AbortSignal.timeout(5000) });
-    const data = await res.json();
-    return data && Array.isArray(data.models);
-  } catch {
-    return false;
-  }
-}
-
-async function probeOllamaVisionCapabilities(modelIds) {
-  const routeCfg = loadRouteConfig();
-  const rawUrl = routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1';
-  const url = new URL(rawUrl);
-  const root = new URL(url.href);
-  root.pathname = '/';
-  const showUrl = new URL('api/show', root).href;
-  const visionSet = new Set();
-  await mapLimit(modelIds, OLLAMA_SHOW_CONCURRENCY, async (name) => {
-    try {
-      const res = await fetch(showUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: name }),
-        signal: AbortSignal.timeout(8000),
-      });
-      const data = await res.json();
-      if (Array.isArray(data.capabilities) && data.capabilities.includes('vision')) {
-        visionSet.add(name);
-      }
-    } catch {
-      // Lookup failed — assume no vision
+function nativeCapabilitiesFromDiscovery(discovery, imageModel) {
+  const models = discovery && Array.isArray(discovery.models) ? discovery.models : [];
+  const isOllama = Boolean(discovery && discovery.provider === 'ollama');
+  const visionCapable = new Set();
+  const toolCalling = new Map();
+  for (const model of models) {
+    if (!model || typeof model.id !== 'string') continue;
+    if (Array.isArray(model.inputModalities) && model.inputModalities.includes('image')) {
+      visionCapable.add(model.id);
     }
-  });
-  return visionSet;
-}
-
-async function mapLimit(values, limit, mapper) {
-  const output = new Array(values.length);
-  let next = 0;
-
-  async function worker() {
-    while (next < values.length) {
-      const index = next++;
-      output[index] = await mapper(values[index], index);
-    }
+    if (typeof model.toolCalling === 'boolean') toolCalling.set(model.id, model.toolCalling);
   }
-
-  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, worker));
-  return output;
-}
-
-async function localOllamaModels() {
-  const tags = (await fetchJson(`${OLLAMA_BASE_URL}/api/tags`)) || {};
-  const out = {};
-  const showNames = new Set();
-  for (const m of Array.isArray(tags.models) ? tags.models : []) {
-    const name = m.name || m.model;
-    if (!name) continue;
-    if (Array.isArray(m.capabilities)) out[name] = m.capabilities;
-    else showNames.add(name);
-  }
-  if (exists(MODEL_CATALOG)) {
-    let catalog = {};
-    try {
-      catalog = JSON.parse(readText(MODEL_CATALOG));
-    } catch {
-      catalog = {};
-    }
-    for (const entry of Array.isArray(catalog.models) ? catalog.models : []) {
-      const slug = entry && entry.slug;
-      if (slug && !Object.prototype.hasOwnProperty.call(out, slug)) showNames.add(slug);
-    }
-  }
-  await mapLimit([...showNames], OLLAMA_SHOW_CONCURRENCY, async (name) => {
-    const show = (await fetchJson(
-      `${OLLAMA_BASE_URL}/api/show`,
-      8000,
-      JSON.stringify({ model: name }),
-    )) || {};
-    // A failed lookup means capabilities are unknown, not authoritatively empty.
-    if (Array.isArray(show.capabilities)) out[name] = show.capabilities;
-  });
-  return out;
+  if (imageModel) visionCapable.add(imageModel);
+  return { isOllama, visionCapable, toolCalling };
 }
 
 async function refreshCatalog() {
@@ -667,22 +567,8 @@ async function refreshCatalog() {
   const discoveredModels = discovery && Array.isArray(discovery.models) ? discovery.models : [];
   for (const model of discoveredModels) allKnownIds.add(model.id);
 
-  // Detect Ollama and probe vision capabilities
-  const isOllama = await isOllamaUpstream();
-  let visionCapable = new Set();
-  let local = {};
-  if (isOllama) {
-    // Probe /api/show for vision capabilities on all known models
-    const allIds = [...allKnownIds];
-    if (allIds.length > 0) {
-      visionCapable = await probeOllamaVisionCapabilities(allIds);
-    }
-    // Also get tool capabilities from /api/show
-    local = await localOllamaModels();
-  }
-
-  // The image_model is always vision-capable (it's the image routing target)
-  if (routeCfg.image_model) visionCapable.add(routeCfg.image_model);
+  const nativeCapabilities = nativeCapabilitiesFromDiscovery(discovery, routeCfg.image_model);
+  const { isOllama, visionCapable, toolCalling } = nativeCapabilities;
 
   const template = models.length ? JSON.parse(JSON.stringify(models[0])) : {};
   let changed = 0;
@@ -700,10 +586,12 @@ async function refreshCatalog() {
   for (const m of models) {
     if (!m) continue;
     const before = Object.fromEntries(TOOL_CAPABILITY_FIELDS.map((key) => [key, m[key]]));
-    const caps = local[m.slug] || local[m.display_name];
+    const nativeToolCalling = toolCalling.has(m.slug)
+      ? toolCalling.get(m.slug)
+      : toolCalling.get(m.display_name);
     m.apply_patch_tool_type = canonical.apply_patch_tool_type;
-    m.supports_parallel_tool_calls = Array.isArray(caps)
-      ? caps.includes('tools')
+    m.supports_parallel_tool_calls = typeof nativeToolCalling === 'boolean'
+      ? nativeToolCalling
       : canonical.supports_parallel_tool_calls;
     m.supports_search_tool = canonical.supports_search_tool;
     m.shell_type = canonical.shell_type;
@@ -736,7 +624,9 @@ async function refreshCatalog() {
     entry.display_name = id;
     entry.description = isOllama ? 'Ollama local model' : 'Upstream model';
     entry.apply_patch_tool_type = canonical.apply_patch_tool_type;
-    entry.supports_parallel_tool_calls = Array.isArray(local[id]) ? local[id].includes('tools') : canonical.supports_parallel_tool_calls;
+    entry.supports_parallel_tool_calls = toolCalling.has(id)
+      ? toolCalling.get(id)
+      : canonical.supports_parallel_tool_calls;
     entry.supports_search_tool = canonical.supports_search_tool;
     entry.shell_type = canonical.shell_type;
     entry.web_search_tool_type = canonical.web_search_tool_type;
@@ -784,7 +674,7 @@ async function refreshCatalog() {
     `models_patched=${changed}`,
     `models_pruned=${pruned}`,
     `models_added=${added.length}`,
-    `catalog_source=${isOllama ? 'ollama /api/show (probed)' : 'GET /v1/models'}`,
+    `catalog_source=${isOllama ? 'normalized Ollama discovery' : 'GET /v1/models'}`,
     `vision_capable=${visionCapable.size}`,
     upstreamError ? `upstream_error=${upstreamError}` : null,
     `auto_route_image=${routeCfg.auto_route_image ? 'true' : 'false'}`,
@@ -793,7 +683,12 @@ async function refreshCatalog() {
     lines.push(`auto_route_text_model=${routeCfg.text_model}`);
   }
   if (added.length) lines.push(`added=${added.join(',')}`);
-  const localNames = Object.keys(local).sort();
+  const localNames = isOllama
+    ? discoveredModels
+      .filter((model) => model.source === 'ollama-show' || model.source === 'ollama-tags')
+      .map((model) => model.id)
+      .sort()
+    : [];
   if (isOllama) {
     lines.push(localNames.length ? `local_ollama_models=${localNames.join(',')}` : 'local_ollama_models=(unreachable; skipped sync)');
   } else {
@@ -902,14 +797,11 @@ if (require.main === module) {
 
 module.exports = {
   FRESH_INSTRUCTION_FIELDS,
-  OLLAMA_SHOW_CONCURRENCY,
   canonicalInstructionValuesFromCache,
   applyFreshInstructionValues,
   applyDiscoveredMetadata,
-  localOllamaModels,
   fetchUpstreamModels,
-  isOllamaUpstream,
-  probeOllamaVisionCapabilities,
+  nativeCapabilitiesFromDiscovery,
   upstreamModelIds,
   refreshCatalog,
   ensureTableKey,

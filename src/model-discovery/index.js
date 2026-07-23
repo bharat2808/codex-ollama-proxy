@@ -53,6 +53,15 @@ function cacheEndpoint(provider, options) {
   return null;
 }
 
+function providerTraits(provider, baseUrl) {
+  const localOllama = provider === 'ollama' && ollama.isLocalBaseUrl(baseUrl);
+  return {
+    local: localOllama,
+    nativeInspection: provider === 'ollama',
+    supportsCloudPull: localOllama,
+  };
+}
+
 async function discoverModels(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const supplied = normalizeSuppliedModels(options.suppliedModels || []);
@@ -68,6 +77,7 @@ async function discoverModels(options = {}) {
     return {
       provider: null,
       providerResolution: resolution.providerResolution,
+      traits: providerTraits(null, options.baseUrl),
       source: supplied.length ? 'supplied' : 'none',
       cacheStatus: 'none',
       discoverySkipped: true,
@@ -77,6 +87,7 @@ async function discoverModels(options = {}) {
   }
 
   const adapter = ADAPTERS[resolution.provider];
+  const traits = providerTraits(resolution.provider, options.baseUrl);
   const adapterOptions = {
     baseUrl: options.baseUrl,
     apiKey: resolution.provider === 'ollama' ? null : options.apiKey,
@@ -93,6 +104,7 @@ async function discoverModels(options = {}) {
     return {
       provider: 'custom',
       providerResolution: resolution.providerResolution,
+      traits,
       source: 'custom',
       cacheStatus: 'none',
       discoverySkipped: true,
@@ -105,6 +117,7 @@ async function discoverModels(options = {}) {
     return {
       provider: resolution.provider,
       providerResolution: resolution.providerResolution,
+      traits,
       source: resolution.provider,
       cacheStatus: 'none',
       discoverySkipped: true,
@@ -133,6 +146,7 @@ async function discoverModels(options = {}) {
   return {
     provider: resolution.provider,
     providerResolution: resolution.providerResolution,
+    traits,
     source: resolution.provider,
     cacheStatus: cached.cacheStatus,
     discoverySkipped: false,

@@ -9,6 +9,7 @@ const CACHE_TTL_MS = 60000;
 const DEFAULT_CONCURRENCY = 8;
 const MAX_CONCURRENCY = 16;
 const MAX_CONTEXT_WINDOW = 10000000;
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 function resolveApiBase(value) {
   const url = new URL(value || DEFAULT_BASE_URL);
@@ -18,6 +19,25 @@ function resolveApiBase(value) {
   url.search = '';
   url.hash = '';
   return url.href.replace(/\/+$/u, '');
+}
+
+function isLocalBaseUrl(value) {
+  try {
+    const url = new URL(value || DEFAULT_BASE_URL);
+    const pathname = url.pathname.replace(/\/+$/u, '') || '/';
+    return url.protocol === 'http:'
+      && LOCAL_HOSTS.has(url.hostname)
+      && (pathname === '/' || pathname === '/v1');
+  } catch {
+    return false;
+  }
+}
+
+function resolveLocalApiBase(value) {
+  if (!isLocalBaseUrl(value)) {
+    throw new TypeError('Cloud auto-pull requires the standard local Ollama HTTP endpoint.');
+  }
+  return new URL(resolveApiBase(value)).origin;
 }
 
 function positiveContext(value) {
@@ -178,7 +198,9 @@ module.exports = {
   CACHE_TTL_MS,
   DEFAULT_BASE_URL,
   discover,
+  isLocalBaseUrl,
   parseNumCtx,
   parseShow,
   resolveApiBase,
+  resolveLocalApiBase,
 };

@@ -6,8 +6,8 @@ const {
   loadOpenClawCatalog,
 } = require('./model-discovery/openclaw-catalog');
 const { normalizeModelId } = require('./model-discovery/normalize');
+const { resolveLocalApiBase } = require('./model-discovery/providers/ollama');
 
-const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 const DEFAULT_PULL_TIMEOUT_MS = 60000;
 
@@ -19,23 +19,13 @@ class OllamaCloudPullError extends Error {
   }
 }
 
-function localApiBase(value) {
-  let url;
-  try { url = new URL(value); } catch { throw new TypeError('Local Ollama base URL is invalid.'); }
-  const pathname = url.pathname.replace(/\/+$/u, '') || '/';
-  if (url.protocol !== 'http:' || !LOCAL_HOSTS.has(url.hostname) || (pathname !== '/' && pathname !== '/v1')) {
-    throw new TypeError('Cloud auto-pull requires the standard local Ollama HTTP endpoint.');
-  }
-  return url.origin;
-}
-
 function registeredModelIds(payload) {
   const models = payload && Array.isArray(payload.models) ? payload.models : [];
   return new Set(models.map((row) => row && (row.name || row.model)).filter(Boolean));
 }
 
 function createOllamaCloudPuller(options = {}) {
-  const apiBase = localApiBase(options.baseUrl || 'http://127.0.0.1:11434/v1');
+  const apiBase = resolveLocalApiBase(options.baseUrl || 'http://127.0.0.1:11434/v1');
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const requestTimeoutMs = options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
   const pullTimeoutMs = options.pullTimeoutMs || DEFAULT_PULL_TIMEOUT_MS;

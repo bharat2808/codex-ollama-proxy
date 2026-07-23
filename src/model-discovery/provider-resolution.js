@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('./live-catalog');
+const ollama = require('./providers/ollama');
 
 const KNOWN_PROVIDERS = new Set([
   'nvidia', 'openrouter', 'cohere', 'ollama',
@@ -24,8 +25,6 @@ const CANONICAL_URLS = new Map([
   ['https://generativelanguage.googleapis.com/v1beta/openai', 'google'],
   ['https://api.x.ai/v1', 'xai'],
 ]);
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
 function parsedBaseUrl(value) {
   if (typeof value !== 'string' || !value.trim()) return null;
   try {
@@ -43,11 +42,8 @@ function normalizedEndpoint(url) {
 }
 
 async function detectLocalOllama(url, options) {
-  if (url.protocol !== 'http:' || !LOOPBACK_HOSTS.has(url.hostname)) return null;
-  const pathname = url.pathname.replace(/\/+$/u, '') || '/';
-  if (pathname !== '/' && pathname !== '/v1') return null;
-  const root = new URL(url.origin + '/');
-  const endpoint = new URL('api/tags', root).href;
+  if (!ollama.isLocalBaseUrl(url.href)) return null;
+  const endpoint = `${ollama.resolveApiBase(url.href)}/api/tags`;
   try {
     const payload = await fetchJson({
       url: endpoint,

@@ -744,61 +744,29 @@ test('CLI preset use stops when the route reset fails', () => {
   }
 });
 
-test('local Ollama capability discovery uses bounded show requests and preserves lookup failures as unknown', async () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-capabilities-'));
-  const previousCodexHome = process.env.CODEX_HOME;
-  process.env.CODEX_HOME = codexHome;
-  fs.writeFileSync(path.join(codexHome, 'ollama-launch-models-ollama-working.json'), JSON.stringify({
+test('catalog capability state comes only from normalized discovery metadata', () => {
+  const {
+    nativeCapabilitiesFromDiscovery,
+  } = require('../src/codex-config');
+  const capabilities = nativeCapabilitiesFromDiscovery({
+    provider: 'ollama',
+    traits: {
+      local: true,
+      nativeInspection: true,
+      supportsCloudPull: true,
+    },
     models: [
-      { slug: 'model-1' },
-      { slug: 'catalog-only' },
-      { slug: 'lookup-failed' },
+      { id: 'vision-tools', inputModalities: ['text', 'image'], toolCalling: true },
+      { id: 'text-only', inputModalities: ['text'], toolCalling: false },
+      { id: 'unknown', inputModalities: null, toolCalling: null },
     ],
-  }));
-  delete require.cache[require.resolve('../src/codex-config')];
-  const codexConfig = require('../src/codex-config');
-  const originalFetch = global.fetch;
-  const models = Array.from({ length: 40 }, (_, index) => ({
-    name: `model-${index + 1}`,
-    ...(index === 0 ? { capabilities: ['completion'] } : {}),
-  }));
-  let active = 0;
-  let peak = 0;
-  const shown = [];
+  }, 'forced-image');
 
-  global.fetch = async (url, options = {}) => {
-    if (String(url).endsWith('/api/tags')) {
-      return { json: async () => ({ models }) };
-    }
-    const request = JSON.parse(options.body);
-    shown.push(request);
-    active += 1;
-    peak = Math.max(peak, active);
-    await new Promise((resolve) => setTimeout(resolve, 2));
-    active -= 1;
-    return {
-      json: async () => request.model === 'lookup-failed'
-        ? { error: 'model unavailable' }
-        : { capabilities: ['completion', 'tools'] },
-    };
-  };
-
-  try {
-    const discovered = await codexConfig.localOllamaModels();
-    assert.equal(peak, codexConfig.OLLAMA_SHOW_CONCURRENCY);
-    assert.equal(shown.length, 41);
-    assert.ok(shown.every((request) => typeof request.model === 'string' && request.name === undefined));
-    assert.deepEqual(discovered['model-1'], ['completion']);
-    assert.deepEqual(discovered['model-40'], ['completion', 'tools']);
-    assert.deepEqual(discovered['catalog-only'], ['completion', 'tools']);
-    assert.equal(Object.prototype.hasOwnProperty.call(discovered, 'lookup-failed'), false);
-  } finally {
-    global.fetch = originalFetch;
-    delete require.cache[require.resolve('../src/codex-config')];
-    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
-    else process.env.CODEX_HOME = previousCodexHome;
-    fs.rmSync(codexHome, { recursive: true, force: true });
-  }
+  assert.equal(capabilities.isOllama, true);
+  assert.deepEqual([...capabilities.visionCapable], ['vision-tools', 'forced-image']);
+  assert.equal(capabilities.toolCalling.get('vision-tools'), true);
+  assert.equal(capabilities.toolCalling.get('text-only'), false);
+  assert.equal(capabilities.toolCalling.has('unknown'), false);
 });
 
 test('discovered metadata maps into supported Codex catalog fields without guessing unknowns', () => {

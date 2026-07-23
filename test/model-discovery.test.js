@@ -1378,6 +1378,25 @@ test('Ollama discovery combines native context metadata with num_ctx and tolerat
   assert.equal(result.warnings.some((warning) => /broken-model/u.test(warning)), true);
 });
 
+test('Ollama owns validation and normalization of its standard local native endpoint', () => {
+  assert.equal(
+    ollama.resolveLocalApiBase('http://localhost:11434/v1/'),
+    'http://localhost:11434',
+  );
+  assert.equal(
+    ollama.resolveLocalApiBase('http://127.0.0.1:11434'),
+    'http://127.0.0.1:11434',
+  );
+  assert.throws(
+    () => ollama.resolveLocalApiBase('https://localhost:11434/v1'),
+    /standard local Ollama HTTP endpoint/i,
+  );
+  assert.throws(
+    () => ollama.resolveLocalApiBase('http://provider.example/v1'),
+    /standard local Ollama HTTP endpoint/i,
+  );
+});
+
 test('Ollama discovery appends cloud candidates without inspecting or pulling them', async () => {
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ollama-cloud-catalog-'));
   const calls = [];
@@ -1449,6 +1468,11 @@ test('custom discovery skips the network when no models are supplied', async () 
   assert.equal(fetched, false);
   assert.equal(result.provider, 'custom');
   assert.equal(result.providerResolution, 'custom-url');
+  assert.deepEqual(result.traits, {
+    local: false,
+    nativeInspection: false,
+    supportsCloudPull: false,
+  });
   assert.equal(result.cacheStatus, 'none');
   assert.equal(result.discoverySkipped, true);
   assert.deepEqual(result.models, []);
@@ -1538,6 +1562,11 @@ test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unm
     const refreshed = await discoverModels(options);
     assert.equal(refreshed.provider, 'nvidia');
     assert.equal(refreshed.providerResolution, 'canonical-url');
+    assert.deepEqual(refreshed.traits, {
+      local: false,
+      nativeInspection: false,
+      supportsCloudPull: false,
+    });
     assert.equal(refreshed.cacheStatus, 'refreshed');
     assert.equal(refreshed.discoverySkipped, false);
     assert.deepEqual(refreshed.models.map((model) => model.id), [
@@ -1558,6 +1587,28 @@ test('public discovery auto-resolves NVIDIA, caches its catalog, and retains unm
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });
   }
+});
+
+test('public Ollama discovery exposes local native-inspection traits', async () => {
+  const result = await discoverModels({
+    baseUrl: 'http://localhost:11434/v1',
+    suppliedModels: ['local-model'],
+    fetchImpl: async (url) => {
+      if (String(url).endsWith('/api/tags')) {
+        return new Response(JSON.stringify({ models: [{ name: 'local-model' }] }));
+      }
+      return new Response(JSON.stringify({
+        capabilities: ['completion', 'vision', 'tools'],
+      }));
+    },
+  });
+
+  assert.equal(result.provider, 'ollama');
+  assert.deepEqual(result.traits, {
+    local: true,
+    nativeInspection: true,
+    supportsCloudPull: true,
+  });
 });
 
 test('public discovery dispatches all five extended providers and retains supplied ids', async () => {
