@@ -79,6 +79,10 @@ let imageInputOutputCapableModels = null;
 let toolUnsupportedModels = null;
 let ollamaCloudPuller = null;
 let ollamaCloudPullerBase = '';
+const XAI_FIXED_REASONING_MODELS = new Set([
+  'grok-4.20-0309-non-reasoning',
+  'grok-4.20-0309-reasoning',
+]);
 
 function localOllamaUpstreamBase(upstream) {
   const base = upstream && upstream.baseUrl;
@@ -270,6 +274,41 @@ function flattenNamespaceTool(namespace, tool) {
     parameters: tool.parameters || {
       type: 'object',
       properties: {},
+      additionalProperties: false,
+    },
+  };
+}
+
+function flattenCustomTool(tool) {
+  if (!tool || tool.type !== 'custom' || !tool.name) return null;
+  const format = tool.format;
+  let inputDescription = tool.name === 'apply_patch'
+    ? 'Complete patch in apply_patch format, not unified diff. It must begin with "*** Begin Patch" and end with "*** End Patch". Use "*** Add File: <path>" and prefix every added content line with "+". Use "*** Delete File: <path>" to delete. Use "*** Update File: <path>" with "@@" hunks whose context, added, and removed lines start with " ", "+", and "-".'
+    : 'Raw input for the custom tool.';
+  if (format && format.type === 'text') {
+    if (tool.name !== 'apply_patch') {
+      inputDescription = 'Raw unconstrained text input for the custom tool.';
+    }
+  } else if (format && format.type === 'grammar'
+    && (format.syntax === 'lark' || format.syntax === 'regex')
+    && typeof format.definition === 'string') {
+    inputDescription += ' It must conform to this ' + format.syntax
+      + ' grammar:\n' + format.definition;
+  }
+  return {
+    type: 'function',
+    name: tool.name,
+    description: tool.description || '',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        input: {
+          type: 'string',
+          description: inputDescription,
+        },
+      },
+      required: ['input'],
       additionalProperties: false,
     },
   };
@@ -725,6 +764,37 @@ function applyModelRouting(body) {
   return body;
 }
 
+function removeUnsupportedReasoningEffort(body) {
+  if (!body || !body.reasoning || typeof body.reasoning !== 'object'
+    || !Object.prototype.hasOwnProperty.call(body.reasoning, 'effort')) return false;
+  const upstream = getUpstream();
+  if (nativeImageGeneration.nativeImageProvider(upstream.baseUrl) !== 'xai'
+    || !XAI_FIXED_REASONING_MODELS.has(body.model)) return false;
+  const { effort: _effort, ...supported } = body.reasoning;
+  if (Object.keys(supported).length > 0) body.reasoning = supported;
+  else delete body.reasoning;
+  debugLog('xAI fixed-reasoning model: removed unsupported reasoning.effort');
+  return true;
+}
+
+function normalizeXaiReasoningInput(body) {
+  if (!body || !Array.isArray(body.input)) return false;
+  const upstream = getUpstream();
+  if (nativeImageGeneration.nativeImageProvider(upstream.baseUrl) !== 'xai') return false;
+  let changed = false;
+  for (const item of body.input) {
+    if (!item || item.type !== 'reasoning' || typeof item !== 'object') continue;
+    for (const key of ['content', 'encrypted_content']) {
+      if (item[key] === null) {
+        delete item[key];
+        changed = true;
+      }
+    }
+  }
+  if (changed) debugLog('xAI request: removed null fields from replayed reasoning input');
+  return changed;
+}
+
 function translateRequestBody(body) {
   if (!body || typeof body !== 'object') return body;
   if (ROUTE_CFG.dedupe_large_input) {
@@ -739,6 +809,8 @@ function translateRequestBody(body) {
   if (Array.isArray(body.tools)) ingestNamespaces(body.tools);
   const activeImageTurn = activeTurnHasImage(body);
   applyModelRouting(body);
+  removeUnsupportedReasoningEffort(body);
+  normalizeXaiReasoningInput(body);
   applyOutputModalities(body);
   if (ROUTE_CFG.persist_inline_images && ROUTE_CFG.auto_route_image) {
     inlineImageCache.rewriteInlineImages(body, {
@@ -802,6 +874,15 @@ function translateRequestBody(body) {
           toolsChanged = true;
           mapped.push(TOOL_SEARCH_FN);
           continue;
+        }
+        if (t && t.type === 'custom') {
+          const flat = flattenCustomTool(t);
+          if (flat) {
+            debugLog('custom tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
+            toolsChanged = true;
+            mapped.push(flat);
+            continue;
+          }
         }
         if (t && t.type === 'namespace' && t.name && Array.isArray(t.tools)) {
           let count = 0;
@@ -1758,8 +1839,8 @@ const server = http.createServer((clientReq, clientRes) => {
         body = JSON.parse(bodyBuf.toString('utf8'));
         originalStream = body && body.stream === true;
         body._originalModel = body.model; // save before routing rewrites it
-        translateRequestBody(body);
         info = collectCustomToolInfo(body.tools);
+        translateRequestBody(body);
         {
           const byType = {};
           const nsNames = [];

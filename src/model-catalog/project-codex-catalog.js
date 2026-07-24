@@ -9,8 +9,27 @@ const TOOL_CAPABILITY_FIELDS = [
   'use_responses_lite',
 ];
 
+const CODEX_MODEL_MODALITIES = new Set(['text', 'image', 'audio']);
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function codexModalities(modalities) {
+  return Array.isArray(modalities)
+    ? modalities.filter((modality) => CODEX_MODEL_MODALITIES.has(modality))
+    : [];
+}
+
+function isCodexRepresentable(model) {
+  if (!model) return true;
+  for (const key of ['inputModalities', 'outputModalities']) {
+    const modalities = model[key];
+    if (Array.isArray(modalities) && modalities.length > 0 && codexModalities(modalities).length === 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function applyDiscoveredMetadata(catalogModels, discoveredModels) {
@@ -26,11 +45,11 @@ function applyDiscoveredMetadata(catalogModels, discoveredModels) {
       : '';
     entry.display_name = displayName || metadata.id;
     if (Array.isArray(metadata.inputModalities) && metadata.inputModalities.length > 0) {
-      entry.input_modalities = [...metadata.inputModalities];
+      entry.input_modalities = codexModalities(metadata.inputModalities);
       entry.supports_image_detail_original = metadata.inputModalities.includes('image');
     }
     if (Array.isArray(metadata.outputModalities) && metadata.outputModalities.length > 0) {
-      entry.output_modalities = [...metadata.outputModalities];
+      entry.output_modalities = codexModalities(metadata.outputModalities);
     }
     if (Array.isArray(metadata.reasoningLevels) && metadata.reasoningLevels.length > 0) {
       entry.supported_reasoning_levels = [...metadata.reasoningLevels];
@@ -102,6 +121,10 @@ function projectCodexCatalog(options) {
   const knownIds = options.knownIds instanceof Set ? options.knownIds : new Set(options.knownIds || []);
   const original = Array.isArray(options.existingModels) ? options.existingModels : [];
   const template = original.length ? clone(original[0]) : {};
+  const discoveredById = new Map(discoveredModels
+    .filter((model) => model && typeof model.id === 'string')
+    .map((model) => [model.id, model]));
+  const representable = (id) => isCodexRepresentable(discoveredById.get(id));
   const native = nativeCapabilitiesFromDiscovery(discovery, options.imageModel);
   const capabilityOptions = {
     ...native,
@@ -112,7 +135,9 @@ function projectCodexCatalog(options) {
   let changed = 0;
   const models = clone(original).filter((model) => {
     if (!model || !model.slug) return false;
-    if (knownIds.has(model.slug) || knownIds.has(model.display_name)) return true;
+    if ((knownIds.has(model.slug) || knownIds.has(model.display_name))
+      && representable(model.slug)
+      && representable(model.display_name)) return true;
     pruned += 1;
     return false;
   });
@@ -126,6 +151,7 @@ function projectCodexCatalog(options) {
   const existingSlugs = new Set(models.map((model) => model && model.slug).filter(Boolean));
   const added = [];
   for (const id of knownIds) {
+    if (!representable(id)) continue;
     if (existingSlugs.has(id)) continue;
     const model = clone(template);
     model.slug = id;

@@ -612,6 +612,221 @@ test('request translation converts replayed image_generation_call items for Olla
   assert.doesNotMatch(JSON.stringify(body), /"image_generation_call"/);
 });
 
+test('request translation exposes Codex custom tools as provider-compatible functions', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'test-model',
+    input: [],
+    tools: [{
+      type: 'custom',
+      name: 'apply_patch',
+      description: 'Apply a patch.',
+      format: {
+        type: 'grammar',
+        syntax: 'lark',
+        definition: 'start: "patch"',
+      },
+    }],
+  };
+
+  translateRequestBody(body);
+
+  assert.equal(body.tools.some((tool) => tool && tool.type === 'custom'), false);
+  assert.deepEqual(body.tools.find((tool) => tool && tool.name === 'apply_patch'), {
+    type: 'function',
+    name: 'apply_patch',
+    description: 'Apply a patch.',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        input: {
+          type: 'string',
+          description: 'Complete patch in apply_patch format, not unified diff. It must begin with "*** Begin Patch" and end with "*** End Patch". Use "*** Add File: <path>" and prefix every added content line with "+". Use "*** Delete File: <path>" to delete. Use "*** Update File: <path>" with "@@" hunks whose context, added, and removed lines start with " ", "+", and "-". It must conform to this lark grammar:\nstart: "patch"',
+        },
+      },
+      required: ['input'],
+      additionalProperties: false,
+    },
+  });
+});
+
+test('request translation preserves arbitrary custom-tool grammar constraints', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'test-model',
+    input: 'Choose a label.',
+    tools: [{
+      type: 'custom',
+      name: 'emit_label',
+      description: 'Emit one permitted label.',
+      format: {
+        type: 'grammar',
+        syntax: 'regex',
+        definition: '^(alpha|beta)$',
+      },
+    }],
+  };
+
+  translateRequestBody(body);
+
+  const normalized = body.tools.find((tool) => tool && tool.name === 'emit_label');
+  assert.equal(normalized.type, 'function');
+  assert.deepEqual(normalized.parameters.required, ['input']);
+  assert.equal(normalized.parameters.properties.input.type, 'string');
+  assert.match(normalized.parameters.properties.input.description, /regex grammar/);
+  assert.match(normalized.parameters.properties.input.description, /\^\(alpha\|beta\)\$/);
+});
+
+test('proxy normalizes and restores a custom tool call end to end', async () => {
+  let upstreamBody = null;
+  const patch = '*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch';
+  await withProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      upstreamBody = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_custom_tool',
+        status: 'completed',
+        output: [{
+          id: 'fc_apply_patch',
+          type: 'function_call',
+          call_id: 'call_apply_patch',
+          name: 'apply_patch',
+          arguments: JSON.stringify({ input: patch }),
+          status: 'completed',
+        }],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'Create hello.txt.',
+      tools: [{
+        type: 'custom',
+        name: 'apply_patch',
+        description: 'Apply a patch.',
+        format: {
+          type: 'grammar',
+          syntax: 'lark',
+          definition: 'start: "patch"',
+        },
+      }],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const normalized = upstreamBody.tools.find((tool) => tool && tool.name === 'apply_patch');
+    assert.equal(normalized.type, 'function');
+    assert.deepEqual(normalized.parameters.required, ['input']);
+    assert.equal(normalized.parameters.properties.input.type, 'string');
+    assert.match(normalized.parameters.properties.input.description, /lark grammar/);
+    assert.match(normalized.parameters.properties.input.description, /start: "patch"/);
+    assert.equal(upstreamBody.tools.some((tool) => tool && tool.type === 'custom'), false);
+
+    const body = JSON.parse(response.body);
+    assert.deepEqual(body.output[0], {
+      id: 'fc_apply_patch',
+      type: 'custom_tool_call',
+      call_id: 'call_apply_patch',
+      name: 'apply_patch',
+      input: patch,
+      status: 'completed',
+    });
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
+test('request translation preserves every custom tool format in its function parameter', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'test-model',
+    input: 'Use a custom tool.',
+    tools: [
+      {
+        type: 'custom',
+        name: 'regex_writer',
+        description: 'Write a constrained identifier.',
+        format: {
+          type: 'grammar',
+          syntax: 'regex',
+          definition: '[A-Z]{3}-[0-9]{4}',
+        },
+      },
+      {
+        type: 'custom',
+        name: 'freeform_writer',
+        description: 'Write arbitrary text.',
+        format: { type: 'text' },
+      },
+    ],
+  };
+
+  translateRequestBody(body);
+
+  const regexTool = body.tools.find((tool) => tool.name === 'regex_writer');
+  const textTool = body.tools.find((tool) => tool.name === 'freeform_writer');
+  assert.equal(
+    regexTool.parameters.properties.input.description,
+    'Raw input for the custom tool. It must conform to this regex grammar:\n[A-Z]{3}-[0-9]{4}'
+  );
+  assert.equal(
+    textTool.parameters.properties.input.description,
+    'Raw unconstrained text input for the custom tool.'
+  );
+});
+
+test('xAI fixed-reasoning models omit unsupported reasoning effort but preserve summary', () => {
+  withRouteConfig([
+    'upstream_url = "https://api.x.ai/v1"',
+    'default_model = "grok-4.20-0309-reasoning"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'grok-4.20-0309-reasoning',
+      input: 'hello',
+      reasoning: {
+        effort: 'none',
+        summary: 'auto',
+      },
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.reasoning, { summary: 'auto' });
+  });
+});
+
+test('xAI request translation removes null fields from replayed reasoning items', () => {
+  withRouteConfig([
+    'upstream_url = "https://api.x.ai/v1"',
+    'default_model = "grok-4.3"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'grok-4.3',
+      input: [{
+        type: 'reasoning',
+        summary: [{ type: 'summary_text', text: 'Used the requested tool.' }],
+        content: null,
+        encrypted_content: null,
+      }],
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.input[0], {
+      type: 'reasoning',
+      summary: [{ type: 'summary_text', text: 'Used the requested tool.' }],
+    });
+  });
+});
+
 test('request translation exposes deferred tool_search namespace tools as callable functions', () => {
   const { translateRequestBody } = require('../src/proxy');
   const body = {

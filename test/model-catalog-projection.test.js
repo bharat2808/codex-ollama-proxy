@@ -124,3 +124,32 @@ test('blank discovered display names fall back to the stable model id', () => {
   }]);
   assert.equal(models[0].display_name, 'stable-id');
 });
+
+test('Codex projection excludes unsupported-only outputs and filters mixed modalities', () => {
+  const result = projectCodexCatalog({
+    existingModels: [],
+    knownIds: new Set(['mixed-modalities', 'video-output']),
+    discovery: {
+      provider: 'xai',
+      models: [
+        {
+          id: 'mixed-modalities',
+          inputModalities: ['text', 'image', 'video'],
+          outputModalities: ['text', 'video'],
+          source: 'provider-catalog',
+        },
+        {
+          id: 'video-output',
+          inputModalities: ['text', 'image', 'video'],
+          outputModalities: ['video'],
+          source: 'provider-catalog',
+        },
+      ],
+    },
+    canonical,
+  });
+
+  assert.deepEqual(result.models.map((model) => model.slug), ['mixed-modalities']);
+  assert.deepEqual(result.models[0].input_modalities, ['text', 'image']);
+  assert.deepEqual(result.models[0].output_modalities, ['text']);
+});
