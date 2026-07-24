@@ -36,6 +36,21 @@ function responsesPrompt(body) {
   throw new Error('native image generation requires a non-empty user text prompt');
 }
 
+function responsesImages(body) {
+  const input = body && Array.isArray(body.input) ? body.input : [];
+  for (let index = input.length - 1; index >= 0; index -= 1) {
+    const item = input[index];
+    if (!item || item.role !== 'user' || !Array.isArray(item.content)) continue;
+    return item.content
+      .filter((part) => part && part.type === 'input_image')
+      .map((part) => typeof part.image_url === 'string'
+        ? part.image_url
+        : part.image_url && part.image_url.url)
+      .filter((value) => typeof value === 'string' && value);
+  }
+  return [];
+}
+
 function imageResult(item) {
   if (item && typeof item.url === 'string' && item.url) return item.url;
   if (item && typeof item.b64_json === 'string' && item.b64_json) {
@@ -60,20 +75,27 @@ async function generateNativeImageResponse({ upstream, body, fetchImpl = fetch }
     throw new Error('native image endpoint bridge is not available for this upstream');
   }
   const prompt = responsesPrompt(body);
+  const images = responsesImages(body).slice(-3);
   const endpoint = new URL(upstream.baseUrl.href);
-  endpoint.pathname = endpoint.pathname.replace(/\/+$/u, '') + '/images/generations';
+  endpoint.pathname = endpoint.pathname.replace(/\/+$/u, '') + (images.length ? '/images/edits' : '/images/generations');
+  const requestBody = {
+    model: body.model,
+    prompt,
+    ...(images.length === 1
+      ? { image: { type: 'image_url', url: images[0] } }
+      : images.length > 1
+        ? { images: images.map((url) => ({ type: 'image_url', url })) }
+        : {}),
+    n: 1,
+    response_format: 'url',
+  };
   const response = await fetchImpl(endpoint.href, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       ...(upstream.apiKey ? { authorization: `Bearer ${upstream.apiKey}` } : {}),
     },
-    body: JSON.stringify({
-      model: body.model,
-      prompt,
-      n: 1,
-      response_format: 'url',
-    }),
+    body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(120000),
   });
   const raw = await response.text();
@@ -119,5 +141,6 @@ async function generateNativeImageResponse({ upstream, body, fetchImpl = fetch }
 module.exports = {
   generateNativeImageResponse,
   nativeImageProvider,
+  responsesImages,
   responsesPrompt,
 };

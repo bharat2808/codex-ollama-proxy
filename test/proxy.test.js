@@ -9,6 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   applyOutputModalities,
+  imageInputOutputCapabilities,
   imageOutputCapabilities,
   imageOutputSupport,
 } = require('../src/proxy');
@@ -54,6 +55,17 @@ test('distinguishes image-output support from text-only and unknown models by ex
   assert.equal(imageOutputSupport('provider/text-model', models), false);
   assert.equal(imageOutputSupport('image-model', models), null);
   assert.equal(imageOutputSupport('provider/unknown', models), null);
+});
+
+test('selects only exact models supporting both image input and image output', () => {
+  const capable = imageInputOutputCapabilities([
+    { slug: 'provider/dual', input_modalities: ['text', 'image'], output_modalities: ['image'] },
+    { slug: 'provider/output-only', input_modalities: ['text'], output_modalities: ['image'] },
+    { slug: 'provider/input-only', inputModalities: ['text', 'image'], outputModalities: ['text'] },
+    { slug: 'provider/camel-dual', inputModalities: ['image'], outputModalities: ['text', 'image'] },
+  ]);
+
+  assert.deepEqual([...capable], ['provider/dual', 'provider/camel-dual']);
 });
 
 test('native image-output requests do not forward or inject function tools', () => {
@@ -241,11 +253,12 @@ async function withLocalOllamaProxy(ollamaHandler, run) {
   }
 }
 
-function withRouteConfig(config, run) {
+function withRouteConfig(config, run, setup) {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-routing-test-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [...config, ''].join('\n'));
+  if (typeof setup === 'function') setup({ codexHome, runtimeDir });
 
   const previousCodexHome = process.env.CODEX_HOME;
   process.env.CODEX_HOME = codexHome;
@@ -1018,6 +1031,81 @@ test('inline image persistence deduplicates historical images and preserves the 
   });
 });
 
+test('dual-modal image generation turns rehydrate the complete cached image chain', () => {
+  let cachedPaths;
+  withRouteConfig([
+    'default_model = "dual-image-model"',
+    'image_model = "dual-image-model"',
+    'auto_route_image = true',
+    'persist_inline_images = true',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'dual-image-model',
+      prompt_cache_key: 'generated-image-chain-proxy-test',
+      modalities: ['image', 'text'],
+      input: [
+        {
+          type: 'image_generation_call',
+          id: 'image-one',
+          result: 'https://expired.example/one.png',
+          saved_path: cachedPaths[0],
+        },
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Make it warmer.' }],
+        },
+        {
+          type: 'image_generation_call',
+          id: 'image-two',
+          result: 'https://expired.example/two.png',
+          saved_path: cachedPaths[1],
+        },
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Now change the background.' }],
+        },
+      ],
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    const latestContent = body.input.at(-1).content;
+    assert.equal(latestContent[0].text, 'Now change the background.');
+    assert.deepEqual(
+      latestContent.slice(1).map((part) => part.type),
+      ['input_image', 'input_image'],
+    );
+    assert.deepEqual(
+      latestContent.slice(1).map((part) => part.image_url),
+      [inlineImageUrl('image/png', 'one'), inlineImageUrl('image/png', 'two')],
+    );
+  }, ({ codexHome }) => {
+    fs.writeFileSync(path.join(codexHome, 'ollama-launch-models.json'), JSON.stringify({
+      models: [{
+        slug: 'dual-image-model',
+        input_modalities: ['text', 'image'],
+        output_modalities: ['text', 'image'],
+      }],
+    }));
+    const cacheDir = path.join(
+      codexHome,
+      'attachments',
+      'ollama-shape-proxy-inline-images',
+      'generated-image-chain-proxy-test',
+    );
+    fs.mkdirSync(cacheDir, { recursive: true });
+    cachedPaths = [
+      path.join(cacheDir, 'one.png'),
+      path.join(cacheDir, 'two.png'),
+    ];
+    fs.writeFileSync(cachedPaths[0], inlineImageBytes('image/png', 'one'));
+    fs.writeFileSync(cachedPaths[1], inlineImageBytes('image/png', 'two'));
+  });
+});
+
 test('inline image persistence repairs a corrupt existing hash file', () => {
   const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-inline-cache-test-'));
   const makeBody = () => ({
@@ -1300,6 +1388,104 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
     else process.env.PROXY_PORT = previousProxyPort;
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
+});
+
+test('proxy caches non-streaming native image results and returns their saved path', async () => {
+  const imageUrl = inlineImageUrl('image/png', 'provider-generated');
+  await withProxy((req, res) => {
+    req.resume();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      id: 'resp_generated_image',
+      status: 'completed',
+      output: [{
+        id: 'ig_generated',
+        type: 'image_generation_call',
+        status: 'completed',
+        result: imageUrl,
+      }],
+    }));
+  }, async (proxyPort, proxy, codexHome) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'draw a circle',
+      prompt_cache_key: 'generated-image-proxy-test',
+      modalities: ['image', 'text'],
+      tools: [],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    const savedPath = body.output[0].saved_path;
+    assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images') + path.sep));
+    assert.deepEqual(fs.readFileSync(savedPath), inlineImageBytes('image/png', 'provider-generated'));
+  }, [
+    'auto_route_image = true',
+    'persist_inline_images = true',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
+test('proxy caches streamed native image results before the terminal response', async () => {
+  const imageUrl = inlineImageUrl('image/png', 'streamed-provider-generated');
+  await withProxy((req, res) => {
+    req.resume();
+    const item = {
+      id: 'ig_streamed_generated',
+      type: 'image_generation_call',
+      status: 'completed',
+      result: imageUrl,
+    };
+    res.writeHead(200, { 'content-type': 'text/event-stream', connection: 'keep-alive' });
+    writeSse(res, 'response.created', {
+      type: 'response.created',
+      response: { id: 'resp_streamed_generated', status: 'in_progress', output: [] },
+    });
+    writeSse(res, 'response.output_item.added', {
+      type: 'response.output_item.added',
+      output_index: 0,
+      sequence_number: 0,
+      item: { id: item.id, type: item.type, status: 'in_progress' },
+    });
+    writeSse(res, 'response.output_item.done', {
+      type: 'response.output_item.done',
+      output_index: 0,
+      sequence_number: 1,
+      item,
+    });
+    writeSse(res, 'response.completed', {
+      type: 'response.completed',
+      response: {
+        id: 'resp_streamed_generated',
+        status: 'completed',
+        output: [item],
+      },
+    });
+    res.end();
+  }, async (proxyPort, proxy, codexHome) => {
+    const response = await postStream(proxyPort, {
+      model: 'test-model',
+      input: 'draw a square',
+      prompt_cache_key: 'streamed-generated-image-proxy-test',
+      modalities: ['image', 'text'],
+      tools: [],
+      stream: true,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const events = parseSse(response.body);
+    assertSuccessfulTerminal(events);
+    const savedPath = events.at(-1).data.response.output[0].saved_path;
+    assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images') + path.sep));
+    assert.deepEqual(fs.readFileSync(savedPath), inlineImageBytes('image/png', 'streamed-provider-generated'));
+  }, [
+    'auto_route_image = true',
+    'persist_inline_images = true',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
 });
 
 test('proxy preserves thought signatures when restoring namespaced function calls', async () => {

@@ -123,6 +123,29 @@ function waitForHttp(port, path, timeoutMs = 5000) {
   });
 }
 
+test('completion adaptor preserves every image in a user content chain', () => {
+  const { responsesInputToChatMessages } = require('../adaptor/completion-api-adaptor');
+  const messages = responsesInputToChatMessages({
+    input: [{
+      role: 'user',
+      content: [
+        { type: 'input_text', text: 'Combine these.' },
+        { type: 'input_image', image_url: 'data:image/png;base64,b25l' },
+        { type: 'input_image', image_url: 'data:image/jpeg;base64,dHdv' },
+      ],
+    }],
+  });
+
+  assert.deepEqual(messages, [{
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Combine these.' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,b25l' } },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,dHdv' } },
+    ],
+  }]);
+});
+
 test('completion API adaptor translates Responses requests to Chat Completions', async () => {
   const received = [];
   const chatServer = http.createServer((req, res) => {

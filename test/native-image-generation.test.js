@@ -101,3 +101,47 @@ test('reports native image endpoint failures without exposing credentials', asyn
     return true;
   });
 });
+
+test('uses xAI image edits with the latest three rehydrated chain images', async () => {
+  let request = null;
+  const response = await generateNativeImageResponse({
+    upstream: {
+      baseUrl: new URL('https://api.x.ai/v1'),
+      apiKey: 'test-secret',
+    },
+    body: {
+      model: 'grok-imagine-image',
+      input: [{
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'change the lighting' },
+          { type: 'input_image', image_url: 'data:image/png;base64,first' },
+          { type: 'input_image', image_url: 'data:image/png;base64,second' },
+          { type: 'input_image', image_url: 'data:image/png;base64,third' },
+          { type: 'input_image', image_url: 'data:image/png;base64,fourth' },
+        ],
+      }],
+      modalities: ['image'],
+    },
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return new Response(JSON.stringify({
+        data: [{ url: 'https://images.example/edited.jpeg' }],
+      }), { status: 200 });
+    },
+  });
+
+  assert.equal(request.url, 'https://api.x.ai/v1/images/edits');
+  assert.deepEqual(JSON.parse(request.options.body), {
+    model: 'grok-imagine-image',
+    prompt: 'change the lighting',
+    images: [
+      { type: 'image_url', url: 'data:image/png;base64,second' },
+      { type: 'image_url', url: 'data:image/png;base64,third' },
+      { type: 'image_url', url: 'data:image/png;base64,fourth' },
+    ],
+    n: 1,
+    response_format: 'url',
+  });
+  assert.equal(response.output[0].result, 'https://images.example/edited.jpeg');
+});

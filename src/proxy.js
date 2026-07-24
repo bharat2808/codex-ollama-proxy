@@ -7,6 +7,7 @@ const webSearch = require('./web-search');
 const skillFind = require('./skill-find');
 const imagine = require('./imagine');
 const inlineImageCache = require('./inline-image-cache');
+const generatedImageCache = require('./generated-image-cache');
 const nativeImageGeneration = require('./native-image-generation');
 const { createOllamaCloudPuller } = require('./ollama-cloud-pull');
 const markers = require('./ui-markers');
@@ -74,6 +75,7 @@ const VISION_CACHE_PATH = path.join(CODEX_DIR, 'cache', 'vision_capable_models.j
 // Empty means either non-Ollama (all assumed vision-capable) or not yet probed.
 let visionCapableModels = null;
 let imageOutputCapableModels = null;
+let imageInputOutputCapableModels = null;
 let ollamaCloudPuller = null;
 let ollamaCloudPullerBase = '';
 
@@ -107,6 +109,7 @@ async function ensureCloudModelForRequest(upstream, body) {
 // Idempotent: only writes if an entry actually changed.
 function forceImageCapabilityForTextModel() {
   if (!ROUTE_CFG.auto_route_image) return;
+  imageInputOutputCapableModels = new Set();
   for (const catalogPath of MODEL_CATALOG_PATHS) {
     let raw;
     try {
@@ -124,6 +127,7 @@ function forceImageCapabilityForTextModel() {
       continue;
     }
     const models = Array.isArray(catalog.models) ? catalog.models : [];
+    for (const name of imageInputOutputCapabilities(models)) imageInputOutputCapableModels.add(name);
 
     // Snapshot which models actually have vision before forcing.
     // Prefer the vision cache file written by refreshCatalog (has TRUE capabilities).
@@ -597,6 +601,21 @@ function imageOutputCapabilities(models) {
   return capable;
 }
 
+function imageInputOutputCapabilities(models) {
+  const capable = new Set();
+  for (const model of Array.isArray(models) ? models : []) {
+    if (!model) continue;
+    const name = model.slug || model.display_name;
+    const input = Array.isArray(model.input_modalities) ? model.input_modalities : model.inputModalities;
+    const output = Array.isArray(model.output_modalities) ? model.output_modalities : model.outputModalities;
+    if (name && Array.isArray(input) && input.includes('image')
+      && Array.isArray(output) && output.includes('image')) {
+      capable.add(name);
+    }
+  }
+  return capable;
+}
+
 function imageOutputSupport(modelName, models) {
   if (!modelName || !Array.isArray(models)) return null;
   const model = models.find((entry) => entry && (entry.slug || entry.display_name) === modelName);
@@ -621,6 +640,19 @@ function loadImageOutputCapabilities() {
   return imageOutputCapableModels;
 }
 
+function loadImageInputOutputCapabilities() {
+  if (imageInputOutputCapableModels) return imageInputOutputCapableModels;
+  imageInputOutputCapableModels = new Set();
+  for (const catalogPath of MODEL_CATALOG_PATHS) {
+    try {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+      const models = Array.isArray(catalog.models) ? catalog.models : catalog;
+      for (const name of imageInputOutputCapabilities(models)) imageInputOutputCapableModels.add(name);
+    } catch {}
+  }
+  return imageInputOutputCapableModels;
+}
+
 function applyOutputModalities(body, capable = loadImageOutputCapabilities()) {
   if (!body || typeof body !== 'object' || !capable.has(body.model) || body.modalities !== undefined) return body;
   body.modalities = ['image', 'text'];
@@ -630,6 +662,21 @@ function applyOutputModalities(body, capable = loadImageOutputCapabilities()) {
 function isNativeImageOutput(body) {
   return Boolean(body && Array.isArray(body.modalities)
     && body.modalities.some((modality) => String(modality).toLowerCase() === 'image'));
+}
+
+function generatedImageCacheEnabled(body) {
+  return ROUTE_CFG.auto_route_image
+    && ROUTE_CFG.persist_inline_images
+    && isNativeImageOutput(body);
+}
+
+async function cacheGeneratedResponse(response, requestBody) {
+  if (!generatedImageCacheEnabled(requestBody)) return response;
+  return generatedImageCache.cacheGeneratedImages(response, requestBody, {
+    cacheRoot: INLINE_IMAGE_CACHE_DIR,
+    retentionDays: ROUTE_CFG.inline_image_retention_days,
+    log: debugLog,
+  });
 }
 
 // Apply per-request model routing based on the config + presence of an image.
@@ -680,6 +727,19 @@ function translateRequestBody(body) {
       retentionDays: ROUTE_CFG.inline_image_retention_days,
       log: debugLog,
     });
+  }
+  if (
+    ROUTE_CFG.persist_inline_images
+    && ROUTE_CFG.auto_route_image
+    && isNativeImageOutput(body)
+    && loadImageInputOutputCapabilities().has(body.model)
+  ) {
+    const rehydrated = generatedImageCache.rehydrateGeneratedImageChain(body, {
+      cacheRoot: INLINE_IMAGE_CACHE_DIR,
+    });
+    if (rehydrated > 0) {
+      debugLog('generated-image-chain: rehydrated ' + rehydrated + ' cached image(s) for ' + body.model);
+    }
   }
   let inputChanged = false;
   const deferredTools = [];
@@ -1513,6 +1573,7 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
 
       seq.index = Math.max(seq.index, result.maxOutputIndex + 1);
       seq.num = Math.max(seq.num, result.maxSequenceNumber + 1);
+      await cacheGeneratedResponse({ output: result.visibleOutputItems }, body);
       completedItems.push(...result.visibleOutputItems);
 
       if (result.failureEvent) {
@@ -1699,6 +1760,7 @@ const server = http.createServer((clientReq, clientRes) => {
       try {
         debugLog('native image endpoint bridge enabled for ' + nativeImageGeneration.nativeImageProvider(upstream.baseUrl));
         const response = await nativeImageGeneration.generateNativeImageResponse({ upstream, body });
+        await cacheGeneratedResponse(response, body);
         if (originalStream) sendSseCompleted(clientRes, response);
         else sendJsonResponse(clientRes, 200, response);
       } catch (error) {
@@ -1730,7 +1792,7 @@ const server = http.createServer((clientReq, clientRes) => {
         return;
       }
     }
-    if (isResponses && body && originalStream && ROUTE_CFG.stream_proxy_loop) {
+    if (isResponses && body && originalStream && (ROUTE_CFG.stream_proxy_loop || generatedImageCacheEnabled(body))) {
       debugLog('streaming response lifecycle enabled');
       await runStreamingLoop(upstream, body, clientRes, info, {
         log: (...a) => log(...a),
@@ -1847,11 +1909,12 @@ const server = http.createServer((clientReq, clientRes) => {
       } else if (isResponses) {
         const chunks = [];
         upstreamRes.on('data', (chunk) => chunks.push(chunk));
-        upstreamRes.on('end', () => {
+        upstreamRes.on('end', async () => {
           const raw = Buffer.concat(chunks).toString('utf8');
           try {
             const response = JSON.parse(raw);
             translateFinalResponse(response, info);
+            await cacheGeneratedResponse(response, body);
             sendJsonResponse(clientRes, upstreamRes.statusCode || 200, response);
           } catch (e) {
             clientRes.writeHead(upstreamRes.statusCode, upstreamRes.headers);
@@ -1989,6 +2052,7 @@ if (require.main === module || process.env.CODEX_OLLAMA_PROXY_AUTOSTART === '1')
 module.exports = {
   applyOutputModalities,
   dedupeLargeInputBlocks,
+  imageInputOutputCapabilities,
   imageOutputCapabilities,
   imageOutputSupport,
   translateInputItem,

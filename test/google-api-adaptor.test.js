@@ -76,6 +76,7 @@ test('Google adaptor translates Responses text, files, tools, reasoning, and ima
       content: [
         { type: 'input_text', text: 'Read these.' },
         { type: 'input_image', image_url: 'data:image/png;base64,aW1n' },
+        { type: 'input_image', image_url: 'data:image/jpeg;base64,aW1nMg==' },
         { type: 'input_file', filename: 'paper.pdf', file_data: 'data:application/pdf;base64,cGRm' },
         { type: 'input_file', filename: 'notes.txt', file_url: 'gs://bucket/notes.txt' },
       ],
@@ -99,6 +100,7 @@ test('Google adaptor translates Responses text, files, tools, reasoning, and ima
     parts: [
       { text: 'Read these.' },
       { inlineData: { mimeType: 'image/png', data: 'aW1n' } },
+      { inlineData: { mimeType: 'image/jpeg', data: 'aW1nMg==' } },
       { inlineData: { mimeType: 'application/pdf', data: 'cGRm' } },
       { fileData: { mimeType: 'text/plain', fileUri: 'gs://bucket/notes.txt' } },
     ],
