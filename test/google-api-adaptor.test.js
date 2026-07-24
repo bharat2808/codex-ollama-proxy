@@ -138,6 +138,84 @@ test('Google adaptor preserves conversation order and groups adjacent parallel t
   ]);
 });
 
+test('Google adaptor obtains a Vertex bearer token from ADC when no token is configured', async () => {
+  const adaptor = require('../adaptor/google-api-adaptor');
+  let authorization;
+  let tokenRequests = 0;
+  const server = adaptor.startServer({
+    port: 0,
+    baseUrl: 'https://aiplatform.googleapis.com/v1/projects/sample-project/locations/global/endpoints/openapi',
+    apiKey: '',
+    defaultModel: 'gemini-2.5-flash',
+    accessTokenProvider: async () => {
+      tokenRequests += 1;
+      return 'adc-access-token';
+    },
+    fetchImpl: async (_url, options) => {
+      authorization = options.headers.authorization;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { role: 'model', parts: [{ text: 'adc ok' }] } }],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  try {
+    await new Promise((resolve) => server.once('listening', resolve));
+    const response = await postJson(server.address().port, {
+      model: 'gemini-2.5-flash',
+      input: 'hello',
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.output_text, 'adc ok');
+    assert.equal(authorization, 'Bearer adc-access-token');
+    assert.equal(tokenRequests, 1);
+  } finally {
+    await close(server);
+  }
+});
+
+test('Google adaptor prefers an explicit Vertex token over ADC', async () => {
+  const adaptor = require('../adaptor/google-api-adaptor');
+  let authorization;
+  const server = adaptor.startServer({
+    port: 0,
+    baseUrl: 'https://aiplatform.googleapis.com/v1/projects/sample-project/locations/global/endpoints/openapi',
+    apiKey: 'explicit-vertex-token',
+    defaultModel: 'gemini-2.5-flash',
+    accessTokenProvider: async () => {
+      throw new Error('ADC must not be called');
+    },
+    fetchImpl: async (_url, options) => {
+      authorization = options.headers.authorization;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { role: 'model', parts: [{ text: 'token ok' }] } }],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  try {
+    await new Promise((resolve) => server.once('listening', resolve));
+    const response = await postJson(server.address().port, {
+      model: 'gemini-2.5-flash',
+      input: 'hello',
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(authorization, 'Bearer explicit-vertex-token');
+  } finally {
+    await close(server);
+  }
+});
+
 test('Google adaptor maps reasoning effort to Gemini 2.5 thinking budgets', () => {
   const adaptor = require('../adaptor/google-api-adaptor');
   const request = adaptor.buildGenerateContentRequest({

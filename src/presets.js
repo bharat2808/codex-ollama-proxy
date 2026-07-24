@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const schema = require('./route-config-schema');
+const { resolveProviderProfile } = require('./provider-profiles');
 
 function die(message) {
   const error = new Error(message);
@@ -223,12 +224,26 @@ function flagsToValues(flags) {
 
 function addPreset(runtimeDir, name, flags, log = console.log) {
   validatePresetName(name);
-  const adaptor = flags.adaptor || 'none';
+  const resolved = resolveProviderProfile(flags);
+  const adaptor = resolved.adaptor;
   if (!['none', 'chat-completion', 'google'].includes(adaptor)) {
     die('Error: --adaptor must be "chat-completion", "google", or "none".');
   }
 
-  const values = flagsToValues(flags);
+  if (flags.vertexToken !== undefined && resolved.provider !== 'vertexai') {
+    die('Error: --vertex-token can only be used with --provider vertexai.');
+  }
+  if (flags.vertexToken !== undefined && flags.apiKey !== undefined) {
+    die('Error: use either --vertex-token or --api-key, not both.');
+  }
+  if (flags.vertexToken === '') {
+    die('Error: --vertex-token was passed but empty.');
+  }
+  const values = flagsToValues({
+    ...flags,
+    url: resolved.url,
+    apiKey: flags.vertexToken !== undefined ? flags.vertexToken : flags.apiKey,
+  });
 
   fs.mkdirSync(presetsDir(runtimeDir), { recursive: true });
   const preset = { name, adaptor, values };

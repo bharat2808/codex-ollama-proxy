@@ -41,6 +41,7 @@ const PROVIDERS = Object.freeze({
     canonicalUrls: ['https://api.deepseek.com', 'https://api.deepseek.com/v1'],
   }),
   google: definition(google, {
+    aliases: ['aistudio', 'gemini', 'google-ai-studio', 'vertexai', 'vertex-ai', 'vertex'],
     canonicalUrls: ['https://generativelanguage.googleapis.com/v1beta/openai'],
   }),
   xai: definition(xai, {

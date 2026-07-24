@@ -108,8 +108,7 @@ Gemini Developer API preset:
 
 ```bash
 codex-ollama-proxy preset add gemini \
-  --adaptor google \
-  --url "https://generativelanguage.googleapis.com/v1beta/openai" \
+  --provider aistudio \
   --models "gemini-2.5-flash,gemini-3.1-flash-image" \
   --default-model "gemini-2.5-flash" \
   --api-key "$GEMINI_API_KEY"
@@ -119,12 +118,14 @@ Vertex AI preset:
 
 ```bash
 codex-ollama-proxy preset add vertex-gemini \
-  --adaptor google \
-  --url "https://aiplatform.googleapis.com/v1/projects/$PROJECT_ID/locations/global/endpoints/openapi" \
+  --provider vertexai \
+  --project "$PROJECT_ID" \
+  --location global \
   --models "google/gemini-2.5-flash,google/gemini-3.1-flash-image" \
-  --default-model "google/gemini-2.5-flash" \
-  --api-key "$GOOGLE_ACCESS_TOKEN"
+  --default-model "google/gemini-2.5-flash"
 ```
 
-Vertex uses a short-lived Google Cloud access token. Refresh the preset's
-runtime key when that token expires.
+Vertex uses Application Default Credentials when no token is supplied. For
+local development, configure ADC with `gcloud auth application-default login`.
+To use a short-lived token explicitly, add `--vertex-token "$GOOGLE_ACCESS_TOKEN"`
+when creating or running the preset.

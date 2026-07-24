@@ -4,6 +4,7 @@
 const crypto = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
+const { createAccessTokenProvider } = require('../src/google-adc');
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
@@ -368,11 +369,16 @@ async function callGoogle(body, options, stream, request = null) {
   const model = body.model || options.defaultModel;
   if (!model) throw new Error('Google model is not set');
   const target = googleTarget(options, model, stream);
+  if (target.vertex && !target.headers.authorization) {
+    const getAccessToken = options.accessTokenProvider
+      || (options.accessTokenProvider = createAccessTokenProvider());
+    target.headers.authorization = 'Bearer ' + await getAccessToken();
+  }
   const timeoutMs = Number.isFinite(options.requestTimeoutMs) && options.requestTimeoutMs > 0
     ? options.requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
   let response;
   try {
-    response = await fetch(target.url, {
+    response = await (options.fetchImpl || fetch)(target.url, {
       method: 'POST',
       headers: target.headers,
       body: JSON.stringify(request || buildGenerateContentRequest(body, model)),

@@ -530,6 +530,21 @@ test('Vertex AI OpenAI endpoints resolve as Google without probing', async () =>
   assert.equal(fetchCalls, 0);
 });
 
+test('Google provider aliases resolve explicitly without probing', async () => {
+  let fetches = 0;
+  const fetchImpl = async () => {
+    fetches += 1;
+    throw new Error('must not fetch');
+  };
+
+  for (const provider of ['aistudio', 'gemini', 'vertexai', 'vertex-ai']) {
+    const result = await resolveProvider({ provider, fetchImpl });
+    assert.equal(result.provider, 'google');
+    assert.equal(result.providerResolution, 'explicit');
+  }
+  assert.equal(fetches, 0);
+});
+
 test('Vertex Google discovery classifies only explicitly supplied Gemini models', async () => {
   const result = await google.discover({
     baseUrl: 'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi',

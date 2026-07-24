@@ -30,7 +30,8 @@ function usage() {
   codex-ollama-proxy serve [--adaptor chat-completion|google] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
   codex-ollama-proxy serve --preset NAME [--api-key KEY] [--replace]
   codex-ollama-proxy serve --adaptor chat-completion|google [--completion-model MODEL] [--adaptor-port PORT]
-  codex-ollama-proxy preset add NAME [--adaptor chat-completion|google|none] --url URL --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
+  codex-ollama-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
+  codex-ollama-proxy preset add NAME --provider vertexai --project PROJECT --location LOCATION --models MODEL[,MODEL...] [--vertex-token TOKEN]
     [--auto-image|--no-auto-image] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
     [--persist-images|--no-persist-images] [--image-retention-days DAYS]
     [--verbose-tools|--no-verbose-tools] [--log-upstream-body|--no-log-upstream-body]
@@ -225,10 +226,25 @@ function applyPreset(name, flags = {}) {
     if (!values.models.includes(flags.defaultModel)) die('Error: --default-model must occur in the preset models.');
     values.default_model = flags.defaultModel;
   }
+  if (flags.vertexToken !== undefined && flags.apiKey !== undefined) {
+    die('Error: use either --vertex-token or --api-key, not both.');
+  }
+  if (flags.vertexToken === '') {
+    die('Error: --vertex-token was passed but empty.');
+  }
+  if (flags.vertexToken !== undefined) {
+    const presetUrl = values.upstream_url || '';
+    if (preset.adaptor !== 'google'
+      || !/^https:\/\/aiplatform\.googleapis\.com\/v1\/projects\/[^/]+\/locations\/[^/]+\/endpoints\/openapi\/?$/u.test(presetUrl)) {
+      die('Error: --vertex-token can only be used with a Vertex AI preset.');
+    }
+  }
   if (flags.apiKey === '') {
     die('Error: --api-key was passed but empty. Check your shell variable with: echo ${NVIDIA_API_KEY:+set}');
   }
-  const apiKey = flags.apiKey !== undefined ? flags.apiKey : values.upstream_api_key;
+  const apiKey = flags.vertexToken !== undefined
+    ? flags.vertexToken
+    : flags.apiKey !== undefined ? flags.apiKey : values.upstream_api_key;
   if (apiKey !== undefined) values.upstream_api_key = apiKey || '';
   // Normalize Codex into proxy mode without refreshing yet. The preset route
   // must be written first so model discovery queries the preset provider

@@ -408,6 +408,134 @@ test('CLI preset add rejects an explicitly empty API key', () => {
   }
 });
 
+test('CLI preset add resolves AI Studio without an explicit URL or adaptor', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-aistudio-provider-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'add',
+      'gemini',
+      '--provider',
+      'aistudio',
+      '--models',
+      'gemini-2.5-flash',
+      '--api-key',
+      'gemini-secret',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const preset = fs.readFileSync(path.join(runtimeDir, 'presets', 'gemini.toml'), 'utf8');
+    assert.match(preset, /^adaptor\s*=\s*"google"$/m);
+    assert.match(
+      preset,
+      /^upstream_url\s*=\s*"https:\/\/generativelanguage\.googleapis\.com\/v1beta\/openai"$/m,
+    );
+    assert.match(preset, /^upstream_api_key\s*=\s*"gemini-secret"$/m);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('CLI preset add resolves Vertex AI project, location, and optional token', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-vertex-provider-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'add',
+      'vertex',
+      '--provider',
+      'vertexai',
+      '--project',
+      'sample-project',
+      '--location',
+      'global',
+      '--models',
+      'gemini-2.5-flash',
+      '--vertex-token',
+      'vertex-token',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const preset = fs.readFileSync(path.join(runtimeDir, 'presets', 'vertex.toml'), 'utf8');
+    assert.match(preset, /^adaptor\s*=\s*"google"$/m);
+    assert.match(
+      preset,
+      /^upstream_url\s*=\s*"https:\/\/aiplatform\.googleapis\.com\/v1\/projects\/sample-project\/locations\/global\/endpoints\/openapi"$/m,
+    );
+    assert.match(preset, /^upstream_api_key\s*=\s*"vertex-token"$/m);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('CLI can keep Vertex ADC implicit and accept a run-only Vertex token later', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-vertex-adc-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'add',
+      'vertex-adc',
+      '--provider',
+      'vertexai',
+      '--project',
+      'sample-project',
+      '--location',
+      'global',
+      '--models',
+      'gemini-2.5-flash',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const presetPath = path.join(runtimeDir, 'presets', 'vertex-adc.toml');
+    const preset = fs.readFileSync(presetPath, 'utf8');
+    assert.doesNotMatch(preset, /^upstream_api_key\s*=/m);
+
+    const use = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'use',
+      'vertex-adc',
+      '--vertex-token',
+      'run-only-token',
+      '--no-refresh',
+      '--no-backup',
+      '--no-start',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+    assert.equal(use.status, 0, use.stderr || use.stdout);
+    const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
+    assert.match(route, /^upstream_api_key\s*=\s*"run-only-token"$/m);
+    assert.doesNotMatch(fs.readFileSync(presetPath, 'utf8'), /run-only-token/u);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test('CLI preset add --model sets both text and image model, and preset use --model overrides both for the run', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-preset-model-shorthand-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
