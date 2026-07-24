@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const inlineImageCache = require('./inline-image-cache');
 const upstreamLib = require('./upstream');
 
 const GENERATE_IMAGE = 'generate_image';
@@ -521,7 +522,7 @@ async function callImageBackend(prompt, options, log) {
 }
 
 // ── Fulfill one generate_image call ─────────────────────────────────────────
-async function fulfillGenerateImage(call, upstream, config, log) {
+async function fulfillGenerateImage(call, upstream, config, log, options = {}) {
   const args = parseArgs(call.arguments);
   const prompt = String(args.prompt || '').trim();
   if (!prompt) {
@@ -579,13 +580,22 @@ async function fulfillGenerateImage(call, upstream, config, log) {
     return { call_id: call.call_id, output: '[generate_image error] ' + e.message };
   }
 
-  // ── Step 3: Save to temp file ──
+  // ── Step 3: Save generated image ──
   const ext = result.metadata.mimeType === 'image/jpeg' ? '.jpg'
     : result.metadata.mimeType === 'image/webp' ? '.webp' : '.png';
   const filename = 'imagine-' + (inputImageBase64 ? 'edit-' : '') + Date.now() + ext;
-  const filepath = path.join(os.tmpdir(), filename);
+  let filepath;
   try {
-    fs.writeFileSync(filepath, result.imageData);
+    if (options.outputDirectory) {
+      filepath = inlineImageCache.persistImageBytes(
+        options.outputDirectory,
+        result.imageData,
+        result.metadata.mimeType
+      );
+    } else {
+      filepath = path.join(os.tmpdir(), filename);
+      fs.writeFileSync(filepath, result.imageData, { mode: 0o600 });
+    }
     log('generate_image: saved ' + result.imageData.length + ' bytes to ' + filepath);
   } catch (e) {
     return { call_id: call.call_id, output: '[generate_image error] Failed to save image: ' + e.message };
@@ -641,7 +651,9 @@ async function runGenerateImageLoop(upstream, originalBody, config, options) {
     log('imagine loop: ' + imageCalls.length + ' image call(s), ' + statusCalls.length + ' status call(s)');
     const outputs = [];
     for (const call of imageCalls) {
-      const r = await fulfillGenerateImage(call, upstream, config, log);
+      const r = await fulfillGenerateImage(call, upstream, config, log, {
+        outputDirectory: options.outputDirectory,
+      });
       outputs.push({ type: 'function_call_output', call_id: r.call_id, output: r.output });
     }
     for (const call of statusCalls) {

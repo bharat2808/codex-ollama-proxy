@@ -247,6 +247,8 @@ codex-ollama-proxy preset add multimodal \
 
 Set `persist_inline_images = true` in `proxy-models.toml` to cache inline images
 under `~/.codex/attachments` and replace historical pixels with path references.
+Generated images are stored in the same session cache instead of temporary
+storage, so their saved paths remain usable across follow-up turns.
 Persistence requires a stable session, thread, conversation, or prompt-cache
 identifier; requests without one retain their inline images. Session caches
 unused for 30 days are removed lazily by default. Configure
