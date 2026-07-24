@@ -81,6 +81,35 @@ test('owned catalog generation drops OpenClaw rows and strips inherited seed fie
   assert.equal(catalog.models[0].source, 'bundled-provider-catalog');
 });
 
+test('owned catalog generation restores exact provider-documented modalities after stripping seeds', () => {
+  const cohere = model('command-a-plus-05-2026', {
+    inputModalities: ['text'],
+    outputModalities: ['text'],
+    metadataSources: {
+      ...model('unused').metadataSources,
+      inputModalities: 'provider-seed',
+      outputModalities: 'provider-catalog',
+    },
+  });
+  const xai = model('grok-imagine-video', {
+    contextWindow: 8000,
+    metadataSources: {
+      ...model('unused').metadataSources,
+      contextWindow: 'provider-catalog',
+    },
+  });
+
+  const cohereCatalog = buildProviderCatalog('cohere', [cohere], []);
+  const xaiCatalog = buildProviderCatalog('xai', [xai], []);
+
+  assert.deepEqual(cohereCatalog.models[0].inputModalities, ['text', 'image']);
+  assert.deepEqual(cohereCatalog.models[0].outputModalities, ['text']);
+  assert.equal(cohereCatalog.models[0].metadataSources.inputModalities, 'provider-catalog');
+  assert.deepEqual(xaiCatalog.models[0].inputModalities, ['text', 'image', 'video']);
+  assert.deepEqual(xaiCatalog.models[0].outputModalities, ['video']);
+  assert.equal(xaiCatalog.models[0].metadataSources.outputModalities, 'provider-catalog');
+});
+
 test('OpenRouter enrichment uses provider-aware exact ids only', () => {
   assert.equal(openRouterIdFor('deepseek', 'deepseek-v4-pro'), 'deepseek/deepseek-v4-pro');
   assert.equal(openRouterIdFor('moonshot', 'kimi-k2.7-code'), 'moonshotai/kimi-k2.7-code');
@@ -104,6 +133,41 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
   assert.equal(v4.contextWindow, 1048576);
   assert.deepEqual(v4.outputModalities, ['text']);
   assert.equal(v4.metadataSources.contextWindow, 'openrouter-catalog');
+
+  const expectedModalities = {
+    cohere: {
+      'command-a-03-2025': [['text'], ['text']],
+      'command-a-plus-05-2026': [['text', 'image'], ['text']],
+      'command-a-reasoning-08-2025': [['text'], ['text']],
+      'command-a-vision-07-2025': [['text', 'image'], ['text']],
+      'north-mini-code-1-0': [['text', 'image'], ['text']],
+    },
+    xai: {
+      'grok-4.20-0309-non-reasoning': [['text', 'image'], ['text']],
+      'grok-4.20-0309-reasoning': [['text', 'image'], ['text']],
+      'grok-imagine-image': [['text', 'image'], ['image']],
+      'grok-imagine-image-quality': [['text', 'image'], ['image']],
+      'grok-imagine-video': [['text', 'image', 'video'], ['video']],
+      'grok-imagine-video-1.5': [['image'], ['video']],
+    },
+  };
+  for (const [provider, expected] of Object.entries(expectedModalities)) {
+    const catalog = loadBundledProviderCatalog(provider);
+    for (const [id, [input, output]] of Object.entries(expected)) {
+      const entry = catalog.models.find((modelEntry) => modelEntry.id === id);
+      assert.ok(entry, `${provider}/${id} must be bundled`);
+      assert.deepEqual(entry.inputModalities, input, `${provider}/${id} input modalities`);
+      assert.deepEqual(entry.outputModalities, output, `${provider}/${id} output modalities`);
+    }
+  }
+
+  for (const provider of ['cohere', 'deepseek', 'google', 'moonshot', 'nvidia', 'ollama-cloud', 'openrouter', 'xai']) {
+    const catalog = loadBundledProviderCatalog(provider);
+    for (const entry of catalog.models) {
+      assert.ok(entry.inputModalities, `${provider}/${entry.id} must declare input modalities`);
+      assert.ok(entry.outputModalities, `${provider}/${entry.id} must declare output modalities`);
+    }
+  }
 
   const sourceTree = filesUnder(path.join(__dirname, '..', 'src', 'model-discovery'));
   for (const file of sourceTree) {

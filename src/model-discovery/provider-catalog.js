@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { validModel } = require('./file-cache');
 const { METADATA_FIELDS } = require('./normalize');
+const { applyDocumentedModalities } = require('./provider-catalog-overrides');
 
 const CATALOG_DIRECTORY = path.join(__dirname, 'catalogs', 'providers');
 const CATALOG_PROVIDERS = Object.freeze([
@@ -69,9 +70,10 @@ function buildProviderCatalog(provider, providerModels, openRouterModels) {
   const models = [];
   const seen = new Set();
   for (const row of providerModels || []) {
-    const model = nativeModel(row);
+    let model = nativeModel(row);
     if (!model || seen.has(model.id)) continue;
     seen.add(model.id);
+    model = applyDocumentedModalities(provider, model);
     const openrouterModel = openrouter.get(openRouterIdFor(provider, model.id));
     for (const field of METADATA_FIELDS) {
       if (model[field] === null && openrouterModel && openrouterModel[field] !== null) {

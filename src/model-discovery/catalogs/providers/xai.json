@@ -7,16 +7,21 @@
       "displayName": "grok-4.20-0309-non-reasoning",
       "contextWindow": 1000000,
       "maxOutputTokens": null,
-      "inputModalities": null,
-      "outputModalities": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
       "reasoning": null,
       "reasoningLevels": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
-        "inputModalities": null,
-        "outputModalities": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
         "toolCalling": null
@@ -28,16 +33,21 @@
       "displayName": "grok-4.20-0309-reasoning",
       "contextWindow": 1000000,
       "maxOutputTokens": null,
-      "inputModalities": null,
-      "outputModalities": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
       "reasoning": null,
       "reasoningLevels": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
-        "inputModalities": null,
-        "outputModalities": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
         "toolCalling": null
@@ -127,16 +137,21 @@
       "displayName": "grok-imagine-image",
       "contextWindow": 8000,
       "maxOutputTokens": null,
-      "inputModalities": null,
-      "outputModalities": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "image"
+      ],
       "reasoning": null,
       "reasoningLevels": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
-        "inputModalities": null,
-        "outputModalities": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
         "toolCalling": null
@@ -148,16 +163,21 @@
       "displayName": "grok-imagine-image-quality",
       "contextWindow": 8000,
       "maxOutputTokens": null,
-      "inputModalities": null,
-      "outputModalities": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "image"
+      ],
       "reasoning": null,
       "reasoningLevels": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
-        "inputModalities": null,
-        "outputModalities": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
         "toolCalling": null
@@ -169,16 +189,22 @@
       "displayName": "grok-imagine-video",
       "contextWindow": null,
       "maxOutputTokens": null,
-      "inputModalities": null,
-      "outputModalities": null,
+      "inputModalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "outputModalities": [
+        "video"
+      ],
       "reasoning": null,
       "reasoningLevels": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": null,
         "maxOutputTokens": null,
-        "inputModalities": null,
-        "outputModalities": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
         "toolCalling": null
@@ -190,16 +216,20 @@
       "displayName": "grok-imagine-video-1.5",
       "contextWindow": null,
       "maxOutputTokens": null,
-      "inputModalities": null,
-      "outputModalities": null,
+      "inputModalities": [
+        "image"
+      ],
+      "outputModalities": [
+        "video"
+      ],
       "reasoning": null,
       "reasoningLevels": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": null,
         "maxOutputTokens": null,
-        "inputModalities": null,
-        "outputModalities": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
         "toolCalling": null

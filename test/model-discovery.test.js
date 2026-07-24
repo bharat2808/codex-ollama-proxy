@@ -620,7 +620,7 @@ test('Cohere discovery rejects deprecated rows and fills only exact-model seed m
   ]);
   assert.equal(result.models[0].contextWindow, 436000);
   assert.equal(result.models[0].maxOutputTokens, null);
-  assert.deepEqual(result.models[0].inputModalities, ['text']);
+  assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
   assert.equal(result.models[0].reasoning, null);
   assert.equal(result.models[0].metadataSources.contextWindow, 'provider-catalog');
   assert.equal(result.models[1].contextWindow, 99999);
@@ -645,7 +645,7 @@ test('Cohere discovery enriches exact live ids from the owned snapshot without m
     assert.equal(result.models.length, 1);
     assert.equal(result.models[0].displayName, 'Command A+');
     assert.equal(result.models[0].contextWindow, 436000);
-    assert.deepEqual(result.models[0].inputModalities, ['text']);
+    assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
     assert.equal(result.models[0].reasoning, null);
     assert.equal(result.models[0].toolCalling, null);
     assert.equal(result.models[0].metadataSources.contextWindow, 'provider-catalog');
@@ -831,6 +831,29 @@ test('xAI compatibility filtering requires no separate metadata request', async 
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });
   }
+});
+
+test('xAI discovery enriches sparse live rows with exact bundled modalities', async () => {
+  const result = await xai.discover({
+    apiKey: 'xai-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      data: [
+        { id: 'grok-4.20-0309-reasoning' },
+        { id: 'grok-imagine-image' },
+        { id: 'grok-imagine-video-1.5' },
+      ],
+    })),
+  });
+
+  assert.deepEqual(result.models.map((model) => [
+    model.id,
+    model.inputModalities,
+    model.outputModalities,
+  ]), [
+    ['grok-4.20-0309-reasoning', ['text', 'image'], ['text']],
+    ['grok-imagine-image', ['text', 'image'], ['image']],
+    ['grok-imagine-video-1.5', ['image'], ['video']],
+  ]);
 });
 
 test('OpenAI-compatible input metadata preserves known modalities instead of inventing text', () => {
