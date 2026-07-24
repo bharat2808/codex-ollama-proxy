@@ -180,6 +180,94 @@ test('completion API adaptor translates Responses requests to Chat Completions',
   }
 });
 
+test('completion API adaptor forwards requested output modalities and maps non-streaming images', async () => {
+  const received = [];
+  const imageUrl = 'data:image/png;base64,aW1hZ2U=';
+  const chatServer = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: '',
+            images: [{ type: 'image_url', image_url: { url: imageUrl } }],
+          },
+        }],
+      }));
+    });
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'image-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+
+  try {
+    const response = await postJson(adaptorServer.address().port, '/v1/responses', {
+      model: 'image-model',
+      input: 'draw a giraffe',
+      modalities: ['image', 'text'],
+      stream: false,
+    });
+    assert.deepEqual(received[0].modalities, ['image', 'text']);
+    assert.deepEqual(response.body.output, [{
+      id: response.body.output[0].id,
+      type: 'image_generation_call',
+      status: 'completed',
+      result: imageUrl,
+    }]);
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
+test('completion API adaptor maps streamed chat images into image generation calls', async () => {
+  const imageUrl = 'data:image/png;base64,c3RyZWFtZWQ=';
+  const chatServer = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write(`data: ${JSON.stringify({
+      choices: [{
+        delta: {
+          content: '',
+          images: [{ type: 'image_url', image_url: { url: imageUrl } }],
+        },
+      }],
+    })}\n\n`);
+    res.end('data: [DONE]\n\n');
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'image-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+
+  try {
+    const response = await postJsonText(adaptorServer.address().port, '/v1/responses', {
+      model: 'image-model',
+      input: 'draw a giraffe',
+      modalities: ['image', 'text'],
+      stream: true,
+    });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.body, /"type":"image_generation_call"/);
+    assert.match(response.body, new RegExp(imageUrl));
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
 test('completion API adaptor streams upstream errors without crashing', async () => {
   const chatServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {

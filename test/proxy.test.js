@@ -7,6 +7,10 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const {
+  applyOutputModalities,
+  imageOutputCapabilities,
+} = require('../src/proxy');
 
 const LOCAL_UPSTREAM = { baseUrl: new URL('http://127.0.0.1:11434/v1') };
 const IMAGE_SIGNATURES = {
@@ -23,6 +27,21 @@ function inlineImageBytes(mimeType, suffix = '') {
 function inlineImageUrl(mimeType, suffix = '') {
   return `data:${mimeType};base64,${inlineImageBytes(mimeType, suffix).toString('base64')}`;
 }
+
+test('adds image output modalities only for models discovered with image output', () => {
+  const capable = imageOutputCapabilities([
+    { slug: 'image-model', output_modalities: ['image', 'text'] },
+    { slug: 'text-model', output_modalities: ['text'] },
+  ]);
+  const imageBody = { model: 'image-model', input: 'draw a giraffe' };
+  const textBody = { model: 'text-model', input: 'say hello' };
+
+  applyOutputModalities(imageBody, capable);
+  applyOutputModalities(textBody, capable);
+
+  assert.deepEqual(imageBody.modalities, ['image', 'text']);
+  assert.equal(textBody.modalities, undefined);
+});
 
 function listen(server) {
   return new Promise((resolve) => {

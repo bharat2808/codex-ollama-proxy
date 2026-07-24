@@ -72,6 +72,7 @@ const VISION_CACHE_PATH = path.join(CODEX_DIR, 'cache', 'vision_capable_models.j
 // Set of model names that actually have vision capability (from Ollama probes).
 // Empty means either non-Ollama (all assumed vision-capable) or not yet probed.
 let visionCapableModels = null;
+let imageOutputCapableModels = null;
 let ollamaCloudPuller = null;
 let ollamaCloudPullerBase = '';
 
@@ -581,6 +582,36 @@ function modelHasVision(modelName) {
   return visionCapableModels.has(modelName);
 }
 
+function imageOutputCapabilities(models) {
+  const capable = new Set();
+  for (const model of Array.isArray(models) ? models : []) {
+    if (!model || !Array.isArray(model.output_modalities) || !model.output_modalities.includes('image')) continue;
+    const name = model.slug || model.display_name;
+    if (name) capable.add(name);
+  }
+  return capable;
+}
+
+function loadImageOutputCapabilities() {
+  if (imageOutputCapableModels) return imageOutputCapableModels;
+  imageOutputCapableModels = new Set();
+  for (const catalogPath of MODEL_CATALOG_PATHS) {
+    try {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+      const models = Array.isArray(catalog.models) ? catalog.models : catalog;
+      for (const name of imageOutputCapabilities(models)) imageOutputCapableModels.add(name);
+      if (imageOutputCapableModels.size) break;
+    } catch {}
+  }
+  return imageOutputCapableModels;
+}
+
+function applyOutputModalities(body, capable = loadImageOutputCapabilities()) {
+  if (!body || typeof body !== 'object' || !capable.has(body.model) || body.modalities !== undefined) return body;
+  body.modalities = ['image', 'text'];
+  return body;
+}
+
 // Apply per-request model routing based on the config + presence of an image.
 // Vision-capable models always pass through with images, regardless of auto_route_image.
 // Text-only models pass through when auto_route_image is off.
@@ -617,6 +648,7 @@ function translateRequestBody(body) {
   if (Array.isArray(body.tools)) ingestNamespaces(body.tools);
   const activeImageTurn = activeTurnHasImage(body);
   applyModelRouting(body);
+  applyOutputModalities(body);
   if (ROUTE_CFG.persist_inline_images && ROUTE_CFG.auto_route_image) {
     inlineImageCache.rewriteInlineImages(body, {
       cacheRoot: INLINE_IMAGE_CACHE_DIR,
@@ -1907,7 +1939,9 @@ if (require.main === module || process.env.CODEX_OLLAMA_PROXY_AUTOSTART === '1')
 }
 
 module.exports = {
+  applyOutputModalities,
   dedupeLargeInputBlocks,
+  imageOutputCapabilities,
   translateInputItem,
   translateRequestBody,
   getUpstream,

@@ -25,6 +25,9 @@ function applyDiscoveredMetadata(catalogModels, discoveredModels) {
       entry.input_modalities = [...metadata.inputModalities];
       entry.supports_image_detail_original = metadata.inputModalities.includes('image');
     }
+    if (Array.isArray(metadata.outputModalities) && metadata.outputModalities.length > 0) {
+      entry.output_modalities = [...metadata.outputModalities];
+    }
     if (Array.isArray(metadata.reasoningLevels) && metadata.reasoningLevels.length > 0) {
       entry.supported_reasoning_levels = [...metadata.reasoningLevels];
       if (!metadata.reasoningLevels.includes(entry.default_reasoning_level)) {
@@ -43,16 +46,20 @@ function nativeCapabilitiesFromDiscovery(discovery, imageModel) {
   const models = discovery && Array.isArray(discovery.models) ? discovery.models : [];
   const isOllama = Boolean(discovery && discovery.provider === 'ollama');
   const visionCapable = new Set();
+  const imageOutputCapable = new Set();
   const toolCalling = new Map();
   for (const model of models) {
     if (!model || typeof model.id !== 'string') continue;
     if (Array.isArray(model.inputModalities) && model.inputModalities.includes('image')) {
       visionCapable.add(model.id);
     }
+    if (Array.isArray(model.outputModalities) && model.outputModalities.includes('image')) {
+      imageOutputCapable.add(model.id);
+    }
     if (typeof model.toolCalling === 'boolean') toolCalling.set(model.id, model.toolCalling);
   }
   if (imageModel) visionCapable.add(imageModel);
-  return { isOllama, visionCapable, toolCalling };
+  return { isOllama, visionCapable, imageOutputCapable, toolCalling };
 }
 
 function applyCapabilities(model, options) {
@@ -137,6 +144,7 @@ function projectCodexCatalog(options) {
     models,
     isOllama: native.isOllama,
     visionCapable: native.visionCapable,
+    imageOutputCapable: native.imageOutputCapable,
     toolCalling: native.toolCalling,
     localModelIds,
     added,

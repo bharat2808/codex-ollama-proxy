@@ -176,6 +176,9 @@ function buildChatBody(body, options, stream) {
   for (const key of ['temperature', 'top_p', 'seed', 'presence_penalty', 'frequency_penalty']) {
     if (body[key] != null) payload[key] = body[key];
   }
+  if (Array.isArray(body.modalities) && body.modalities.length) {
+    payload.modalities = [...body.modalities];
+  }
   payload.max_tokens = body.max_tokens || body.max_output_tokens || options.maxTokens;
   if (tools.length) {
     payload.tools = tools;
@@ -206,12 +209,34 @@ function toolItem(toolCall) {
   };
 }
 
+function imageUrl(image) {
+  if (typeof image === 'string') return image;
+  if (!image || typeof image !== 'object') return '';
+  if (typeof image.url === 'string') return image.url;
+  if (typeof image.image_url === 'string') return image.image_url;
+  return image.image_url && typeof image.image_url.url === 'string' ? image.image_url.url : '';
+}
+
+function imageItem(image, itemId = id('ig')) {
+  const result = imageUrl(image);
+  return result ? {
+    id: itemId,
+    type: 'image_generation_call',
+    status: 'completed',
+    result,
+  } : null;
+}
+
 function completionToResponse(completion, model) {
   const choice = completion.choices && completion.choices[0];
   const msg = choice && choice.message ? choice.message : {};
   const text = msg.content || '';
   const output = [];
   for (const call of msg.tool_calls || []) output.push(toolItem(call));
+  for (const image of msg.images || []) {
+    const item = imageItem(image);
+    if (item) output.push(item);
+  }
   if (text || output.length === 0) output.push(messageItem(text));
   return {
     id: id('resp'),
@@ -274,6 +299,7 @@ async function streamResponse(res, body, options) {
   let outputIndex = 0;
   const msgId = id('msg');
   let textStarted = false;
+  let textOutputIndex = null;
   let text = '';
   const toolStates = new Map();
   const output = [];
@@ -336,19 +362,40 @@ async function streamResponse(res, body, options) {
         }
       }
 
+      for (const image of delta.images || []) {
+        const itemId = id('ig');
+        const item = imageItem(image, itemId);
+        if (!item) continue;
+        const imageOutputIndex = outputIndex++;
+        sse(res, 'response.output_item.added', {
+          type: 'response.output_item.added',
+          output_index: imageOutputIndex,
+          sequence_number: sequence++,
+          item: { id: itemId, type: 'image_generation_call', status: 'in_progress' },
+        });
+        sse(res, 'response.output_item.done', {
+          type: 'response.output_item.done',
+          output_index: imageOutputIndex,
+          sequence_number: sequence++,
+          item,
+        });
+        output.push(item);
+      }
+
       if (delta.content) {
         if (!textStarted) {
           textStarted = true;
+          textOutputIndex = outputIndex++;
           sse(res, 'response.output_item.added', {
             type: 'response.output_item.added',
-            output_index: outputIndex,
+            output_index: textOutputIndex,
             sequence_number: sequence++,
             item: { id: msgId, type: 'message', status: 'in_progress', role: 'assistant', content: [] },
           });
           sse(res, 'response.content_part.added', {
             type: 'response.content_part.added',
             item_id: msgId,
-            output_index: outputIndex,
+            output_index: textOutputIndex,
             content_index: 0,
             sequence_number: sequence++,
             part: { type: 'output_text', text: '', annotations: [] },
@@ -358,7 +405,7 @@ async function streamResponse(res, body, options) {
         sse(res, 'response.output_text.delta', {
           type: 'response.output_text.delta',
           item_id: msgId,
-          output_index: outputIndex,
+          output_index: textOutputIndex,
           content_index: 0,
           sequence_number: sequence++,
           delta: delta.content,
@@ -376,9 +423,9 @@ async function streamResponse(res, body, options) {
 
   if (textStarted) {
     const item = { id: msgId, type: 'message', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] };
-    sse(res, 'response.output_text.done', { type: 'response.output_text.done', item_id: msgId, output_index: outputIndex, content_index: 0, sequence_number: sequence++, text });
-    sse(res, 'response.content_part.done', { type: 'response.content_part.done', item_id: msgId, output_index: outputIndex, content_index: 0, sequence_number: sequence++, part: item.content[0] });
-    sse(res, 'response.output_item.done', { type: 'response.output_item.done', output_index: outputIndex, sequence_number: sequence++, item });
+    sse(res, 'response.output_text.done', { type: 'response.output_text.done', item_id: msgId, output_index: textOutputIndex, content_index: 0, sequence_number: sequence++, text });
+    sse(res, 'response.content_part.done', { type: 'response.content_part.done', item_id: msgId, output_index: textOutputIndex, content_index: 0, sequence_number: sequence++, part: item.content[0] });
+    sse(res, 'response.output_item.done', { type: 'response.output_item.done', output_index: textOutputIndex, sequence_number: sequence++, item });
     output.push(item);
   }
 

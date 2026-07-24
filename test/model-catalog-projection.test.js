@@ -31,6 +31,7 @@ test('projects normalized Ollama discovery into the Codex catalog without I/O', 
           displayName: 'Vision Tools',
           contextWindow: 131072,
           inputModalities: ['text', 'image'],
+          outputModalities: ['text', 'image'],
           reasoningLevels: ['low', 'high'],
           toolCalling: true,
           source: 'ollama-show',
@@ -60,9 +61,11 @@ test('projects normalized Ollama discovery into the Codex catalog without I/O', 
   assert.equal(result.pruned, 1);
   assert.deepEqual(result.added, ['text-only', 'forced-image']);
   assert.deepEqual([...result.visionCapable], ['vision-tools', 'forced-image']);
+  assert.deepEqual([...result.imageOutputCapable], ['vision-tools']);
   const projected = new Map(result.models.map((model) => [model.slug, model]));
   assert.equal(projected.get('vision-tools').supports_parallel_tool_calls, true);
   assert.deepEqual(projected.get('vision-tools').input_modalities, ['text', 'image']);
+  assert.deepEqual(projected.get('vision-tools').output_modalities, ['text', 'image']);
   assert.equal(projected.get('vision-tools').context_window, 131072);
   assert.deepEqual(projected.get('vision-tools').supported_reasoning_levels, ['low', 'high']);
   assert.equal(projected.get('text-only').supports_parallel_tool_calls, false);
