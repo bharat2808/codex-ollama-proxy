@@ -31,13 +31,14 @@ function parseRow(row) {
   const gemmaTextOnly = id.startsWith('gemma-')
     && !/^gemma-3-(?:4b|12b|27b)(?:-|$)/u.test(id)
     && !id.startsWith('gemma-3n-') && !id.startsWith('gemma-4-');
+  const geminiImageOutput = /^gemini-.+-image(?:-|$)/u.test(id);
   return {
     id,
     displayName: typeof row.displayName === 'string' && row.displayName.trim() ? row.displayName.trim() : id,
     contextWindow,
     maxOutputTokens,
     inputModalities: gemmaTextOnly ? ['text'] : ['text', 'image'],
-    outputModalities: ['text'],
+    outputModalities: geminiImageOutput ? ['text', 'image'] : ['text'],
     reasoning: typeof row.thinking === 'boolean' ? row.thinking : null,
     reasoningLevels: null,
     toolCalling: null,

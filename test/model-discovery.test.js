@@ -1156,7 +1156,7 @@ test('static fallback never replaces the last authenticated model cache', async 
   }
 });
 
-test('Google discovery uses the native catalog and keeps only generateContent text models', async () => {
+test('Google discovery classifies generateContent Gemini image models', async () => {
   const result = await google.discover({
     apiKey: 'google-secret',
     fetchImpl: async (url, options) => {
@@ -1170,6 +1170,13 @@ test('Google discovery uses the native catalog and keeps only generateContent te
             displayName: 'Gemini 3.1 Pro',
             supportedGenerationMethods: ['generateContent'],
             inputTokenLimit: 1048576,
+            outputTokenLimit: 65536,
+          },
+          {
+            name: 'models/gemini-3.1-flash-image',
+            displayName: 'Gemini 3.1 Flash Image',
+            supportedGenerationMethods: ['generateContent'],
+            inputTokenLimit: 65536,
             outputTokenLimit: 65536,
           },
           {
@@ -1188,8 +1195,14 @@ test('Google discovery uses the native catalog and keeps only generateContent te
       }));
     },
   });
-  assert.deepEqual(result.models.map((model) => model.id), ['gemini-3.1-pro']);
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'gemini-3.1-pro',
+    'gemini-3.1-flash-image',
+  ]);
   assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
+  assert.deepEqual(result.models[0].outputModalities, ['text']);
+  assert.deepEqual(result.models[1].inputModalities, ['text', 'image']);
+  assert.deepEqual(result.models[1].outputModalities, ['text', 'image']);
   assert.equal(result.models[0].metadataSources.outputModalities, 'provider-catalog');
 });
 
