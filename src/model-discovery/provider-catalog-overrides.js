@@ -17,6 +17,7 @@ const DOCUMENTED_MODALITIES = Object.freeze({
     'command-a-vision-07-2025': Object.freeze({
       inputModalities: Object.freeze(['text', 'image']),
       outputModalities: Object.freeze(['text']),
+      toolCalling: false,
     }),
     'north-mini-code-1-0': Object.freeze({
       inputModalities: Object.freeze(['text', 'image']),
@@ -55,9 +56,12 @@ function applyDocumentedModalities(provider, model) {
   const documented = DOCUMENTED_MODALITIES[provider]?.[model.id];
   if (!documented) return model;
   const enriched = { ...model, metadataSources: { ...model.metadataSources } };
-  for (const field of ['inputModalities', 'outputModalities']) {
+  for (const field of ['inputModalities', 'outputModalities', 'toolCalling']) {
+    if (!(field in documented)) continue;
     if (enriched[field] !== null) continue;
-    enriched[field] = [...documented[field]];
+    enriched[field] = Array.isArray(documented[field])
+      ? [...documented[field]]
+      : documented[field];
     enriched.metadataSources[field] = 'provider-catalog';
   }
   return enriched;

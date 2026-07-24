@@ -88,6 +88,36 @@ test('native image-output requests do not forward or inject function tools', () 
   assert.equal(body.tool_choice, undefined);
 });
 
+test('models explicitly catalogued without tool support do not receive injected tools', () => {
+  withRouteConfig([
+    'default_model = "no-tools-model"',
+    'auto_route_image = false',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'no-tools-model',
+      input: 'Describe the attached image.',
+      tools: [{
+        type: 'function',
+        name: 'echo',
+        parameters: { type: 'object' },
+      }],
+      tool_choice: 'required',
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.tools, []);
+    assert.equal(body.tool_choice, undefined);
+  }, ({ codexHome }) => {
+    fs.writeFileSync(path.join(codexHome, 'ollama-launch-models.json'), JSON.stringify({
+      models: [{
+        slug: 'no-tools-model',
+        supports_tools: false,
+      }],
+    }));
+  });
+});
+
 function listen(server) {
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve(server.address().port));

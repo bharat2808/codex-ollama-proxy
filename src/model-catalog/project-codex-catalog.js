@@ -42,6 +42,9 @@ function applyDiscoveredMetadata(catalogModels, discoveredModels) {
       entry.context_window = metadata.contextWindow;
       entry.max_context_window = metadata.contextWindow;
     }
+    if (typeof metadata.toolCalling === 'boolean') {
+      entry.supports_tools = metadata.toolCalling;
+    }
   }
   return catalogModels;
 }
@@ -75,6 +78,8 @@ function applyCapabilities(model, options) {
   model.supports_parallel_tool_calls = typeof nativeToolCalling === 'boolean'
     ? nativeToolCalling
     : options.canonical.supports_parallel_tool_calls;
+  if (typeof nativeToolCalling === 'boolean') model.supports_tools = nativeToolCalling;
+  else delete model.supports_tools;
   model.supports_search_tool = options.canonical.supports_search_tool;
   model.shell_type = options.canonical.shell_type;
   model.web_search_tool_type = options.canonical.web_search_tool_type;

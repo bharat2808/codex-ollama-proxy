@@ -167,7 +167,7 @@
       ],
       "reasoning": null,
       "reasoningLevels": null,
-      "toolCalling": null,
+      "toolCalling": false,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
@@ -175,7 +175,7 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": "provider-catalog"
       },
       "source": "bundled-provider-catalog"
     },

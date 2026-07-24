@@ -76,6 +76,7 @@ const VISION_CACHE_PATH = path.join(CODEX_DIR, 'cache', 'vision_capable_models.j
 let visionCapableModels = null;
 let imageOutputCapableModels = null;
 let imageInputOutputCapableModels = null;
+let toolUnsupportedModels = null;
 let ollamaCloudPuller = null;
 let ollamaCloudPullerBase = '';
 
@@ -616,6 +617,16 @@ function imageInputOutputCapabilities(models) {
   return capable;
 }
 
+function toolUnsupportedCapabilities(models) {
+  const unsupported = new Set();
+  for (const model of Array.isArray(models) ? models : []) {
+    if (!model || model.supports_tools !== false) continue;
+    const name = model.slug || model.display_name;
+    if (name) unsupported.add(name);
+  }
+  return unsupported;
+}
+
 function imageOutputSupport(modelName, models) {
   if (!modelName || !Array.isArray(models)) return null;
   const model = models.find((entry) => entry && (entry.slug || entry.display_name) === modelName);
@@ -651,6 +662,19 @@ function loadImageInputOutputCapabilities() {
     } catch {}
   }
   return imageInputOutputCapableModels;
+}
+
+function loadToolUnsupportedCapabilities() {
+  if (toolUnsupportedModels) return toolUnsupportedModels;
+  toolUnsupportedModels = new Set();
+  for (const catalogPath of MODEL_CATALOG_PATHS) {
+    try {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+      const models = Array.isArray(catalog.models) ? catalog.models : catalog;
+      for (const name of toolUnsupportedCapabilities(models)) toolUnsupportedModels.add(name);
+    } catch {}
+  }
+  return toolUnsupportedModels;
 }
 
 function applyOutputModalities(body, capable = loadImageOutputCapabilities()) {
@@ -757,10 +781,12 @@ function translateRequestBody(body) {
   }
   {
     verboseToolLog('request tools', body.tools);
-    if (isNativeImageOutput(body)) {
+    if (isNativeImageOutput(body) || loadToolUnsupportedCapabilities().has(body.model)) {
       body.tools = [];
       delete body.tool_choice;
-      debugLog('native image-output request: removed function tools and tool_choice');
+      debugLog(isNativeImageOutput(body)
+        ? 'native image-output request: removed function tools and tool_choice'
+        : 'model without tool support: removed function tools and tool_choice');
     } else {
       let toolsChanged = false;
       const mapped = [];
@@ -2055,6 +2081,7 @@ module.exports = {
   imageInputOutputCapabilities,
   imageOutputCapabilities,
   imageOutputSupport,
+  toolUnsupportedCapabilities,
   translateInputItem,
   translateRequestBody,
   getUpstream,

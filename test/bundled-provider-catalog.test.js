@@ -110,6 +110,15 @@ test('owned catalog generation restores exact provider-documented modalities aft
   assert.equal(xaiCatalog.models[0].metadataSources.outputModalities, 'provider-catalog');
 });
 
+test('owned catalog records provider-documented models that reject tool use', () => {
+  const vision = model('command-a-vision-07-2025');
+
+  const catalog = buildProviderCatalog('cohere', [vision], []);
+
+  assert.equal(catalog.models[0].toolCalling, false);
+  assert.equal(catalog.models[0].metadataSources.toolCalling, 'provider-catalog');
+});
+
 test('OpenRouter enrichment uses provider-aware exact ids only', () => {
   assert.equal(openRouterIdFor('deepseek', 'deepseek-v4-pro'), 'deepseek/deepseek-v4-pro');
   assert.equal(openRouterIdFor('moonshot', 'kimi-k2.7-code'), 'moonshotai/kimi-k2.7-code');

@@ -72,7 +72,9 @@ test('projects normalized Ollama discovery into the Codex catalog without I/O', 
   assert.deepEqual(projected.get('vision-tools').output_modalities, ['text', 'image']);
   assert.equal(projected.get('vision-tools').context_window, 131072);
   assert.deepEqual(projected.get('vision-tools').supported_reasoning_levels, ['low', 'high']);
+  assert.equal(projected.get('vision-tools').supports_tools, true);
   assert.equal(projected.get('text-only').supports_parallel_tool_calls, false);
+  assert.equal(projected.get('text-only').supports_tools, false);
   assert.deepEqual(projected.get('text-only').input_modalities, ['text']);
   assert.equal(result.models[2].supports_image_detail_original, true);
   assert.deepEqual(result.localModelIds, ['text-only', 'vision-tools']);
