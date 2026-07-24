@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const {
   applyOutputModalities,
   imageOutputCapabilities,
+  imageOutputSupport,
 } = require('../src/proxy');
 
 const LOCAL_UPSTREAM = { baseUrl: new URL('http://127.0.0.1:11434/v1') };
@@ -41,6 +42,38 @@ test('adds image output modalities only for models discovered with image output'
 
   assert.deepEqual(imageBody.modalities, ['image', 'text']);
   assert.equal(textBody.modalities, undefined);
+});
+
+test('distinguishes image-output support from text-only and unknown models by exact id', () => {
+  const models = [
+    { slug: 'provider/image-model', output_modalities: ['image', 'text'] },
+    { slug: 'provider/text-model', output_modalities: ['text'] },
+  ];
+
+  assert.equal(imageOutputSupport('provider/image-model', models), true);
+  assert.equal(imageOutputSupport('provider/text-model', models), false);
+  assert.equal(imageOutputSupport('image-model', models), null);
+  assert.equal(imageOutputSupport('provider/unknown', models), null);
+});
+
+test('native image-output requests do not forward or inject function tools', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'provider/image-model',
+    input: 'draw a giraffe',
+    modalities: ['image', 'text'],
+    tool_choice: 'required',
+    tools: [{
+      type: 'function',
+      name: 'lookup',
+      parameters: { type: 'object', properties: {} },
+    }],
+  };
+
+  translateRequestBody(body);
+
+  assert.deepEqual(body.tools, []);
+  assert.equal(body.tool_choice, undefined);
 });
 
 function listen(server) {

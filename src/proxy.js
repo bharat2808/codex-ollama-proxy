@@ -7,6 +7,7 @@ const webSearch = require('./web-search');
 const skillFind = require('./skill-find');
 const imagine = require('./imagine');
 const inlineImageCache = require('./inline-image-cache');
+const nativeImageGeneration = require('./native-image-generation');
 const { createOllamaCloudPuller } = require('./ollama-cloud-pull');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
@@ -586,11 +587,24 @@ function modelHasVision(modelName) {
 function imageOutputCapabilities(models) {
   const capable = new Set();
   for (const model of Array.isArray(models) ? models : []) {
-    if (!model || !Array.isArray(model.output_modalities) || !model.output_modalities.includes('image')) continue;
+    if (!model) continue;
     const name = model.slug || model.display_name;
-    if (name) capable.add(name);
+    const modalities = Array.isArray(model.output_modalities)
+      ? model.output_modalities
+      : model.outputModalities;
+    if (name && Array.isArray(modalities) && modalities.includes('image')) capable.add(name);
   }
   return capable;
+}
+
+function imageOutputSupport(modelName, models) {
+  if (!modelName || !Array.isArray(models)) return null;
+  const model = models.find((entry) => entry && (entry.slug || entry.display_name) === modelName);
+  if (!model) return null;
+  const modalities = Array.isArray(model.output_modalities)
+    ? model.output_modalities
+    : model.outputModalities;
+  return Array.isArray(modalities) && modalities.includes('image');
 }
 
 function loadImageOutputCapabilities() {
@@ -611,6 +625,11 @@ function applyOutputModalities(body, capable = loadImageOutputCapabilities()) {
   if (!body || typeof body !== 'object' || !capable.has(body.model) || body.modalities !== undefined) return body;
   body.modalities = ['image', 'text'];
   return body;
+}
+
+function isNativeImageOutput(body) {
+  return Boolean(body && Array.isArray(body.modalities)
+    && body.modalities.some((modality) => String(modality).toLowerCase() === 'image'));
 }
 
 // Apply per-request model routing based on the config + presence of an image.
@@ -678,73 +697,78 @@ function translateRequestBody(body) {
   }
   {
     verboseToolLog('request tools', body.tools);
-    const hasIncomingTools = Array.isArray(body.tools) && body.tools.length > 0;
-    let toolsChanged = false;
-    const mapped = [];
-    for (const t of (Array.isArray(body.tools) ? body.tools : [])) {
-      if (t && t.type === WEB_SEARCH) {
-        debugLog('native web_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
-        toolsChanged = true;
-        mapped.push(WEB_SEARCH_FN);
-        continue;
-      }
-      if (t && t.type === TOOL_SEARCH) {
-        debugLog('native tool_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
-        toolsChanged = true;
-        mapped.push(TOOL_SEARCH_FN);
-        continue;
-      }
-      if (t && t.type === 'namespace' && t.name && Array.isArray(t.tools)) {
-        let count = 0;
-        for (const sub of t.tools) {
-          const flat = flattenNamespaceTool(t.name, sub);
-          if (flat) {
-            mapped.push(flat);
-            count += 1;
-          }
-        }
-        if (count > 0) {
-          debugLog('flattened namespace tool definitions: ' + t.name + ' -> ' + count + ' function tools');
+    if (isNativeImageOutput(body)) {
+      body.tools = [];
+      delete body.tool_choice;
+      debugLog('native image-output request: removed function tools and tool_choice');
+    } else {
+      let toolsChanged = false;
+      const mapped = [];
+      for (const t of (Array.isArray(body.tools) ? body.tools : [])) {
+        if (t && t.type === WEB_SEARCH) {
+          debugLog('native web_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
           toolsChanged = true;
+          mapped.push(WEB_SEARCH_FN);
           continue;
         }
-      }
-      mapped.push(t);
-    }
-    for (const t of deferredTools) {
-      if (!mapped.some((existing) => existing && existing.type === 'function' && existing.name === t.name)) {
+        if (t && t.type === TOOL_SEARCH) {
+          debugLog('native tool_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
+          toolsChanged = true;
+          mapped.push(TOOL_SEARCH_FN);
+          continue;
+        }
+        if (t && t.type === 'namespace' && t.name && Array.isArray(t.tools)) {
+          let count = 0;
+          for (const sub of t.tools) {
+            const flat = flattenNamespaceTool(t.name, sub);
+            if (flat) {
+              mapped.push(flat);
+              count += 1;
+            }
+          }
+          if (count > 0) {
+            debugLog('flattened namespace tool definitions: ' + t.name + ' -> ' + count + ' function tools');
+            toolsChanged = true;
+            continue;
+          }
+        }
         mapped.push(t);
+      }
+      for (const t of deferredTools) {
+        if (!mapped.some((existing) => existing && existing.type === 'function' && existing.name === t.name)) {
+          mapped.push(t);
+          toolsChanged = true;
+        }
+      }
+      if (ROUTE_CFG.enable_find_skill && !mapped.some((t) => t && t.type === 'function' && t.name === skillFind.FIND_SKILL)) {
+        mapped.push(skillFind.FIND_SKILL_FN);
         toolsChanged = true;
       }
-    }
-    if (ROUTE_CFG.enable_find_skill && !mapped.some((t) => t && t.type === 'function' && t.name === skillFind.FIND_SKILL)) {
-      mapped.push(skillFind.FIND_SKILL_FN);
-      toolsChanged = true;
-    }
-    if (!mapped.some((t) => t && ((t.type === 'function' && t.name === TOOL_SEARCH) || t.type === TOOL_SEARCH))) {
-      mapped.push(TOOL_SEARCH_FN);
-      toolsChanged = true;
-    }
-    if (!mapped.some((t) => t && ((t.type === 'function' && t.name === WEB_SEARCH) || t.type === WEB_SEARCH))) {
-      mapped.push(WEB_SEARCH_FN);
-      toolsChanged = true;
-    }
-    if (ROUTE_CFG.imagine_enabled && !mapped.some((t) => t && t.type === 'function' && t.name === imagine.GENERATE_IMAGE)) {
-      mapped.push(imagine.GENERATE_IMAGE_FN);
-      toolsChanged = true;
-    }
-    if (!mapped.some((t) => t && t.type === 'function' && t.name === imagine.PROXY_STATUS)) {
-      mapped.push(imagine.PROXY_STATUS_FN);
-      toolsChanged = true;
-    }
-    const deduped = dedupeFunctionTools(mapped);
-    if (deduped.length !== mapped.length) {
-      debugLog('removed ' + (mapped.length - deduped.length) + ' duplicate function tool definition(s)');
-      toolsChanged = true;
-    }
-    if (toolsChanged) {
-      body.tools = deduped;
-      debugLog('rewrote request tools for Ollama-compatible function surface');
+      if (!mapped.some((t) => t && ((t.type === 'function' && t.name === TOOL_SEARCH) || t.type === TOOL_SEARCH))) {
+        mapped.push(TOOL_SEARCH_FN);
+        toolsChanged = true;
+      }
+      if (!mapped.some((t) => t && ((t.type === 'function' && t.name === WEB_SEARCH) || t.type === WEB_SEARCH))) {
+        mapped.push(WEB_SEARCH_FN);
+        toolsChanged = true;
+      }
+      if (ROUTE_CFG.imagine_enabled && !mapped.some((t) => t && t.type === 'function' && t.name === imagine.GENERATE_IMAGE)) {
+        mapped.push(imagine.GENERATE_IMAGE_FN);
+        toolsChanged = true;
+      }
+      if (!mapped.some((t) => t && t.type === 'function' && t.name === imagine.PROXY_STATUS)) {
+        mapped.push(imagine.PROXY_STATUS_FN);
+        toolsChanged = true;
+      }
+      const deduped = dedupeFunctionTools(mapped);
+      if (deduped.length !== mapped.length) {
+        debugLog('removed ' + (mapped.length - deduped.length) + ' duplicate function tool definition(s)');
+        toolsChanged = true;
+      }
+      if (toolsChanged) {
+        body.tools = deduped;
+        debugLog('rewrote request tools for Ollama-compatible function surface');
+      }
     }
   }
   if (inputChanged) debugLog('translated request input items');
@@ -1666,6 +1690,28 @@ const server = http.createServer((clientReq, clientRes) => {
       }
     }
     const upstream = getUpstream();
+    if (
+      isResponses
+      && body
+      && isNativeImageOutput(body)
+      && nativeImageGeneration.nativeImageProvider(upstream.baseUrl)
+    ) {
+      try {
+        debugLog('native image endpoint bridge enabled for ' + nativeImageGeneration.nativeImageProvider(upstream.baseUrl));
+        const response = await nativeImageGeneration.generateNativeImageResponse({ upstream, body });
+        if (originalStream) sendSseCompleted(clientRes, response);
+        else sendJsonResponse(clientRes, 200, response);
+      } catch (error) {
+        log('native image endpoint failed: ' + error.message);
+        sendJsonResponse(clientRes, error.statusCode || 502, {
+          error: {
+            message: error.message,
+            type: 'native_image_error',
+          },
+        });
+      }
+      return;
+    }
     if (isResponses && body) {
       try {
         const cloudStatus = await ensureCloudModelForRequest(upstream, body);
@@ -1944,6 +1990,7 @@ module.exports = {
   applyOutputModalities,
   dedupeLargeInputBlocks,
   imageOutputCapabilities,
+  imageOutputSupport,
   translateInputItem,
   translateRequestBody,
   getUpstream,
