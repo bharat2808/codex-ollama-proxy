@@ -1839,6 +1839,11 @@ const server = http.createServer((clientReq, clientRes) => {
         body = JSON.parse(bodyBuf.toString('utf8'));
         originalStream = body && body.stream === true;
         body._originalModel = body.model; // save before routing rewrites it
+        // Newer Codex builds may define custom tools only in a turn-local
+        // additional_tools input item. Lift those definitions before recording
+        // their original types so response translation can restore function
+        // calls to custom_tool_call items.
+        liftAdditionalToolsInput(body);
         info = collectCustomToolInfo(body.tools);
         translateRequestBody(body);
         {

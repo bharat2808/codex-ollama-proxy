@@ -742,6 +742,53 @@ test('proxy normalizes and restores a custom tool call end to end', async () => 
   ]);
 });
 
+test('proxy restores turn-local additional custom tools as custom tool calls', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_turn_local_custom',
+        status: 'completed',
+        output: [{
+          type: 'function_call',
+          call_id: 'call_turn_local_patch',
+          name: 'apply_patch',
+          arguments: JSON.stringify({ input: '*** Begin Patch\n*** End Patch' }),
+          status: 'completed',
+        }],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: [{
+        type: 'additional_tools',
+        role: 'developer',
+        tools: [{
+          type: 'custom',
+          name: 'apply_patch',
+          description: 'Apply a patch.',
+          format: { type: 'text' },
+        }],
+      }],
+      tools: [],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.output[0].type, 'custom_tool_call');
+    assert.equal(body.output[0].name, 'apply_patch');
+    assert.equal(body.output[0].input, '*** Begin Patch\n*** End Patch');
+    assert.equal(Object.hasOwn(body.output[0], 'arguments'), false);
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
 test('request translation preserves every custom tool format in its function parameter', () => {
   const { translateRequestBody } = require('../src/proxy');
   const body = {
