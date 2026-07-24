@@ -21,6 +21,10 @@ function applyDiscoveredMetadata(catalogModels, discoveredModels) {
     if (!entry) continue;
     const metadata = discovered.get(entry.slug) || discovered.get(entry.display_name);
     if (!metadata) continue;
+    const displayName = typeof metadata.displayName === 'string'
+      ? metadata.displayName.trim()
+      : '';
+    entry.display_name = displayName || metadata.id;
     if (Array.isArray(metadata.inputModalities) && metadata.inputModalities.length > 0) {
       entry.input_modalities = [...metadata.inputModalities];
       entry.supports_image_detail_original = metadata.inputModalities.includes('image');

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  applyDiscoveredMetadata,
   projectCodexCatalog,
 } = require('../src/model-catalog/project-codex-catalog');
 
@@ -63,6 +64,9 @@ test('projects normalized Ollama discovery into the Codex catalog without I/O', 
   assert.deepEqual([...result.visionCapable], ['vision-tools', 'forced-image']);
   assert.deepEqual([...result.imageOutputCapable], ['vision-tools']);
   const projected = new Map(result.models.map((model) => [model.slug, model]));
+  assert.equal(projected.get('vision-tools').display_name, 'Vision Tools');
+  assert.equal(projected.get('text-only').display_name, 'Text Only');
+  assert.equal(projected.get('forced-image').display_name, 'forced-image');
   assert.equal(projected.get('vision-tools').supports_parallel_tool_calls, true);
   assert.deepEqual(projected.get('vision-tools').input_modalities, ['text', 'image']);
   assert.deepEqual(projected.get('vision-tools').output_modalities, ['text', 'image']);
@@ -108,4 +112,13 @@ test('projects explicit non-Ollama vision support without guessing unknown capab
   assert.deepEqual(result.models[2].input_modalities, ['text', 'image']);
   assert.equal(result.models[0].supports_parallel_tool_calls, true);
   assert.deepEqual([...result.visionCapable], ['remote-vision', 'remote-image']);
+});
+
+test('blank discovered display names fall back to the stable model id', () => {
+  const models = [{ slug: 'stable-id', display_name: 'Stale Name' }];
+  applyDiscoveredMetadata(models, [{
+    id: 'stable-id',
+    displayName: '   ',
+  }]);
+  assert.equal(models[0].display_name, 'stable-id');
 });
