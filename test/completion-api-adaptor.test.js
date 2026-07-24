@@ -1016,7 +1016,7 @@ test('CLI preset add rejects an unsupported adaptor value', () => {
       encoding: 'utf8',
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr || result.stdout, /chat-completion" or "none"/);
+    assert.match(result.stderr || result.stdout, /chat-completion", "google", or "none"/);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

@@ -27,10 +27,10 @@ const PROXY_PORT = process.env.PROXY_PORT || String(launcherState.DEFAULT_PROXY_
 function usage() {
   console.log(`Usage:
   codex-ollama-proxy init [--force]
-  codex-ollama-proxy serve [--adaptor chat-completion] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
+  codex-ollama-proxy serve [--adaptor chat-completion|google] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
   codex-ollama-proxy serve --preset NAME [--api-key KEY] [--replace]
-  codex-ollama-proxy serve --adaptor chat-completion [--completion-model MODEL] [--adaptor-port PORT]
-  codex-ollama-proxy preset add NAME [--adaptor chat-completion|none] --url URL --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
+  codex-ollama-proxy serve --adaptor chat-completion|google [--completion-model MODEL] [--adaptor-port PORT]
+  codex-ollama-proxy preset add NAME [--adaptor chat-completion|google|none] --url URL --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
     [--auto-image|--no-auto-image] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
     [--persist-images|--no-persist-images] [--image-retention-days DAYS]
     [--verbose-tools|--no-verbose-tools] [--log-upstream-body|--no-log-upstream-body]
@@ -136,6 +136,11 @@ function parseFlags(argv) {
   return { flags, rest };
 }
 
+function writePrivateText(file, text) {
+  fs.writeFileSync(file, text, { encoding: 'utf8', mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+}
+
 function init(options = {}) {
   fs.mkdirSync(RUNTIME_DIR, { recursive: true });
   imagineConfig.ensure(IMAGINE_CONFIG);
@@ -153,6 +158,7 @@ function init(options = {}) {
   } else {
     console.log(`catalog_exists=${MODEL_CATALOG}`);
   }
+  fs.chmodSync(ROUTE_CONFIG, 0o600);
 }
 
 // Redact secret values in a TOML string so status() never leaks API keys.
@@ -198,7 +204,7 @@ function applyImagineConfigToText(text) {
 
 function applyImagineConfigToRoute() {
   const text = applyImagineConfigToText(readRouteConfig());
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
 }
 
 function applyPreset(name, flags = {}) {
@@ -238,7 +244,7 @@ function applyPreset(name, flags = {}) {
   }
   text = writeRouteValue(text, 'active_preset', name);
   text = applyImagineConfigToText(text);
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
   if (!flags.noRefresh) codexConfig(['refresh']);
   launcherState.write(LAUNCHER_STATE, launcherState.fromPreset(preset, {
     proxy_port: configuredProxyPort(),
@@ -274,7 +280,7 @@ function resetRouteForOllama(flags = {}) {
     text = writeRouteValue(text, 'image_model', flags.model);
   }
   text = applyImagineConfigToText(text);
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
   console.log(`route_reset=ollama (${ROUTE_CONFIG})`);
 }
 
@@ -302,7 +308,7 @@ function route(flags) {
     text = writeRouteValue(text, 'inline_image_retention_days', retentionDays);
   }
   text = applyImagineConfigToText(text);
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
   console.log(`updated=${ROUTE_CONFIG}`);
 }
 
@@ -331,7 +337,7 @@ function upstreamCmd(flags) {
   if (!flags.url && !flags.apiKey) {
     die('Error: upstream requires --url, --api-key, or --status.');
   }
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
   console.log(`updated=${ROUTE_CONFIG}`);
 }
 
@@ -619,8 +625,8 @@ async function serveCmd(flags = {}) {
     );
     return proxyServer;
   }
-  if (flags.adaptor !== 'chat-completion') {
-    die('Error: --adaptor must be "chat-completion" or "none".');
+  if (!['chat-completion', 'google'].includes(flags.adaptor)) {
+    die('Error: --adaptor must be "chat-completion", "google", or "none".');
   }
 
   const routeConfig = readRouteConfig();
@@ -632,12 +638,14 @@ async function serveCmd(flags = {}) {
 
   const savedLauncherState = {
     version: launcherState.VERSION,
-    adaptor: 'chat-completion',
+    adaptor: flags.adaptor,
     adaptor_port: parseInt(adaptorPort, 10),
     ...runtimeOverrides,
   };
   if (flags.completionModel) savedLauncherState.completion_model = String(flags.completionModel);
-  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptor = flags.adaptor === 'google'
+    ? require('../adaptor/google-api-adaptor')
+    : require('../adaptor/completion-api-adaptor');
   const adaptorServer = adaptor.startServer({
     port: parseInt(adaptorPort, 10),
     baseUrl: providerUrl,
@@ -689,7 +697,7 @@ async function startPresetServer(preset, flags = {}) {
     'serve',
   ];
   // Direct presets (adaptor "none") talk straight to the configured
-  // upstream_url — no adaptor process. Only chat-completion spawns one.
+  // upstream_url — no adaptor process. Adapted presets spawn their selected adaptor.
   if (preset.adaptor && preset.adaptor !== 'none') {
     args.push('--adaptor', preset.adaptor);
   }

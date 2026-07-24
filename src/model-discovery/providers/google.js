@@ -9,6 +9,38 @@ const NATIVE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const ENDPOINT = `${NATIVE_BASE_URL}/models?pageSize=1000`;
 const CACHE_TTL_MS = 60000;
 
+function isVertexBaseUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname.endsWith('aiplatform.googleapis.com')
+      && /^\/v1\/projects\/[^/]+\/locations\/[^/]+\/endpoints\/openapi\/?$/u.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function suppliedVertexModel(rawId) {
+  let id;
+  try { id = normalizeModelId(rawId); } catch { return null; }
+  const metadataSources = emptyMetadataSources();
+  metadataSources.inputModalities = 'provider-id';
+  metadataSources.outputModalities = 'provider-id';
+  const geminiId = id.replace(/^google\//u, '');
+  return {
+    id,
+    displayName: id,
+    contextWindow: null,
+    maxOutputTokens: null,
+    inputModalities: ['text', 'image', 'audio', 'video', 'document'],
+    outputModalities: /^gemini-.+-image(?:-|$)/u.test(geminiId) ? ['text', 'image'] : ['text'],
+    reasoning: null,
+    reasoningLevels: null,
+    toolCalling: null,
+    metadataSources,
+    source: 'google-provider-id',
+  };
+}
+
 function parseRow(row) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
   if (!Array.isArray(row.supportedGenerationMethods)
@@ -37,7 +69,11 @@ function parseRow(row) {
     displayName: typeof row.displayName === 'string' && row.displayName.trim() ? row.displayName.trim() : id,
     contextWindow,
     maxOutputTokens,
-    inputModalities: gemmaTextOnly ? ['text'] : ['text', 'image'],
+    inputModalities: gemmaTextOnly
+      ? ['text']
+      : id.startsWith('gemini-')
+        ? ['text', 'image', 'audio', 'video', 'document']
+        : ['text', 'image'],
     outputModalities: geminiImageOutput ? ['text', 'image'] : ['text'],
     reasoning: typeof row.thinking === 'boolean' ? row.thinking : null,
     reasoningLevels: null,
@@ -48,6 +84,14 @@ function parseRow(row) {
 }
 
 async function discover(options = {}) {
+  if (isVertexBaseUrl(options.baseUrl)) {
+    return adapterResult({
+      models: (options.suppliedModels || []).map(suppliedVertexModel).filter(Boolean),
+      warnings: [],
+      origin: 'supplied',
+      complete: false,
+    });
+  }
   const payload = await fetchJson({
     url: ENDPOINT,
     provider: 'google',
@@ -73,9 +117,19 @@ async function discover(options = {}) {
 }
 
 function endpointFor(baseUrl) {
+  if (isVertexBaseUrl(baseUrl)) return null;
   const normalized = new URL(baseUrl || BASE_URL).href.replace(/\/+$/u, '');
   if (normalized !== BASE_URL) throw new TypeError('Provider base URL is not canonical.');
   return ENDPOINT;
 }
 
-module.exports = { BASE_URL, CACHE_TTL_MS, ENDPOINT, discover, endpointFor, parseRow };
+module.exports = {
+  BASE_URL,
+  CACHE_TTL_MS,
+  ENDPOINT,
+  discover,
+  endpointFor,
+  isVertexBaseUrl,
+  parseRow,
+  suppliedVertexModel,
+};

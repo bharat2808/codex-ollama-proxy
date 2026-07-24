@@ -25,7 +25,7 @@ function normalize(input) {
     if (!ALLOWED_KEYS.has(key)) throw new Error(`unknown launcher state key "${key}"`);
   }
   if (input.version !== VERSION) throw new Error(`unsupported launcher state version "${input.version}"`);
-  if (input.adaptor !== 'none' && input.adaptor !== 'chat-completion') {
+  if (!['none', 'chat-completion', 'google'].includes(input.adaptor)) {
     throw new Error(`unsupported adaptor "${input.adaptor}" in launcher state`);
   }
 
@@ -35,7 +35,7 @@ function normalize(input) {
   }
 
   const state = { version: VERSION, adaptor: input.adaptor, proxy_port: proxyPort };
-  if (state.adaptor === 'chat-completion') {
+  if (state.adaptor === 'chat-completion' || state.adaptor === 'google') {
     const port = input.adaptor_port === undefined ? DEFAULT_ADAPTOR_PORT : Number(input.adaptor_port);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error('launcher state adaptor_port must be an integer from 1 to 65535');
@@ -92,7 +92,7 @@ function write(file, input) {
 function serveArgs(input) {
   const state = normalize(input);
   const args = ['serve'];
-  if (state.adaptor === 'chat-completion') {
+  if (state.adaptor === 'chat-completion' || state.adaptor === 'google') {
     args.push('--adaptor', state.adaptor, '--adaptor-port', String(state.adaptor_port));
     if (state.completion_model) args.push('--completion-model', state.completion_model);
   }
@@ -105,7 +105,7 @@ function serveArgs(input) {
 function fromPreset(preset, overrides = {}) {
   return normalize({
     version: VERSION,
-    adaptor: preset && preset.adaptor === 'chat-completion' ? 'chat-completion' : 'none',
+    adaptor: preset && ['chat-completion', 'google'].includes(preset.adaptor) ? preset.adaptor : 'none',
     ...overrides,
   });
 }

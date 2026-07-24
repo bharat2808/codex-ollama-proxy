@@ -97,3 +97,34 @@ codex-ollama-proxy serve --adaptor chat-completion
 
 The adaptor receives the API key from the existing proxy upstream config. Do not
 commit API keys into this folder.
+
+## Google Gemini and Vertex AI
+
+Use the Google adaptor for Gemini's native `generateContent` protocol. It
+translates Responses text, images, supported inline/URI files, function tools,
+reasoning controls, streaming output, and generated images.
+
+Gemini Developer API preset:
+
+```bash
+codex-ollama-proxy preset add gemini \
+  --adaptor google \
+  --url "https://generativelanguage.googleapis.com/v1beta/openai" \
+  --models "gemini-2.5-flash,gemini-3.1-flash-image" \
+  --default-model "gemini-2.5-flash" \
+  --api-key "$GEMINI_API_KEY"
+```
+
+Vertex AI preset:
+
+```bash
+codex-ollama-proxy preset add vertex-gemini \
+  --adaptor google \
+  --url "https://aiplatform.googleapis.com/v1/projects/$PROJECT_ID/locations/global/endpoints/openapi" \
+  --models "google/gemini-2.5-flash,google/gemini-3.1-flash-image" \
+  --default-model "google/gemini-2.5-flash" \
+  --api-key "$GOOGLE_ACCESS_TOKEN"
+```
+
+Vertex uses a short-lived Google Cloud access token. Refresh the preset's
+runtime key when that token expires.

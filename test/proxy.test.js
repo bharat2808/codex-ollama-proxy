@@ -1292,6 +1292,52 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
   }
 });
 
+test('proxy preserves thought signatures when restoring namespaced function calls', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      id: 'resp_signature',
+      status: 'completed',
+      output: [{
+        id: 'fc_signature',
+        type: 'function_call',
+        call_id: 'call_signature',
+        name: 'mcp__example__lookup',
+        arguments: '{"q":"test"}',
+        thought_signature: 'opaque-signature',
+        status: 'completed',
+      }],
+    }));
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'look it up',
+      tools: [{
+        type: 'namespace',
+        name: 'mcp__example',
+        tools: [{
+          type: 'function',
+          name: 'lookup',
+          parameters: {
+            type: 'object',
+            properties: { q: { type: 'string' } },
+          },
+        }],
+      }],
+      stream: false,
+    });
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.output[0].namespace, 'mcp__example');
+    assert.equal(body.output[0].name, 'lookup');
+    assert.equal(body.output[0].thought_signature, 'opaque-signature');
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+  ]);
+});
+
 test('streaming SSE preserves ordering and translates tool_search_call', async () => {
   const upstream = http.createServer((req, res) => {
     req.resume();

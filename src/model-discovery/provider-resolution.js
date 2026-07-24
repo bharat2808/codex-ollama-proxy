@@ -19,6 +19,11 @@ function parsedBaseUrl(value) {
   }
 }
 
+function isVertexGoogleUrl(url) {
+  return url.hostname.endsWith('aiplatform.googleapis.com')
+    && /^\/v1\/projects\/[^/]+\/locations\/[^/]+\/endpoints\/openapi\/?$/u.test(url.pathname);
+}
+
 async function detectLocalOllama(url, options) {
   if (!ollama.isLocalBaseUrl(url.href)) return null;
   const endpoint = `${ollama.resolveApiBase(url.href)}/api/tags`;
@@ -51,6 +56,9 @@ async function resolveProvider(options = {}) {
     if (canonical) {
       return { provider: canonical, providerResolution: 'canonical-url', detectionPayload: null };
     }
+    if (isVertexGoogleUrl(url)) {
+      return { provider: 'google', providerResolution: 'canonical-url', detectionPayload: null };
+    }
   }
 
   if (url && typeof options.fetchImpl === 'function') {
@@ -68,5 +76,6 @@ async function resolveProvider(options = {}) {
 }
 
 module.exports = {
+  isVertexGoogleUrl,
   resolveProvider,
 };

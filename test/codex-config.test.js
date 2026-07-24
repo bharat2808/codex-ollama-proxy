@@ -240,8 +240,10 @@ test('CLI preset add can store API key when requested', () => {
 
     assert.equal(add.status, 0, add.stderr || add.stdout);
     assert.match(add.stdout, /api_key=stored/);
-    const preset = fs.readFileSync(path.join(runtimeDir, 'presets', 'nvidia.toml'), 'utf8');
+    const presetPath = path.join(runtimeDir, 'presets', 'nvidia.toml');
+    const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^upstream_api_key\s*=\s*"stored-secret"$/m);
+    assert.equal(fs.statSync(presetPath).mode & 0o777, 0o600);
 
     const use = spawnSync(process.execPath, [
       path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
@@ -258,8 +260,10 @@ test('CLI preset add can store API key when requested', () => {
     });
 
     assert.equal(use.status, 0, use.stderr || use.stdout);
-    const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
+    const routePath = path.join(runtimeDir, 'proxy-models.toml');
+    const route = fs.readFileSync(routePath, 'utf8');
     assert.match(route, /^upstream_api_key\s*=\s*"stored-secret"$/m);
+    assert.equal(fs.statSync(routePath).mode & 0o777, 0o600);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

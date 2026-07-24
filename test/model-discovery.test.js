@@ -516,6 +516,37 @@ test('five extended providers resolve from canonical URLs and explicit aliases w
   assert.equal(fetchCalls, 0);
 });
 
+test('Vertex AI OpenAI endpoints resolve as Google without probing', async () => {
+  let fetchCalls = 0;
+  const result = await resolveProvider({
+    baseUrl: 'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi',
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      throw new Error('unexpected fetch');
+    },
+  });
+  assert.equal(result.provider, 'google');
+  assert.equal(result.providerResolution, 'canonical-url');
+  assert.equal(fetchCalls, 0);
+});
+
+test('Vertex Google discovery classifies only explicitly supplied Gemini models', async () => {
+  const result = await google.discover({
+    baseUrl: 'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi',
+    suppliedModels: ['google/gemini-2.5-flash', 'google/gemini-3.1-flash-image'],
+    fetchImpl: async () => {
+      throw new Error('Vertex discovery must not call the Developer API catalog');
+    },
+  });
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'google/gemini-2.5-flash',
+    'google/gemini-3.1-flash-image',
+  ]);
+  assert.deepEqual(result.models[0].outputModalities, ['text']);
+  assert.deepEqual(result.models[1].outputModalities, ['text', 'image']);
+  assert.equal(result.complete, false);
+});
+
 test('local Ollama auto-detection reuses tags while remote endpoints resolve as custom without probing', async () => {
   const calls = [];
   const payload = { models: [{ name: 'qwen3:8b' }] };
@@ -1199,9 +1230,9 @@ test('Google discovery classifies generateContent Gemini image models', async ()
     'gemini-3.1-pro',
     'gemini-3.1-flash-image',
   ]);
-  assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
+  assert.deepEqual(result.models[0].inputModalities, ['text', 'image', 'audio', 'video', 'document']);
   assert.deepEqual(result.models[0].outputModalities, ['text']);
-  assert.deepEqual(result.models[1].inputModalities, ['text', 'image']);
+  assert.deepEqual(result.models[1].inputModalities, ['text', 'image', 'audio', 'video', 'document']);
   assert.deepEqual(result.models[1].outputModalities, ['text', 'image']);
   assert.equal(result.models[0].metadataSources.outputModalities, 'provider-catalog');
 });

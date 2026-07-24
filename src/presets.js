@@ -71,7 +71,7 @@ function renderValue(def, value) {
 
 // A preset is a saved partial proxy-models.toml: a bag of the non-imagine
 // ROUTE_CFG keys the user chose to pin, plus the special `adaptor` launcher
-// field (none|chat-completion). Keys the preset does not store keep the
+// field (none|chat-completion|google). Keys the preset does not store keep the
 // template default at apply time — this is the single source of truth the
 // proxy already reads, so new toggles become preset-able with no schema
 // surgery here.
@@ -93,8 +93,8 @@ function renderPresetToml(preset) {
 
 function normalizePreset(name, text) {
   const adaptor = readTomlString(text, 'adaptor', 'none');
-  if (adaptor !== 'none' && adaptor !== 'chat-completion') {
-    die(`Error: preset ${name} uses unsupported adaptor "${adaptor}". Supported: "chat-completion" (Chat Completions provider via the adaptor) or "none" (direct Responses API, e.g. local Ollama or a hosted Responses endpoint).`);
+  if (!['none', 'chat-completion', 'google'].includes(adaptor)) {
+    die(`Error: preset ${name} uses unsupported adaptor "${adaptor}". Supported: "chat-completion", "google", or "none".`);
   }
 
   // Collect every top-level key declared in the preset file so we can validate
@@ -224,14 +224,17 @@ function flagsToValues(flags) {
 function addPreset(runtimeDir, name, flags, log = console.log) {
   validatePresetName(name);
   const adaptor = flags.adaptor || 'none';
-  if (adaptor !== 'none' && adaptor !== 'chat-completion') die('Error: --adaptor must be "chat-completion" or "none".');
+  if (!['none', 'chat-completion', 'google'].includes(adaptor)) {
+    die('Error: --adaptor must be "chat-completion", "google", or "none".');
+  }
 
   const values = flagsToValues(flags);
 
   fs.mkdirSync(presetsDir(runtimeDir), { recursive: true });
   const preset = { name, adaptor, values };
   const file = presetPath(runtimeDir, name);
-  fs.writeFileSync(file, renderPresetToml(preset), 'utf8');
+  fs.writeFileSync(file, renderPresetToml(preset), { encoding: 'utf8', mode: 0o600 });
+  fs.chmodSync(file, 0o600);
   log(`preset=${name}`);
   log(`created=${file}`);
   log(`api_key=${flags.apiKey !== undefined && flags.apiKey ? 'stored' : 'not_stored'}`);

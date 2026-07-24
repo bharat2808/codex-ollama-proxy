@@ -426,6 +426,7 @@ function translateInputItem(item) {
           call_id: item.call_id,
           name: flat,
           arguments: asArgsString(item.arguments),
+          ...(item.thought_signature ? { thought_signature: item.thought_signature } : {}),
           ...(item.status ? { status: item.status } : {}),
           ...(item.id ? { id: item.id } : {}),
         };
@@ -969,6 +970,7 @@ function translateOutputItem(item, state) {
     };
     if (item.id) out.id = item.id;
     if (item.status) out.status = item.status;
+    if (item.thought_signature) out.thought_signature = item.thought_signature;
     debugLog('response: function_call split -> namespace=' + info.namespace + ' name=' + info.name + ' (call_id=' + item.call_id + ')');
     return out;
   }
