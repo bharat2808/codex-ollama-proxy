@@ -17,6 +17,7 @@ const SCHEMA_VERSION = 2;
 const MAX_CACHE_BYTES = 4 * 1024 * 1024;
 const METADATA_SOURCE_VALUES = new Set([
   null,
+  'openrouter-catalog',
   'provider-catalog',
   'provider-inspection',
   'provider-seed',

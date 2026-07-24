@@ -2,7 +2,7 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
-const { loadOpenClawCatalog } = require('../openclaw-catalog');
+const { loadBundledProviderCatalog } = require('../provider-catalog');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
 const ENDPOINT = 'https://assets.ngc.nvidia.com/products/api-catalog/featured-models.json';
@@ -58,14 +58,7 @@ function parseRow(row) {
 }
 
 async function discover(options = {}) {
-  const staticCatalog = await loadOpenClawCatalog({
-    provider: 'nvidia',
-    cacheDir: options.cacheDir,
-    fetchImpl: options.fetchImpl,
-    timeoutMs: options.timeoutMs,
-    signal: options.signal,
-    now: options.now,
-  });
+  const staticCatalog = loadBundledProviderCatalog('nvidia');
   let liveModels = [];
   const warnings = [...staticCatalog.warnings];
   try {
@@ -82,13 +75,13 @@ async function discover(options = {}) {
     if (Array.isArray(rows)) liveModels = rows.slice(0, MAX_ROWS).map(parseRow).filter(Boolean);
   } catch (error) {
     if (options.signal && options.signal.aborted) throw error;
-    warnings.push('NVIDIA featured catalog refresh failed; using the OpenClaw static catalog.');
+    warnings.push('NVIDIA featured catalog refresh failed; using the bundled provider catalog.');
   }
   const seen = new Set(liveModels.map((model) => model.id));
   return adapterResult({
     models: [...liveModels, ...staticCatalog.models.filter((model) => !seen.has(model.id))],
     warnings,
-    origin: liveModels.length ? 'live' : (staticCatalog.state === 'bundled' ? 'bundled' : 'static'),
+    origin: liveModels.length ? 'live' : 'bundled',
     complete: false,
   });
 }

@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "provider": "nvidia",
+  "models": [
+    {
+      "id": "deepseek-ai/deepseek-v4-pro",
+      "displayName": "DeepSeek V4 Pro",
+      "contextWindow": 262144,
+      "maxOutputTokens": 16384,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "minimaxai/minimax-m3",
+      "displayName": "Minimax M3",
+      "contextWindow": 196608,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "nvidia/nemotron-3-super-120b-a12b",
+      "displayName": "Nemotron 3 Super 120B",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "openrouter-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b",
+      "displayName": "Nemotron 3 Ultra 550B",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "openrouter-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "z-ai/glm-5.2",
+      "displayName": "GLM 5.2",
+      "contextWindow": 202752,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "openrouter-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    }
+  ]
+}

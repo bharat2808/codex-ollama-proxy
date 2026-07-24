@@ -1,0 +1,396 @@
+{
+  "schemaVersion": 1,
+  "provider": "cohere",
+  "models": [
+    {
+      "id": "c4ai-aya-expanse-32b",
+      "displayName": "c4ai-aya-expanse-32b",
+      "contextWindow": 128000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "c4ai-aya-vision-32b",
+      "displayName": "c4ai-aya-vision-32b",
+      "contextWindow": 16384,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-a-03-2025",
+      "displayName": "Command A",
+      "contextWindow": 288000,
+      "maxOutputTokens": null,
+      "inputModalities": null,
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": null,
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-a-plus-05-2026",
+      "displayName": "Command A+",
+      "contextWindow": 436000,
+      "maxOutputTokens": null,
+      "inputModalities": null,
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": null,
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-a-reasoning-08-2025",
+      "displayName": "Command A Reasoning",
+      "contextWindow": 288768,
+      "maxOutputTokens": null,
+      "inputModalities": null,
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": null,
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-a-translate-08-2025",
+      "displayName": "command-a-translate-08-2025",
+      "contextWindow": 8992,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-a-vision-07-2025",
+      "displayName": "Command A Vision",
+      "contextWindow": 128000,
+      "maxOutputTokens": null,
+      "inputModalities": null,
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": null,
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-r-08-2024",
+      "displayName": "command-r-08-2024",
+      "contextWindow": 128000,
+      "maxOutputTokens": 4000,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-r-plus-08-2024",
+      "displayName": "command-r-plus-08-2024",
+      "contextWindow": 128000,
+      "maxOutputTokens": 4000,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-r7b-12-2024",
+      "displayName": "command-r7b-12-2024",
+      "contextWindow": 132000,
+      "maxOutputTokens": 4000,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "command-r7b-arabic-02-2025",
+      "displayName": "command-r7b-arabic-02-2025",
+      "contextWindow": 128000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "north-mini-code-1-0",
+      "displayName": "North Mini Code 1.0",
+      "contextWindow": 436000,
+      "maxOutputTokens": null,
+      "inputModalities": null,
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": null,
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "tiny-aya-earth",
+      "displayName": "tiny-aya-earth",
+      "contextWindow": 8192,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "tiny-aya-fire",
+      "displayName": "tiny-aya-fire",
+      "contextWindow": 8192,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "tiny-aya-global",
+      "displayName": "tiny-aya-global",
+      "contextWindow": 8192,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "tiny-aya-water",
+      "displayName": "tiny-aya-water",
+      "contextWindow": 8192,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    }
+  ]
+}

@@ -2,7 +2,10 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
-const { loadOpenClawCatalog } = require('../openclaw-catalog');
+const {
+  hasBundledProviderCatalog,
+  loadBundledProviderCatalog,
+} = require('../provider-catalog');
 const {
   MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
@@ -81,7 +84,7 @@ function enrichLiveModel(live, seed) {
   for (const field of ['contextWindow', 'maxOutputTokens', 'inputModalities', 'outputModalities', 'reasoning', 'reasoningLevels', 'toolCalling']) {
     if (enriched[field] === null && seed[field] !== null) {
       enriched[field] = seed[field];
-      enriched.metadataSources[field] = 'provider-seed';
+      enriched.metadataSources[field] = seed.metadataSources?.[field] || 'provider-seed';
     }
   }
   if (enriched.displayName === enriched.id && seed.displayName) enriched.displayName = seed.displayName;
@@ -98,15 +101,8 @@ async function discoverCompatible(options, config) {
   const baseUrl = config.resolveBaseUrl(options.baseUrl);
   const endpoint = `${baseUrl}/models`;
   let staticCatalog = { models: [], warnings: [] };
-  if (config.staticProvider) {
-    staticCatalog = await loadOpenClawCatalog({
-      provider: config.staticProvider,
-      cacheDir: options.cacheDir,
-      fetchImpl: options.fetchImpl,
-      timeoutMs: options.timeoutMs,
-      signal: options.signal,
-      now: options.now,
-    });
+  if (config.staticProvider && hasBundledProviderCatalog(config.staticProvider)) {
+    staticCatalog = loadBundledProviderCatalog(config.staticProvider);
   }
   const seeds = new Map(staticCatalog.models.map((model) => [model.id, model]));
   try {
@@ -138,12 +134,12 @@ async function discoverCompatible(options, config) {
     if (!staticCatalog.models.length) throw error;
     return adapterResult({
       models: staticCatalog.models,
-      warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its OpenClaw static catalog.`],
-      origin: staticCatalog.state === 'bundled' ? 'bundled' : 'static',
+      warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its bundled provider catalog.`],
+      origin: 'bundled',
       complete: false,
       fallback: {
-        state: staticCatalog.state === 'bundled' ? 'bundled' : 'static',
-        warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its OpenClaw static catalog.`],
+        state: 'bundled',
+        warnings: [...staticCatalog.warnings, `${config.provider} live catalog refresh failed; using its bundled provider catalog.`],
       },
     });
   }

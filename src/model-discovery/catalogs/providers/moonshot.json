@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "provider": "moonshot",
+  "models": [
+    {
+      "id": "kimi-k2.6",
+      "displayName": "Kimi K2.6",
+      "contextWindow": 262144,
+      "maxOutputTokens": 262144,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "openrouter-catalog",
+        "outputModalities": "openrouter-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "kimi-k2.7-code",
+      "displayName": "Kimi K2.7 Code",
+      "contextWindow": 262144,
+      "maxOutputTokens": 262144,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "openrouter-catalog",
+        "outputModalities": "openrouter-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    }
+  ]
+}

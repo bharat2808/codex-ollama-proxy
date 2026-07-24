@@ -2,7 +2,7 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
-const { loadOpenClawCatalog } = require('../openclaw-catalog');
+const { loadBundledProviderCatalog } = require('../provider-catalog');
 const {
   MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
@@ -80,11 +80,17 @@ function parseRow(row, seeds = new Map()) {
     ['toolCalling', liveTools],
   ]) {
     if (liveValue !== null) metadataSources[field] = 'provider-catalog';
-    else if (seed && seed[field] !== null) metadataSources[field] = 'provider-seed';
+    else if (seed && seed[field] !== null) {
+      metadataSources[field] = seed.metadataSources?.[field] || 'provider-seed';
+    }
   }
   if (!metadataSources.inputModalities) metadataSources.inputModalities = 'provider-catalog';
-  metadataSources.outputModalities = seed?.outputModalities ? 'provider-seed' : 'provider-catalog';
-  if (reasoningLevels !== null) metadataSources.reasoningLevels = 'provider-seed';
+  metadataSources.outputModalities = seed?.outputModalities
+    ? seed.metadataSources?.outputModalities || 'provider-seed'
+    : 'provider-catalog';
+  if (reasoningLevels !== null) {
+    metadataSources.reasoningLevels = seed?.metadataSources?.reasoningLevels || 'provider-seed';
+  }
   return {
     id,
     displayName: seed?.displayName || id,
@@ -109,14 +115,7 @@ async function discover(options = {}) {
       complete: false,
     });
   }
-  const staticCatalog = await loadOpenClawCatalog({
-    provider: 'cohere',
-    cacheDir: options.cacheDir,
-    fetchImpl: options.fetchImpl,
-    timeoutMs: options.timeoutMs,
-    signal: options.signal,
-    now: options.now,
-  });
+  const staticCatalog = loadBundledProviderCatalog('cohere');
   const seeds = new Map(staticCatalog.models.map((model) => [model.id, model]));
   let payload;
   try {
@@ -136,13 +135,13 @@ async function discover(options = {}) {
       models: staticCatalog.models,
       warnings: [
         ...staticCatalog.warnings,
-        'Cohere live catalog refresh failed; using the OpenClaw static catalog.',
+        'Cohere live catalog refresh failed; using the bundled provider catalog.',
       ],
-      origin: staticCatalog.state === 'bundled' ? 'bundled' : 'static',
+      origin: 'bundled',
       complete: false,
       fallback: {
-        state: staticCatalog.state === 'bundled' ? 'bundled' : 'static',
-        warnings: ['Cohere live catalog refresh failed; using the OpenClaw static catalog.'],
+        state: 'bundled',
+        warnings: ['Cohere live catalog refresh failed; using the bundled provider catalog.'],
       },
     });
   }

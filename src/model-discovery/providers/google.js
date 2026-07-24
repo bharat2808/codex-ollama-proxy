@@ -2,6 +2,7 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
+const { loadBundledProviderCatalog } = require('../provider-catalog');
 const { emptyMetadataSources, isObviousNonTextModelId, normalizeModelId } = require('../normalize');
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai';
@@ -92,16 +93,30 @@ async function discover(options = {}) {
       complete: false,
     });
   }
-  const payload = await fetchJson({
-    url: ENDPOINT,
-    provider: 'google',
-    fetchImpl: options.fetchImpl,
-    timeoutMs: options.timeoutMs,
-    signal: options.signal,
-    headers: options.apiKey ? { 'x-goog-api-key': options.apiKey } : {},
-    requireHttps: true,
-    allowedHostname: 'generativelanguage.googleapis.com',
-  });
+  let payload;
+  try {
+    payload = await fetchJson({
+      url: ENDPOINT,
+      provider: 'google',
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+      headers: options.apiKey ? { 'x-goog-api-key': options.apiKey } : {},
+      requireHttps: true,
+      allowedHostname: 'generativelanguage.googleapis.com',
+    });
+  } catch (error) {
+    if (options.signal && options.signal.aborted) throw error;
+    const bundled = loadBundledProviderCatalog('google');
+    const warnings = ['Google live catalog refresh failed; using the bundled provider catalog.'];
+    return adapterResult({
+      models: bundled.models,
+      warnings,
+      origin: 'bundled',
+      complete: false,
+      fallback: { state: 'bundled', warnings },
+    });
+  }
   const rows = payload && Array.isArray(payload.models) ? payload.models : [];
   const models = new Map();
   for (const row of rows) {

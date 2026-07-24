@@ -174,7 +174,7 @@ async function withProxy(upstreamHandler, run, config = []) {
   }
 }
 
-async function withLocalOllamaProxy(ollamaHandler, run, cloudModels = ['glm-5.2:cloud']) {
+async function withLocalOllamaProxy(ollamaHandler, run) {
   const ollama = http.createServer(ollamaHandler);
   const ollamaPort = await listen(ollama);
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-ollama-cloud-test-'));
@@ -187,30 +187,8 @@ async function withLocalOllamaProxy(ollamaHandler, run, cloudModels = ['glm-5.2:
 
   const previousCodexHome = process.env.CODEX_HOME;
   const previousProxyPort = process.env.PROXY_PORT;
-  const previousFetch = global.fetch;
   process.env.CODEX_HOME = codexHome;
   process.env.PROXY_PORT = '0';
-  global.fetch = async (url, options) => {
-    if (String(url) === 'https://raw.githubusercontent.com/openclaw/openclaw/main/extensions/ollama/openclaw.plugin.json') {
-      return new Response(JSON.stringify({
-        modelCatalog: {
-          providers: {
-            'ollama-cloud': {
-              baseUrl: 'https://ollama.com',
-              models: cloudModels.map((id) => ({
-                id,
-                name: id,
-                input: ['text'],
-                contextWindow: 128000,
-                maxTokens: 8192,
-              })),
-            },
-          },
-        },
-      }));
-    }
-    return previousFetch(url, options);
-  };
   delete require.cache[require.resolve('../src/proxy')];
   const proxy = require('../src/proxy');
   const server = proxy.startServer(0);
@@ -222,7 +200,6 @@ async function withLocalOllamaProxy(ollamaHandler, run, cloudModels = ['glm-5.2:
     await close(server);
     await close(ollama);
     delete require.cache[require.resolve('../src/proxy')];
-    global.fetch = previousFetch;
     if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = previousCodexHome;
     if (previousProxyPort === undefined) delete process.env.PROXY_PORT;
@@ -309,7 +286,7 @@ test('proxy pulls an allowlisted cloud model before forwarding its first request
       }
       if (req.url === '/api/show') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        if (body && body.model === 'glm-5.2:cloud' && pulled) {
+        if (body && body.model === 'kimi-k2.7-code:cloud' && pulled) {
           res.end(JSON.stringify({ details: { family: 'cloud' }, capabilities: ['completion', 'tools'] }));
         } else {
           res.end(JSON.stringify({ error: 'model not found' }));
@@ -323,7 +300,7 @@ test('proxy pulls an allowlisted cloud model before forwarding its first request
     });
   }, async (proxyPort) => {
     const response = await postJson(proxyPort, {
-      model: 'glm-5.2:cloud',
+      model: 'kimi-k2.7-code:cloud',
       stream: false,
       input: 'hello',
       tools: [],
@@ -333,7 +310,7 @@ test('proxy pulls an allowlisted cloud model before forwarding its first request
 
   const relevant = calls.filter((call) =>
     call.path === '/api/pull'
-    || (call.path === '/api/show' && call.body && call.body.model === 'glm-5.2:cloud')
+    || (call.path === '/api/show' && call.body && call.body.model === 'kimi-k2.7-code:cloud')
     || call.path === '/v1/responses'
   );
   assert.deepEqual(relevant.map((call) => call.path), [
@@ -341,7 +318,7 @@ test('proxy pulls an allowlisted cloud model before forwarding its first request
     '/api/show',
     '/v1/responses',
   ]);
-  assert.deepEqual(relevant[0].body, { model: 'glm-5.2:cloud', stream: false });
+  assert.deepEqual(relevant[0].body, { model: 'kimi-k2.7-code:cloud', stream: false });
 });
 
 test('proxy never auto-pulls a missing ordinary local model', async () => {
@@ -406,7 +383,7 @@ test('proxy returns a bounded error when an allowlisted cloud pull fails', async
     });
   }, async (proxyPort) => {
     const response = await postJson(proxyPort, {
-      model: 'glm-5.2:cloud',
+      model: 'kimi-k2.7-code:cloud',
       stream: false,
       input: 'hello',
       tools: [],

@@ -123,12 +123,10 @@ test('cloud puller returns a safe typed failure when local Ollama rejects the pu
   });
 });
 
-test('cloud puller reloads its allowlist after the 24-hour catalog interval', async () => {
-  let now = 1000;
+test('cloud puller loads the immutable bundled allowlist once per process', async () => {
   let loads = 0;
   const puller = createOllamaCloudPuller({
     baseUrl: 'http://localhost:11434/v1',
-    now: () => now,
     loadCatalog: async () => {
       loads += 1;
       return { models: [{ id: loads === 1 ? 'first:cloud' : 'second:cloud' }] };
@@ -142,7 +140,6 @@ test('cloud puller reloads its allowlist after the 24-hour catalog interval', as
   });
 
   assert.deepEqual(await puller.ensureModel('second:cloud'), { status: 'not-cloud' });
-  now += 24 * 60 * 60 * 1000 + 1;
-  assert.deepEqual(await puller.ensureModel('second:cloud'), { status: 'ready' });
-  assert.equal(loads, 2);
+  assert.deepEqual(await puller.ensureModel('second:cloud'), { status: 'not-cloud' });
+  assert.equal(loads, 1);
 });

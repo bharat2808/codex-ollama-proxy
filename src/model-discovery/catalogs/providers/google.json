@@ -1,0 +1,1087 @@
+{
+  "schemaVersion": 1,
+  "provider": "google",
+  "models": [
+    {
+      "id": "antigravity-preview-05-2026",
+      "displayName": "Antigravity Agent Preview",
+      "contextWindow": 131072,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "deep-research-max-preview-04-2026",
+      "displayName": "Deep Research Max Preview (Apr-21-2026)",
+      "contextWindow": 131072,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "deep-research-preview-04-2026",
+      "displayName": "Deep Research Preview (Apr-21-2026)",
+      "contextWindow": 131072,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "deep-research-pro-preview-12-2025",
+      "displayName": "Deep Research Pro Preview (Dec-12-2025)",
+      "contextWindow": 131072,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.0-flash",
+      "displayName": "Gemini 2.0 Flash",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.0-flash-001",
+      "displayName": "Gemini 2.0 Flash 001",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.0-flash-lite",
+      "displayName": "Gemini 2.0 Flash-Lite",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.0-flash-lite-001",
+      "displayName": "Gemini 2.0 Flash-Lite 001",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.5-computer-use-preview-10-2025",
+      "displayName": "Gemini 2.5 Computer Use Preview 10-2025",
+      "contextWindow": 131072,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "displayName": "Gemini 2.5 Flash",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.5-flash-image",
+      "displayName": "Nano Banana",
+      "contextWindow": 32768,
+      "maxOutputTokens": 32768,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text",
+        "image"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.5-flash-lite",
+      "displayName": "Gemini 2.5 Flash-Lite",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "displayName": "Gemini 2.5 Pro",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3-flash-preview",
+      "displayName": "Gemini 3 Flash Preview",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3-pro-image",
+      "displayName": "Nano Banana Pro",
+      "contextWindow": 131072,
+      "maxOutputTokens": 32768,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3-pro-image-preview",
+      "displayName": "Nano Banana Pro",
+      "contextWindow": 131072,
+      "maxOutputTokens": 32768,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3-pro-preview",
+      "displayName": "Gemini 3 Pro Preview",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.1-flash-image",
+      "displayName": "Nano Banana 2",
+      "contextWindow": 65536,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.1-flash-image-preview",
+      "displayName": "Nano Banana 2",
+      "contextWindow": 65536,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.1-flash-lite",
+      "displayName": "Gemini 3.1 Flash Lite",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.1-flash-lite-image",
+      "displayName": "Nano Banana 2 Lite",
+      "contextWindow": 65536,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.1-flash-lite-preview",
+      "displayName": "Gemini 3.1 Flash Lite Preview",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "displayName": "Gemini 3.1 Pro Preview",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.1-pro-preview-customtools",
+      "displayName": "Gemini 3.1 Pro Preview Custom Tools",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "displayName": "Gemini 3.5 Flash",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "displayName": "Gemini 3.5 Flash Lite",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "displayName": "Gemini 3.6 Flash",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-flash-latest",
+      "displayName": "Gemini Flash Latest",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-flash-lite-latest",
+      "displayName": "Gemini Flash-Lite Latest",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-omni-flash-preview",
+      "displayName": "Gemini Omni Flash Preview",
+      "contextWindow": 131072,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-pro-latest",
+      "displayName": "Gemini Pro Latest",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-robotics-er-1.5-preview",
+      "displayName": "Gemini Robotics-ER 1.5 Preview",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemini-robotics-er-1.6-preview",
+      "displayName": "Gemini Robotics-ER 1.6 Preview",
+      "contextWindow": 131072,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "document"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemma-4-26b-a4b-it",
+      "displayName": "Gemma 4 26B A4B IT",
+      "contextWindow": 262144,
+      "maxOutputTokens": 32768,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gemma-4-31b-it",
+      "displayName": "Gemma 4 31B IT",
+      "contextWindow": 262144,
+      "maxOutputTokens": 32768,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "lyria-3-clip-preview",
+      "displayName": "Lyria 3 Clip Preview",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "lyria-3-pro-preview",
+      "displayName": "Lyria 3 Pro Preview",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 65536,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "nano-banana-pro-preview",
+      "displayName": "Nano Banana Pro",
+      "contextWindow": 131072,
+      "maxOutputTokens": 32768,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null
+      },
+      "source": "bundled-provider-catalog"
+    }
+  ]
+}

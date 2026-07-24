@@ -1,10 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('./model-discovery/live-catalog');
-const {
-  CATALOG_TTL_MS,
-  loadOpenClawCatalog,
-} = require('./model-discovery/openclaw-catalog');
+const { loadBundledProviderCatalog } = require('./model-discovery/provider-catalog');
 const { normalizeModelId } = require('./model-discovery/normalize');
 const { resolveLocalApiBase } = require('./model-discovery/providers/ollama');
 
@@ -29,30 +26,19 @@ function createOllamaCloudPuller(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const requestTimeoutMs = options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
   const pullTimeoutMs = options.pullTimeoutMs || DEFAULT_PULL_TIMEOUT_MS;
-  const now = typeof options.now === 'function' ? options.now : Date.now;
-  const loadCatalog = options.loadCatalog || (() => loadOpenClawCatalog({
-    provider: 'ollama-cloud',
-    cacheDir: options.cacheDir,
-    fetchImpl,
-    timeoutMs: requestTimeoutMs,
-  }));
+  const loadCatalog = options.loadCatalog || (() => loadBundledProviderCatalog('ollama-cloud'));
   const ready = new Set();
   const inFlight = new Map();
   let cloudIdsPromise = null;
-  let catalogLoadedAt = null;
 
   async function cloudIds() {
-    if (!cloudIdsPromise || (catalogLoadedAt !== null && now() - catalogLoadedAt > CATALOG_TTL_MS)) {
+    if (!cloudIdsPromise) {
       cloudIdsPromise = Promise.resolve(loadCatalog()).then((result) => new Set(
         (result && Array.isArray(result.models) ? result.models : [])
           .map((model) => model && model.id)
           .filter(Boolean),
-      )).then((ids) => {
-        catalogLoadedAt = now();
-        return ids;
-      }).catch((error) => {
+      )).catch((error) => {
         cloudIdsPromise = null;
-        catalogLoadedAt = null;
         throw error;
       });
     }

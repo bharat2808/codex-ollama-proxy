@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "provider": "deepseek",
+  "models": [
+    {
+      "id": "deepseek-v4-flash",
+      "displayName": "DeepSeek V4 Flash",
+      "contextWindow": 1048575,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "openrouter-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "openrouter-catalog",
+        "outputModalities": "openrouter-catalog",
+        "reasoning": "openrouter-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "displayName": "DeepSeek V4 Pro",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 384000,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "openrouter-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "openrouter-catalog",
+        "outputModalities": "openrouter-catalog",
+        "reasoning": "openrouter-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog"
+    }
+  ]
+}

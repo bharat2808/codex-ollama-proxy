@@ -2,6 +2,7 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
+const { loadBundledProviderCatalog } = require('../provider-catalog');
 const {
   MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
@@ -18,34 +19,8 @@ const {
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/models';
 const CACHE_TTL_MS = 60000;
-const FALLBACK_MODELS = Object.freeze([
-  ['openrouter/auto', 'OpenRouter Auto', 200000, 8192, false],
-  ['moonshotai/kimi-k2.6', 'MoonshotAI: Kimi K2.6', 262144, 262144, true],
-  ['moonshotai/kimi-k2.5', 'MoonshotAI: Kimi K2.5', 262144, 262144, true],
-]);
-
 function fallbackModels() {
-  return FALLBACK_MODELS.map(([id, displayName, contextWindow, maxOutputTokens, reasoning]) => ({
-    id,
-    displayName,
-    contextWindow,
-    maxOutputTokens,
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    reasoning,
-    reasoningLevels: null,
-    toolCalling: null,
-    metadataSources: {
-      contextWindow: 'provider-seed',
-      maxOutputTokens: 'provider-seed',
-      inputModalities: 'provider-seed',
-      outputModalities: 'provider-seed',
-      reasoning: 'provider-seed',
-      reasoningLevels: null,
-      toolCalling: null,
-    },
-    source: 'openclaw-static',
-  }));
+  return loadBundledProviderCatalog('openrouter').models;
 }
 
 function modalities(architecture, direction) {
@@ -122,7 +97,7 @@ async function discover(options = {}) {
     });
   } catch (error) {
     if (options.signal && options.signal.aborted) throw error;
-    const warnings = ['OpenRouter live catalog refresh failed; using the bundled OpenClaw seed.'];
+    const warnings = ['OpenRouter live catalog refresh failed; using the bundled provider catalog.'];
     return adapterResult({
       models: fallbackModels(),
       warnings,

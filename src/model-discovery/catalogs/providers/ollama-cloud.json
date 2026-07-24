@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "provider": "ollama-cloud",
+  "models": [
+    {
+      "id": "glm-5.2:cloud",
+      "displayName": "glm-5.2:cloud",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 131072,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-inspection",
+        "reasoningLevels": null,
+        "toolCalling": "provider-inspection"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "kimi-k2.7-code:cloud",
+      "displayName": "kimi-k2.7-code:cloud",
+      "contextWindow": 262144,
+      "maxOutputTokens": 262144,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-inspection",
+        "reasoningLevels": null,
+        "toolCalling": "provider-inspection"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "nemotron-3-ultra:cloud",
+      "displayName": "nemotron-3-ultra:cloud",
+      "contextWindow": 262144,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-inspection",
+        "reasoningLevels": null,
+        "toolCalling": "provider-inspection"
+      },
+      "source": "bundled-provider-catalog"
+    }
+  ]
+}
