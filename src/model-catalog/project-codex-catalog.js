@@ -10,6 +10,14 @@ const TOOL_CAPABILITY_FIELDS = [
 ];
 
 const CODEX_MODEL_MODALITIES = new Set(['text', 'image', 'audio']);
+const REASONING_EFFORT_DESCRIPTIONS = Object.freeze({
+  low: 'Fast responses with lighter reasoning',
+  medium: 'Balances speed and reasoning depth for everyday tasks',
+  high: 'Greater reasoning depth for complex problems',
+  xhigh: 'Extra high reasoning depth for complex problems',
+  max: 'Maximum reasoning depth for the hardest problems',
+  ultra: 'Maximum reasoning with automatic task delegation',
+});
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -19,6 +27,13 @@ function codexModalities(modalities) {
   return Array.isArray(modalities)
     ? modalities.filter((modality) => CODEX_MODEL_MODALITIES.has(modality))
     : [];
+}
+
+function codexReasoningEffortPresets(levels) {
+  return levels.map((effort) => ({
+    effort,
+    description: REASONING_EFFORT_DESCRIPTIONS[effort],
+  }));
 }
 
 function isCodexRepresentable(model) {
@@ -52,8 +67,11 @@ function applyDiscoveredMetadata(catalogModels, discoveredModels) {
       entry.output_modalities = codexModalities(metadata.outputModalities);
     }
     if (Array.isArray(metadata.reasoningLevels) && metadata.reasoningLevels.length > 0) {
-      entry.supported_reasoning_levels = [...metadata.reasoningLevels];
-      if (!metadata.reasoningLevels.includes(entry.default_reasoning_level)) {
+      entry.supported_reasoning_levels = codexReasoningEffortPresets(metadata.reasoningLevels);
+      if (metadata.defaultReasoningLevel !== null
+        && metadata.reasoningLevels.includes(metadata.defaultReasoningLevel)) {
+        entry.default_reasoning_level = metadata.defaultReasoningLevel;
+      } else {
         entry.default_reasoning_level = null;
       }
     }

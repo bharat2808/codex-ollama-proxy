@@ -301,6 +301,7 @@ function normalizeOllama(text, model) {
   let lines = top.replace(/\n+$/u, '').split(/\n/);
   lines = lines.filter((line) => line !== '# custom Ollama model disabled; using Codex built-in ChatGPT model');
   lines = removeKey(lines, 'developer_instructions');
+  lines = removeKey(lines, 'model_reasoning_effort');
   const instructionLine = referenceTopLevelLine('developer_instructions');
   if (instructionLine) lines.push(instructionLine);
   if (model) {

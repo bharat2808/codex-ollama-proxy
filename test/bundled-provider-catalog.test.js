@@ -98,16 +98,22 @@ test('owned catalog generation restores exact provider-documented modalities aft
       contextWindow: 'provider-catalog',
     },
   });
+  const grok45 = model('grok-4.5');
 
   const cohereCatalog = buildProviderCatalog('cohere', [cohere], []);
-  const xaiCatalog = buildProviderCatalog('xai', [xai], []);
+  const xaiCatalog = buildProviderCatalog('xai', [xai, grok45], []);
 
   assert.deepEqual(cohereCatalog.models[0].inputModalities, ['text', 'image']);
   assert.deepEqual(cohereCatalog.models[0].outputModalities, ['text']);
   assert.equal(cohereCatalog.models[0].metadataSources.inputModalities, 'provider-catalog');
-  assert.deepEqual(xaiCatalog.models[0].inputModalities, ['text', 'image', 'video']);
-  assert.deepEqual(xaiCatalog.models[0].outputModalities, ['video']);
-  assert.equal(xaiCatalog.models[0].metadataSources.outputModalities, 'provider-catalog');
+  const xaiVideo = xaiCatalog.models.find((entry) => entry.id === 'grok-imagine-video');
+  const xaiGrok45 = xaiCatalog.models.find((entry) => entry.id === 'grok-4.5');
+  assert.deepEqual(xaiVideo.inputModalities, ['text', 'image', 'video']);
+  assert.deepEqual(xaiVideo.outputModalities, ['video']);
+  assert.equal(xaiVideo.metadataSources.outputModalities, 'provider-catalog');
+  assert.deepEqual(xaiGrok45.reasoningLevels, ['low', 'medium', 'high']);
+  assert.equal(xaiGrok45.defaultReasoningLevel, 'high');
+  assert.equal(xaiGrok45.metadataSources.defaultReasoningLevel, 'provider-catalog');
 });
 
 test('owned catalog records provider-documented models that reject tool use', () => {
@@ -142,6 +148,12 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
   assert.equal(v4.contextWindow, 1048576);
   assert.deepEqual(v4.outputModalities, ['text']);
   assert.equal(v4.metadataSources.contextWindow, 'openrouter-catalog');
+
+  const xai = loadBundledProviderCatalog('xai');
+  const grok45 = xai.models.find((entry) => entry.id === 'grok-4.5');
+  assert.deepEqual(grok45.reasoningLevels, ['low', 'medium', 'high']);
+  assert.equal(grok45.defaultReasoningLevel, 'high');
+  assert.equal(grok45.metadataSources.defaultReasoningLevel, 'provider-catalog');
 
   const expectedModalities = {
     cohere: {

@@ -25,6 +25,10 @@ const DOCUMENTED_MODALITIES = Object.freeze({
     }),
   }),
   xai: Object.freeze({
+    'grok-4.5': Object.freeze({
+      reasoningLevels: Object.freeze(['low', 'medium', 'high']),
+      defaultReasoningLevel: 'high',
+    }),
     'grok-4.20-0309-non-reasoning': Object.freeze({
       inputModalities: Object.freeze(['text', 'image']),
       outputModalities: Object.freeze(['text']),
@@ -56,9 +60,9 @@ function applyDocumentedModalities(provider, model) {
   const documented = DOCUMENTED_MODALITIES[provider]?.[model.id];
   if (!documented) return model;
   const enriched = { ...model, metadataSources: { ...model.metadataSources } };
-  for (const field of ['inputModalities', 'outputModalities', 'toolCalling']) {
+  for (const field of ['inputModalities', 'outputModalities', 'reasoningLevels', 'defaultReasoningLevel', 'toolCalling']) {
     if (!(field in documented)) continue;
-    if (enriched[field] !== null) continue;
+    if (enriched[field] != null) continue;
     enriched[field] = Array.isArray(documented[field])
       ? [...documented[field]]
       : documented[field];

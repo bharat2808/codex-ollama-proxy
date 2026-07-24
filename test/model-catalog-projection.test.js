@@ -34,6 +34,7 @@ test('projects normalized Ollama discovery into the Codex catalog without I/O', 
           inputModalities: ['text', 'image'],
           outputModalities: ['text', 'image'],
           reasoningLevels: ['low', 'high'],
+          defaultReasoningLevel: 'high',
           toolCalling: true,
           source: 'ollama-show',
         },
@@ -71,7 +72,17 @@ test('projects normalized Ollama discovery into the Codex catalog without I/O', 
   assert.deepEqual(projected.get('vision-tools').input_modalities, ['text', 'image']);
   assert.deepEqual(projected.get('vision-tools').output_modalities, ['text', 'image']);
   assert.equal(projected.get('vision-tools').context_window, 131072);
-  assert.deepEqual(projected.get('vision-tools').supported_reasoning_levels, ['low', 'high']);
+  assert.deepEqual(projected.get('vision-tools').supported_reasoning_levels, [
+    {
+      effort: 'low',
+      description: 'Fast responses with lighter reasoning',
+    },
+    {
+      effort: 'high',
+      description: 'Greater reasoning depth for complex problems',
+    },
+  ]);
+  assert.equal(projected.get('vision-tools').default_reasoning_level, 'high');
   assert.equal(projected.get('vision-tools').supports_tools, true);
   assert.equal(projected.get('text-only').supports_parallel_tool_calls, false);
   assert.equal(projected.get('text-only').supports_tools, false);
@@ -123,6 +134,22 @@ test('blank discovered display names fall back to the stable model id', () => {
     displayName: '   ',
   }]);
   assert.equal(models[0].display_name, 'stable-id');
+});
+
+test('discovered reasoning levels do not inherit an unrelated template default', () => {
+  const models = [{
+    slug: 'provider-model',
+    default_reasoning_level: 'low',
+  }];
+
+  applyDiscoveredMetadata(models, [{
+    id: 'provider-model',
+    displayName: 'Provider Model',
+    reasoningLevels: ['low', 'high'],
+    defaultReasoningLevel: null,
+  }]);
+
+  assert.equal(models[0].default_reasoning_level, null);
 });
 
 test('Codex projection excludes unsupported-only outputs and filters mixed modalities', () => {

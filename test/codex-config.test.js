@@ -15,11 +15,12 @@ test('inline image persistence is enabled by default in schema and packaged conf
   assert.match(packaged, /^persist_inline_images\s*=\s*true$/m);
 });
 
-test('model_config ollama defaults to proxy route default_model', () => {
+test('model_config ollama uses catalog reasoning defaults instead of a global effort override', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-route-model-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'config.toml'), [
+    'model_reasoning_effort = "none"',
     'sandbox_mode = "danger-full-access"',
     '',
     '[plugins."storefront-builder@personal"]',
@@ -49,6 +50,7 @@ test('model_config ollama defaults to proxy route default_model', () => {
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
     assert.match(config, /^model_provider = "ollama-launch-codex-app"$/m);
+    assert.doesNotMatch(config, /^model_reasoning_effort\s*=/m);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
@@ -918,7 +920,14 @@ test('discovered metadata maps into supported Codex catalog fields without guess
   try {
     const catalogModels = [
       { slug: 'vision-reasoning', input_modalities: ['text'], supported_reasoning_levels: [] },
-      { slug: 'unknown', input_modalities: ['text'], supported_reasoning_levels: ['high'] },
+      {
+        slug: 'unknown',
+        input_modalities: ['text'],
+        supported_reasoning_levels: [{
+          effort: 'high',
+          description: 'Greater reasoning depth for complex problems',
+        }],
+      },
     ];
     const discovered = [
       {
@@ -935,11 +944,23 @@ test('discovered metadata maps into supported Codex catalog fields without guess
     applyDiscoveredMetadata(catalogModels, discovered);
     assert.deepEqual(catalogModels[0].input_modalities, ['text', 'image']);
     assert.equal(catalogModels[0].supports_image_detail_original, true);
-    assert.deepEqual(catalogModels[0].supported_reasoning_levels, ['low', 'high']);
+    assert.deepEqual(catalogModels[0].supported_reasoning_levels, [
+      {
+        effort: 'low',
+        description: 'Fast responses with lighter reasoning',
+      },
+      {
+        effort: 'high',
+        description: 'Greater reasoning depth for complex problems',
+      },
+    ]);
     assert.equal(catalogModels[0].context_window, 128000);
     assert.equal(catalogModels[0].max_context_window, 128000);
     assert.deepEqual(catalogModels[1].input_modalities, ['text']);
-    assert.deepEqual(catalogModels[1].supported_reasoning_levels, ['high']);
+    assert.deepEqual(catalogModels[1].supported_reasoning_levels, [{
+      effort: 'high',
+      description: 'Greater reasoning depth for complex problems',
+    }]);
   } finally {
     delete require.cache[require.resolve('../src/codex-config')];
     if (previousCodexHome === undefined) delete process.env.CODEX_HOME;

@@ -52,6 +52,11 @@ function parseLiveRow(row, source) {
   const reasoningLevels = normalizeReasoningLevels(
     value.reasoning_levels || value.reasoningLevels || value.supported_reasoning_levels,
   );
+  const rawDefaultReasoningLevel = value.default_reasoning_level ?? value.defaultReasoningLevel;
+  const defaultReasoningLevel = typeof rawDefaultReasoningLevel === 'string'
+    && reasoningLevels?.includes(rawDefaultReasoningLevel.trim().toLowerCase())
+    ? rawDefaultReasoningLevel.trim().toLowerCase()
+    : null;
   const toolCalling = typeof value.supports_tools === 'boolean'
     ? value.supports_tools
     : typeof value.tool_calling === 'boolean' ? value.tool_calling : null;
@@ -62,6 +67,7 @@ function parseLiveRow(row, source) {
   if (outputModalities.length) metadataSources.outputModalities = 'provider-catalog';
   if (reasoning !== null) metadataSources.reasoning = 'provider-catalog';
   if (reasoningLevels !== null) metadataSources.reasoningLevels = 'provider-catalog';
+  if (defaultReasoningLevel !== null) metadataSources.defaultReasoningLevel = 'provider-catalog';
   if (toolCalling !== null) metadataSources.toolCalling = 'provider-catalog';
   return {
     id,
@@ -72,6 +78,7 @@ function parseLiveRow(row, source) {
     outputModalities: outputModalities.length ? [...new Set(outputModalities.filter((modality) => KNOWN_MODALITIES.has(modality)))] : null,
     reasoning,
     reasoningLevels,
+    defaultReasoningLevel,
     toolCalling,
     metadataSources,
     source,
@@ -81,8 +88,8 @@ function parseLiveRow(row, source) {
 function enrichLiveModel(live, seed) {
   if (!seed) return live;
   const enriched = { ...live, metadataSources: { ...live.metadataSources } };
-  for (const field of ['contextWindow', 'maxOutputTokens', 'inputModalities', 'outputModalities', 'reasoning', 'reasoningLevels', 'toolCalling']) {
-    if (enriched[field] === null && seed[field] !== null) {
+  for (const field of ['contextWindow', 'maxOutputTokens', 'inputModalities', 'outputModalities', 'reasoning', 'reasoningLevels', 'defaultReasoningLevel', 'toolCalling']) {
+    if (enriched[field] === null && seed[field] != null) {
       enriched[field] = seed[field];
       enriched.metadataSources[field] = seed.metadataSources?.[field] || 'provider-seed';
     }

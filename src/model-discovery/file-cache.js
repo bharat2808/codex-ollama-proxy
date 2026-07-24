@@ -59,6 +59,11 @@ function validModel(model) {
     if (!Array.isArray(model.reasoningLevels) || model.reasoningLevels.length === 0) return false;
     if (model.reasoningLevels.some((value) => !REASONING_LEVEL_SET.has(value))) return false;
   }
+  const defaultReasoningLevel = model.defaultReasoningLevel ?? null;
+  if (defaultReasoningLevel !== null
+    && !REASONING_LEVEL_SET.has(defaultReasoningLevel)) return false;
+  if (defaultReasoningLevel !== null
+    && !model.reasoningLevels?.includes(defaultReasoningLevel)) return false;
   if (![true, false, null].includes(model.toolCalling)) return false;
   if (!model.metadataSources || typeof model.metadataSources !== 'object') return false;
   if (METADATA_FIELDS.some((field) => model.metadataSources[field] !== undefined

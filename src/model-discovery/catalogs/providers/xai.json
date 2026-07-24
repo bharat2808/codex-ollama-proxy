@@ -93,7 +93,12 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "defaultReasoningLevel": "high",
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -101,7 +106,8 @@
         "inputModalities": "openrouter-catalog",
         "outputModalities": "openrouter-catalog",
         "reasoning": "openrouter-catalog",
-        "reasoningLevels": null,
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
         "toolCalling": "openrouter-catalog"
       },
       "source": "bundled-provider-catalog"

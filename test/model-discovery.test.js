@@ -8,6 +8,7 @@ const test = require('node:test');
 
 const {
   mergeDiscoveredWithSupplied,
+  normalizeReasoningLevels,
   normalizeSuppliedModels,
 } = require('../src/model-discovery/normalize');
 const { resolveProvider } = require('../src/model-discovery/provider-resolution');
@@ -24,6 +25,13 @@ const google = require('../src/model-discovery/providers/google');
 const xai = require('../src/model-discovery/providers/xai');
 const { discoverModels } = require('../src/model-discovery');
 
+test('reasoning normalization preserves every effort accepted by the Codex model cache', () => {
+  assert.deepEqual(
+    normalizeReasoningLevels(['ultra', 'max', 'xhigh', 'high', 'medium', 'low']),
+    ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  );
+});
+
 test('supplied model ids are validated, deduplicated, and retain unknown metadata', () => {
   const models = normalizeSuppliedModels([' first/model ', 'second:model', 'first/model']);
 
@@ -37,6 +45,7 @@ test('supplied model ids are validated, deduplicated, and retain unknown metadat
     outputModalities: null,
     reasoning: null,
     reasoningLevels: null,
+    defaultReasoningLevel: null,
     toolCalling: null,
     metadataSources: {
       contextWindow: null,
@@ -45,6 +54,7 @@ test('supplied model ids are validated, deduplicated, and retain unknown metadat
       outputModalities: null,
       reasoning: null,
       reasoningLevels: null,
+      defaultReasoningLevel: null,
       toolCalling: null,
     },
     source: 'supplied',
@@ -496,6 +506,7 @@ test('NVIDIA discovery maps bounded featured rows and preserves feed order', asy
       outputModalities: 'provider-catalog',
       reasoning: null,
       reasoningLevels: null,
+      defaultReasoningLevel: null,
       toolCalling: null,
     },
     source: 'nvidia-featured',
@@ -567,6 +578,7 @@ test('OpenRouter discovery preserves authoritative metadata and rejects non-text
     outputModalities: 'provider-catalog',
     reasoning: 'provider-catalog',
     reasoningLevels: null,
+    defaultReasoningLevel: null,
     toolCalling: 'provider-catalog',
   });
   assert.equal(models[0].contextWindow, null);
@@ -838,6 +850,7 @@ test('xAI discovery enriches sparse live rows with exact bundled modalities', as
     apiKey: 'xai-secret',
     fetchImpl: async () => new Response(JSON.stringify({
       data: [
+        { id: 'grok-4.5' },
         { id: 'grok-4.20-0309-reasoning' },
         { id: 'grok-imagine-image' },
         { id: 'grok-imagine-video-1.5' },
@@ -849,10 +862,13 @@ test('xAI discovery enriches sparse live rows with exact bundled modalities', as
     model.id,
     model.inputModalities,
     model.outputModalities,
+    model.reasoningLevels,
+    model.defaultReasoningLevel,
   ]), [
-    ['grok-4.20-0309-reasoning', ['text', 'image'], ['text']],
-    ['grok-imagine-image', ['text', 'image'], ['image']],
-    ['grok-imagine-video-1.5', ['image'], ['video']],
+    ['grok-4.5', ['text', 'image'], ['text'], ['low', 'medium', 'high'], 'high'],
+    ['grok-4.20-0309-reasoning', ['text', 'image'], ['text'], null, null],
+    ['grok-imagine-image', ['text', 'image'], ['image'], null, null],
+    ['grok-imagine-video-1.5', ['image'], ['video'], null, null],
   ]);
 });
 
@@ -872,9 +888,12 @@ test('OpenAI-compatible live rows normalize explicit reasoning levels', () => {
     output_modalities: ['text'],
     reasoning: true,
     reasoning_levels: ['HIGH', 'low', 'high', 'unsupported'],
+    defaultReasoningLevel: 'HIGH',
   }, 'test-catalog');
   assert.deepEqual(model.reasoningLevels, ['low', 'high']);
+  assert.equal(model.defaultReasoningLevel, 'high');
   assert.equal(model.metadataSources.reasoningLevels, 'provider-catalog');
+  assert.equal(model.metadataSources.defaultReasoningLevel, 'provider-catalog');
 });
 
 test('xAI discovery filters unsupported multi-agent models locally', async () => {

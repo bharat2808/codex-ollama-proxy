@@ -10,9 +10,10 @@ const METADATA_FIELDS = [
   'outputModalities',
   'reasoning',
   'reasoningLevels',
+  'defaultReasoningLevel',
   'toolCalling',
 ];
-const REASONING_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+const REASONING_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 const MODALITIES = Object.freeze(['text', 'image', 'audio', 'video', 'document']);
 
 function normalizeReasoningLevels(value) {
@@ -57,6 +58,7 @@ function suppliedModel(id) {
     outputModalities: null,
     reasoning: null,
     reasoningLevels: null,
+    defaultReasoningLevel: null,
     toolCalling: null,
     metadataSources: emptyMetadataSources(),
     source: 'supplied',
