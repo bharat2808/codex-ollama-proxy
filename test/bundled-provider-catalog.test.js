@@ -297,6 +297,7 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
   const gemini36 = google.models.find((entry) => entry.id === 'gemini-3.6-flash');
   const gemini25Flash = google.models.find((entry) => entry.id === 'gemini-2.5-flash');
   const gemini3Pro = google.models.find((entry) => entry.id === 'gemini-3-pro-preview');
+  const geminiProLatest = google.models.find((entry) => entry.id === 'gemini-pro-latest');
   const gemma426b = google.models.find((entry) => entry.id === 'gemma-4-26b-a4b-it');
   const gemma431b = google.models.find((entry) => entry.id === 'gemma-4-31b-it');
   assert.deepEqual(gemini36.reasoningLevels, ['minimal', 'low', 'medium', 'high']);
@@ -307,6 +308,9 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
   assert.equal(gemini25Flash.metadataSources.reasoningLevels, 'provider-catalog');
   assert.deepEqual(gemini3Pro.reasoningLevels, ['low', 'high']);
   assert.equal(gemini3Pro.defaultReasoningLevel, 'high');
+  assert.deepEqual(geminiProLatest.reasoningLevels, ['low', 'medium', 'high']);
+  assert.equal(geminiProLatest.defaultReasoningLevel, 'high');
+  assert.equal(geminiProLatest.metadataSources.reasoningLevels, 'provider-catalog');
   for (const gemma4 of [gemma426b, gemma431b]) {
     assert.deepEqual(gemma4.reasoningLevels, ['minimal', 'high']);
     assert.equal(gemma4.reasoningDefaultEnabled, false);

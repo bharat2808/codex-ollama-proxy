@@ -87,6 +87,14 @@ const DOCUMENTED_MODALITIES = Object.freeze({
       reasoningSupportsMaxTokens: false,
       reasoningMandatory: true,
     }),
+    'gemini-pro-latest': Object.freeze({
+      reasoning: true,
+      reasoningLevels: Object.freeze(['low', 'medium', 'high']),
+      defaultReasoningLevel: 'high',
+      reasoningDefaultEnabled: true,
+      reasoningSupportsMaxTokens: false,
+      reasoningMandatory: true,
+    }),
   }),
   nvidia: Object.freeze({
     'deepseek-ai/deepseek-v4-pro': Object.freeze({
