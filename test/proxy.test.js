@@ -824,6 +824,71 @@ test('proxy normalizes and restores a custom tool call end to end', async () => 
   ]);
 });
 
+test('proxy converts unified diff hunk coordinates in apply_patch calls', async () => {
+  const unifiedPatch = [
+    '*** Begin Patch',
+    '*** Update File: hello.txt',
+    '@@ -1,2 +1,2 @@',
+    '-hello',
+    '+goodbye',
+    '@@ -10 +10,2 @@ function heading',
+    ' context',
+    '+added',
+    '*** End Patch',
+  ].join('\n');
+  const codexPatch = [
+    '*** Begin Patch',
+    '*** Update File: hello.txt',
+    '@@',
+    '-hello',
+    '+goodbye',
+    '@@ function heading',
+    ' context',
+    '+added',
+    '*** End Patch',
+  ].join('\n');
+
+  await withProxy((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_unified_patch',
+        status: 'completed',
+        output: [{
+          id: 'fc_unified_patch',
+          type: 'function_call',
+          call_id: 'call_unified_patch',
+          name: 'apply_patch',
+          arguments: JSON.stringify({ input: unifiedPatch }),
+          status: 'completed',
+        }],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'Update hello.txt.',
+      tools: [{
+        type: 'custom',
+        name: 'apply_patch',
+        description: 'Apply a patch.',
+        format: { type: 'text' },
+      }],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.output[0].type, 'custom_tool_call');
+    assert.equal(body.output[0].input, codexPatch);
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
 test('proxy restores turn-local additional custom tools as custom tool calls', async () => {
   await withProxy((req, res) => {
     req.resume();

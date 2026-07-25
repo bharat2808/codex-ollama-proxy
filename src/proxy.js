@@ -1042,34 +1042,48 @@ function coerceArgsForSchema(args, schema) {
   return args;
 }
 
+function normalizeApplyPatchDialect(patch) {
+  if (typeof patch !== 'string') return patch;
+  return patch.replace(
+    /^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@(?:[ \t]+([^\r\n]*))?\r?$/gmu,
+    (_line, heading) => heading ? '@@ ' + heading : '@@'
+  );
+}
+
+function normalizeCustomToolInput(name, input) {
+  return name === 'apply_patch' ? normalizeApplyPatchDialect(input) : input;
+}
+
 function customToolInput(name, args) {
   // Normalise a string argument first: the model may hand us the raw patch,
   // a JSON string, or a JSON object depending on how the freeform slot serialises.
   if (typeof args === 'string') {
     const trimmed = args.trim();
     // Raw patch passthrough: nothing to unwrap.
-    if (name === 'apply_patch' && trimmed.startsWith('*** Begin Patch')) return args;
+    if (name === 'apply_patch' && trimmed.startsWith('*** Begin Patch')) {
+      return normalizeCustomToolInput(name, args);
+    }
     try {
       args = JSON.parse(trimmed);
     } catch {
       // Not JSON; treat the literal string as the body.
-      return args;
+      return normalizeCustomToolInput(name, args);
     }
   }
 
   if (args && typeof args === 'object') {
     // `command: ['apply_patch', '<patch>']` tuple form.
     if (Array.isArray(args.command) && args.command[0] === 'apply_patch' && typeof args.command[1] === 'string') {
-      return args.command[1];
+      return normalizeCustomToolInput(name, args.command[1]);
     }
     // Any string value in the object is treated as the patch body, regardless
     // of how the freeform slot was named (e.g. {"parameter1": "*** Begin Patch…"}).
     for (const v of Object.values(args)) {
-      if (typeof v === 'string') return v;
+      if (typeof v === 'string') return normalizeCustomToolInput(name, v);
     }
   }
 
-  return asArgsString(args);
+  return normalizeCustomToolInput(name, asArgsString(args));
 }
 
 // state.rewrittenIds: item ids rewritten to a NON-function_call type
