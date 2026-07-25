@@ -148,7 +148,29 @@ function touchSession(cacheRoot, sessionKey, now) {
   return sessionDir;
 }
 
-function persistImage(sessionDir, image) {
+function sessionDirectory(body, options = {}) {
+  if (!options.cacheRoot) return null;
+  const sessionSeed = stableSessionSeed(body);
+  if (!sessionSeed) {
+    if (typeof options.log === 'function') {
+      options.log('inline-image-cache: stable session identifier unavailable; using temporary image storage');
+    }
+    return null;
+  }
+  try {
+    cleanupExpiredSessions(options.cacheRoot, options);
+    return touchSession(options.cacheRoot, hash(sessionSeed).slice(0, 24), options.now);
+  } catch (error) {
+    if (typeof options.log === 'function') options.log('inline-image-cache: ' + error.message);
+    return null;
+  }
+}
+
+function persistImageBytes(sessionDir, bytes, mimeType) {
+  if (!Buffer.isBuffer(bytes) || !MIME_EXTENSIONS.has(mimeType)) {
+    throw new Error('unsupported generated image data');
+  }
+  const image = { bytes, mimeType };
   const imageHash = hash(image.bytes);
   const imagePath = path.join(sessionDir, imageHash + MIME_EXTENSIONS.get(image.mimeType));
   try {
@@ -183,7 +205,7 @@ function persistSessionImage(body, image, options = {}) {
   cleanupExpiredSessions(options.cacheRoot, options);
   const sessionKey = hash(sessionSeed).slice(0, 24);
   const sessionDir = touchSession(options.cacheRoot, sessionKey, options.now);
-  return persistImage(sessionDir, image);
+  return persistImageBytes(sessionDir, image.bytes, image.mimeType);
 }
 
 function pathReference(block, imagePath) {
@@ -201,23 +223,9 @@ function rewriteInlineImages(body, options = {}) {
     }
     return body;
   }
-  const sessionSeed = stableSessionSeed(body);
-  if (!sessionSeed) {
-    if (typeof options.log === 'function') {
-      options.log('inline-image-cache: stable session identifier unavailable; leaving images inline');
-    }
-    return body;
-  }
   const activeStart = activeTurnStartIndex(body);
-  const sessionKey = hash(sessionSeed).slice(0, 24);
-  let sessionDir;
-  try {
-    cleanupExpiredSessions(options.cacheRoot, options);
-    sessionDir = touchSession(options.cacheRoot, sessionKey, options.now);
-  } catch (error) {
-    if (typeof options.log === 'function') options.log('inline-image-cache: ' + error.message);
-    return body;
-  }
+  const sessionDir = sessionDirectory(body, options);
+  if (!sessionDir) return body;
 
   body.input.forEach((item, itemIndex) => {
     if (!item || typeof item !== 'object') return;
@@ -228,7 +236,7 @@ function rewriteInlineImages(body, options = {}) {
         if (!image) return block;
         let imagePath;
         try {
-          imagePath = persistImage(sessionDir, image);
+          imagePath = persistImageBytes(sessionDir, image.bytes, image.mimeType);
         } catch (error) {
           if (typeof options.log === 'function') options.log('inline-image-cache: ' + error.message);
           return block;
@@ -249,6 +257,8 @@ module.exports = {
   isLoopbackUpstream,
   parseInlineImage,
   persistSessionImage,
+  persistImageBytes,
   rewriteInlineImages,
+  sessionDirectory,
   stableSessionSeed,
 };

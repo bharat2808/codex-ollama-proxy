@@ -97,6 +97,40 @@ test('Ollama backend fulfills the existing generate_image tool through /api/gene
   }
 });
 
+test('generated images use content-addressed persistent storage when provided', async () => {
+  const imagine = require('../src/imagine');
+  const generated = Buffer.from('persistent-generated-image');
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ image: generated.toString('base64'), done: true }));
+    });
+  });
+  const port = await listen(server);
+  const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-generated-image-test-'));
+
+  try {
+    const result = await imagine.fulfillGenerateImage({
+      call_id: 'call_persistent_image',
+      arguments: JSON.stringify({ prompt: 'A persistent image' }),
+    }, null, {
+      imagine_service: 'ollama',
+      imagine_model: 'x/z-image-turbo',
+      imagine_base_url: 'http://127.0.0.1:' + port,
+    }, () => {}, { outputDirectory });
+
+    const output = JSON.parse(result.output);
+    assert.equal(path.dirname(output.path), outputDirectory);
+    assert.match(path.basename(output.path), /^[a-f0-9]{64}\.png$/);
+    assert.deepEqual(fs.readFileSync(output.path), generated);
+    assert.equal(fs.statSync(output.path).mode & 0o777, 0o600);
+  } finally {
+    fs.rmSync(outputDirectory, { recursive: true, force: true });
+    await close(server);
+  }
+});
+
 test('Ollama health check verifies the configured image model', async () => {
   const { checkHealth } = require('../src/imagine');
   const server = http.createServer((req, res) => {

@@ -64,6 +64,15 @@ function getUpstream() {
 }
 loadRouteConfig();
 
+function generatedImageOutputDirectory(body) {
+  if (!ROUTE_CFG.persist_inline_images) return null;
+  return inlineImageCache.sessionDirectory(body, {
+    cacheRoot: INLINE_IMAGE_CACHE_DIR,
+    retentionDays: ROUTE_CFG.inline_image_retention_days,
+    log: debugLog,
+  });
+}
+
 // Catalog paths (resolved from the proxy dir's parent: ~/.codex).
 const MODEL_CATALOG_PATHS = [
   path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json'),
@@ -1725,7 +1734,9 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
           const markerIndex = markers.emitOutputItemAdded(clientRes, startedMarker, seq);
           await new Promise((resolve) => setTimeout(resolve, 0));
           try {
-            const r = await imagine.fulfillGenerateImage(call, upstream, ROUTE_CFG, debugLog);
+            const r = await imagine.fulfillGenerateImage(call, upstream, ROUTE_CFG, debugLog, {
+              outputDirectory: generatedImageOutputDirectory(body),
+            });
             outputStr = r.output;
           } catch (err) {
             outputStr = '[generate_image error] ' + err.message;
@@ -1923,6 +1934,7 @@ const server = http.createServer((clientReq, clientRes) => {
             routedModel: body.model,
             visionCapableModels: visionCapableModels,
             upstreamUrl: upstreamLib.displayUrl(getUpstream()),
+            outputDirectory: generatedImageOutputDirectory(body),
           });
           const response = result.response;
           translateFinalResponse(response, info);
