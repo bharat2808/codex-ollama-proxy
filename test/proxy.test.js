@@ -1341,12 +1341,12 @@ test('inline image persistence deduplicates historical images and preserves the 
   });
 });
 
-test('dual-modal image generation turns rehydrate the complete cached image chain', () => {
+test('dual-modal image generation turns rehydrate the complete cached image chain without auto-routing', () => {
   let cachedPaths;
   withRouteConfig([
     'default_model = "dual-image-model"',
     'image_model = "dual-image-model"',
-    'auto_route_image = true',
+    'auto_route_image = false',
     'persist_inline_images = true',
   ], ({ translateRequestBody }) => {
     const body = {

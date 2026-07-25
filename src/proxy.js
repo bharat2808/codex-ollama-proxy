@@ -843,7 +843,6 @@ function translateRequestBody(body) {
   }
   if (
     ROUTE_CFG.persist_inline_images
-    && ROUTE_CFG.auto_route_image
     && isNativeImageOutput(body)
     && loadImageInputOutputCapabilities().has(body.model)
   ) {
