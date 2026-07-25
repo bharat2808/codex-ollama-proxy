@@ -2,7 +2,11 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
-const { loadBundledProviderCatalog } = require('../provider-catalog');
+const {
+  enrichModelFromSeed,
+  loadBundledProviderCatalog,
+} = require('../provider-catalog');
+const { applyDocumentedModalities } = require('../provider-catalog-overrides');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
@@ -130,6 +134,7 @@ async function mapLimit(values, limit, mapper) {
 async function discover(options = {}) {
   const apiBase = resolveApiBase(options.baseUrl);
   const cloudCatalog = loadBundledProviderCatalog('ollama-cloud');
+  const cloudSeeds = new Map(cloudCatalog.models.map((model) => [model.id, model]));
   const tagsPayload = options.detectionPayload || await fetchJson({
     url: `${apiBase}/api/tags`,
     provider: 'ollama',
@@ -175,17 +180,29 @@ async function discover(options = {}) {
       });
       const hasShowCapabilities = Boolean(payload && Array.isArray(payload.capabilities));
       const inspection = parseShow(payload, tagCapabilities.get(id));
-      return modelFromInspection(
+      const model = modelFromInspection(
         id,
         inspection,
         hasShowCapabilities ? 'provider-inspection' : 'provider-catalog',
+      );
+      return applyDocumentedModalities(
+        id.endsWith(':cloud') ? 'ollama-cloud' : 'ollama',
+        enrichModelFromSeed(model, cloudSeeds.get(id)),
       );
     } catch {
       warnings.push(`Ollama model inspection failed for ${id}.`);
       const capabilities = tagCapabilities.has(id)
         ? tagCapabilities.get(id).filter((value) => typeof value === 'string').map((value) => value.toLowerCase())
         : null;
-      return modelFromInspection(id, { contextWindow: null, capabilities }, 'provider-catalog');
+      const model = modelFromInspection(
+        id,
+        { contextWindow: null, capabilities },
+        'provider-catalog',
+      );
+      return applyDocumentedModalities(
+        id.endsWith(':cloud') ? 'ollama-cloud' : 'ollama',
+        enrichModelFromSeed(model, cloudSeeds.get(id)),
+      );
     }
   });
   const discoveredIds = new Set(models.map((model) => model.id));

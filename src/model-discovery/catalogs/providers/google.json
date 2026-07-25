@@ -1297,25 +1297,28 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
-        "reasoningLevels": null,
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
         "toolCalling": "openrouter-catalog",
         "defaultReasoningLevel": null,
-        "reasoningDefaultEnabled": "openrouter-catalog",
-        "reasoningSupportsMaxTokens": null,
-        "reasoningMandatory": "openrouter-catalog"
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
       "source": "bundled-provider-catalog",
       "defaultReasoningLevel": null,
       "reasoningDefaultEnabled": false,
-      "reasoningSupportsMaxTokens": null,
+      "reasoningSupportsMaxTokens": false,
       "reasoningMandatory": false
     },
     {
@@ -1331,25 +1334,28 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
-        "reasoningLevels": null,
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
         "toolCalling": "openrouter-catalog",
         "defaultReasoningLevel": null,
-        "reasoningDefaultEnabled": "openrouter-catalog",
-        "reasoningSupportsMaxTokens": null,
-        "reasoningMandatory": "openrouter-catalog"
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
       "source": "bundled-provider-catalog",
       "defaultReasoningLevel": null,
       "reasoningDefaultEnabled": false,
-      "reasoningSupportsMaxTokens": null,
+      "reasoningSupportsMaxTokens": false,
       "reasoningMandatory": false
     },
     {

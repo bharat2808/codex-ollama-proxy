@@ -1084,7 +1084,8 @@ test('Ollama discovery appends cloud candidates without inspecting or pulling th
     });
 
     assert.equal(result.models[0].id, 'local-model');
-    assert.ok(result.models.slice(1).every((model) => model.id.endsWith(':cloud')));
+    assert.ok(result.models.slice(1).every((model) =>
+      model.id.endsWith(':cloud') || /^gemma4:[^:]+-cloud$/u.test(model.id)));
     assert.ok(result.models.length > 1);
     assert.deepEqual(calls.map((call) => call.authorization), [undefined]);
     assert.equal(calls.some((call) => call.url.endsWith('/api/pull')), false);
@@ -1112,6 +1113,58 @@ test('Ollama local discovery reads its cloud candidates without a catalog networ
     assert.equal(winner, 'discovered');
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('Ollama live discovery retains exact bundled Gemma 4 cloud enrichment', async () => {
+  const result = await ollama.discover({
+    baseUrl: 'http://localhost:11434/v1',
+    detectionPayload: { models: [{ name: 'gemma4:31b-cloud' }] },
+    fetchImpl: async (url, options) => {
+      assert.equal(url, 'http://localhost:11434/api/show');
+      assert.equal(JSON.parse(options.body).name, 'gemma4:31b-cloud');
+      return new Response(JSON.stringify({
+        model_info: { 'gemma4.context_length': 262144 },
+        capabilities: ['completion', 'thinking', 'tools', 'vision'],
+      }));
+    },
+  });
+
+  const gemma4 = result.models.find((model) => model.id === 'gemma4:31b-cloud');
+  assert.equal(gemma4.displayName, 'Google: Gemma 4 31B');
+  assert.deepEqual(gemma4.reasoningLevels, ['none', 'low', 'medium', 'high', 'max']);
+  assert.equal(gemma4.metadataSources.reasoningLevels, 'provider-catalog');
+  assert.equal(gemma4.contextWindow, 262144);
+  assert.deepEqual(gemma4.inputModalities, ['text', 'image']);
+});
+
+test('Ollama live discovery applies reasoning controls to the full Gemma 4 family', async () => {
+  const result = await ollama.discover({
+    baseUrl: 'http://localhost:11434/v1',
+    detectionPayload: {
+      models: [
+        { name: 'gemma4:e2b' },
+        { name: 'gemma4:12b-it-q4_K_M' },
+        { name: 'gemma4:26b-a4b-it-q8_0' },
+      ],
+    },
+    fetchImpl: async (_url, options) => {
+      const id = JSON.parse(options.body).name;
+      return new Response(JSON.stringify({
+        model_info: { 'gemma4.context_length': id === 'gemma4:e2b' ? 131072 : 262144 },
+        capabilities: ['completion', 'thinking', 'tools', 'vision'],
+      }));
+    },
+  });
+
+  for (const id of [
+    'gemma4:e2b',
+    'gemma4:12b-it-q4_K_M',
+    'gemma4:26b-a4b-it-q8_0',
+  ]) {
+    const model = result.models.find((entry) => entry.id === id);
+    assert.deepEqual(model.reasoningLevels, ['none', 'low', 'medium', 'high', 'max']);
+    assert.equal(model.metadataSources.reasoningLevels, 'provider-catalog');
   }
 });
 

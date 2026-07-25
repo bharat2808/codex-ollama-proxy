@@ -31,6 +31,9 @@ const OLLAMA_CLOUD_PREFIXES = Object.freeze({
   minimax: 'minimax',
   qwen: 'qwen',
 });
+const OLLAMA_CLOUD_OPENROUTER_IDS = Object.freeze({
+  'gemma4:31b-cloud': 'google/gemma-4-31b-it',
+});
 const TRUSTED_SOURCE_PATTERN =
   /^(?:provider-(?:catalog|inspection)|ollama-(?:show|tags)|nvidia-featured|(?:cohere|deepseek|google|moonshot|openrouter|xai)-catalog)$/u;
 
@@ -39,6 +42,7 @@ function openRouterIdFor(provider, id) {
   if (provider === 'nvidia') return id.includes('/') ? id : null;
   if (provider === 'openrouter') return id;
   if (provider === 'ollama-cloud') {
+    if (OLLAMA_CLOUD_OPENROUTER_IDS[id]) return OLLAMA_CLOUD_OPENROUTER_IDS[id];
     if (!id.endsWith(':cloud')) return null;
     const bare = id.slice(0, -':cloud'.length);
     const family = Object.keys(OLLAMA_CLOUD_PREFIXES).find((prefix) => bare.startsWith(`${prefix}-`));
@@ -96,7 +100,6 @@ function buildProviderCatalog(provider, providerModels, openRouterModels) {
     let model = nativeModel(row);
     if (!model || seen.has(model.id)) continue;
     seen.add(model.id);
-    model = applyDocumentedModalities(provider, model);
     const openrouterModel = openrouter.get(openRouterIdFor(provider, model.id));
     for (const field of METADATA_FIELDS) {
       if (model[field] === null && openrouterModel && openrouterModel[field] != null) {
@@ -104,6 +107,10 @@ function buildProviderCatalog(provider, providerModels, openRouterModels) {
         model.metadataSources[field] = 'openrouter-catalog';
       }
     }
+    if (model.displayName === model.id && openrouterModel?.displayName) {
+      model.displayName = openrouterModel.displayName;
+    }
+    model = applyDocumentedModalities(provider, model);
     model.source = 'bundled-provider-catalog';
     models.push(model);
   }

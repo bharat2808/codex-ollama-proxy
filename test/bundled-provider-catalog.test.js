@@ -141,7 +141,40 @@ test('OpenRouter enrichment uses provider-aware exact ids only', () => {
   assert.equal(openRouterIdFor('google', 'gemini-2.5-pro'), 'google/gemini-2.5-pro');
   assert.equal(openRouterIdFor('nvidia', 'qwen/qwen3.5-397b-a17b'), 'qwen/qwen3.5-397b-a17b');
   assert.equal(openRouterIdFor('ollama-cloud', 'glm-5.2:cloud'), 'z-ai/glm-5.2');
+  assert.equal(
+    openRouterIdFor('ollama-cloud', 'gemma4:31b-cloud'),
+    'google/gemma-4-31b-it',
+  );
   assert.equal(openRouterIdFor('ollama-cloud', 'unknown:cloud'), null);
+});
+
+test('Ollama Gemma 4 provider controls override its exact OpenRouter enrichment', () => {
+  const native = model('gemma4:31b-cloud', {
+    reasoning: true,
+    metadataSources: {
+      ...model('unused').metadataSources,
+      reasoning: 'provider-inspection',
+    },
+    source: 'ollama-show',
+  });
+  const openrouter = model('google/gemma-4-31b-it', {
+    displayName: 'Google: Gemma 4 31B',
+    contextWindow: 262144,
+    inputModalities: ['text', 'image'],
+    outputModalities: ['text'],
+    reasoning: true,
+    reasoningLevels: ['low'],
+  });
+
+  const catalog = buildProviderCatalog('ollama-cloud', [native], [openrouter]);
+  const enriched = catalog.models[0];
+
+  assert.equal(enriched.displayName, 'Google: Gemma 4 31B');
+  assert.equal(enriched.contextWindow, 262144);
+  assert.deepEqual(enriched.inputModalities, ['text', 'image']);
+  assert.deepEqual(enriched.reasoningLevels, ['none', 'low', 'medium', 'high', 'max']);
+  assert.equal(enriched.metadataSources.contextWindow, 'openrouter-catalog');
+  assert.equal(enriched.metadataSources.reasoningLevels, 'provider-catalog');
 });
 
 test('OpenRouter enrichment copies exact reasoning capabilities and tolerates absent optional fields', () => {
@@ -264,6 +297,8 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
   const gemini36 = google.models.find((entry) => entry.id === 'gemini-3.6-flash');
   const gemini25Flash = google.models.find((entry) => entry.id === 'gemini-2.5-flash');
   const gemini3Pro = google.models.find((entry) => entry.id === 'gemini-3-pro-preview');
+  const gemma426b = google.models.find((entry) => entry.id === 'gemma-4-26b-a4b-it');
+  const gemma431b = google.models.find((entry) => entry.id === 'gemma-4-31b-it');
   assert.deepEqual(gemini36.reasoningLevels, ['minimal', 'low', 'medium', 'high']);
   assert.equal(gemini36.defaultReasoningLevel, 'medium');
   assert.equal(gemini36.metadataSources.reasoningLevels, 'openrouter-catalog');
@@ -272,6 +307,12 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
   assert.equal(gemini25Flash.metadataSources.reasoningLevels, 'provider-catalog');
   assert.deepEqual(gemini3Pro.reasoningLevels, ['low', 'high']);
   assert.equal(gemini3Pro.defaultReasoningLevel, 'high');
+  for (const gemma4 of [gemma426b, gemma431b]) {
+    assert.deepEqual(gemma4.reasoningLevels, ['minimal', 'high']);
+    assert.equal(gemma4.reasoningDefaultEnabled, false);
+    assert.equal(gemma4.reasoningMandatory, false);
+    assert.equal(gemma4.metadataSources.reasoningLevels, 'provider-catalog');
+  }
 
   const nvidia = loadBundledProviderCatalog('nvidia');
   const nemotronSuper = nvidia.models.find(
@@ -286,6 +327,11 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
   assert.equal(deepseekV4.defaultReasoningLevel, 'high');
 
   const ollamaCloud = loadBundledProviderCatalog('ollama-cloud');
+  const gemma4 = ollamaCloud.models.find((entry) => entry.id === 'gemma4:31b-cloud');
+  assert.ok(gemma4, 'Ollama Cloud Gemma 4 must be bundled');
+  assert.equal(gemma4.displayName, 'Google: Gemma 4 31B');
+  assert.equal(gemma4.contextWindow, 262144);
+  assert.deepEqual(gemma4.inputModalities, ['text', 'image']);
   for (const entry of ollamaCloud.models) {
     assert.deepEqual(entry.reasoningLevels, ['none', 'low', 'medium', 'high', 'max']);
     assert.equal(entry.metadataSources.reasoningLevels, 'provider-catalog');

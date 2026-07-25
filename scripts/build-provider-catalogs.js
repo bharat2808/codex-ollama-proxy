@@ -26,7 +26,9 @@ function cachedModels(provider) {
   const models = [];
   for (const document of cacheDocuments(provider).reverse()) {
     for (const model of document.models) {
-      if (provider === 'ollama' && !String(model.id || '').endsWith(':cloud')) continue;
+      if (provider === 'ollama'
+        && !String(model.id || '').endsWith(':cloud')
+        && !/^gemma4:[^:]+-cloud$/u.test(String(model.id || ''))) continue;
       models.push(model);
     }
   }

@@ -102,7 +102,6 @@ function createOllamaCloudPuller(options = {}) {
 
   async function ensureModel(value) {
     const model = normalizeModelId(value);
-    if (!model.endsWith(':cloud')) return { status: 'not-cloud' };
     const allowlist = await cloudIds();
     if (!allowlist.has(model)) return { status: 'not-cloud' };
     if (ready.has(model)) return { status: 'ready' };

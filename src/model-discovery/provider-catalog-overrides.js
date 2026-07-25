@@ -1,5 +1,18 @@
 'use strict';
 
+const GOOGLE_GEMMA4_REASONING = Object.freeze({
+  reasoning: true,
+  reasoningLevels: Object.freeze(['minimal', 'high']),
+  reasoningDefaultEnabled: false,
+  reasoningSupportsMaxTokens: false,
+  reasoningMandatory: false,
+});
+
+const OLLAMA_GEMMA4_REASONING = Object.freeze({
+  reasoning: true,
+  reasoningLevels: Object.freeze(['none', 'low', 'medium', 'high', 'max']),
+});
+
 const DOCUMENTED_MODALITIES = Object.freeze({
   cohere: Object.freeze({
     'command-a-03-2025': Object.freeze({
@@ -38,6 +51,12 @@ const DOCUMENTED_MODALITIES = Object.freeze({
     }),
   }),
   google: Object.freeze({
+    'gemma-4-26b-a4b-it': Object.freeze({
+      ...GOOGLE_GEMMA4_REASONING,
+    }),
+    'gemma-4-31b-it': Object.freeze({
+      ...GOOGLE_GEMMA4_REASONING,
+    }),
     'gemini-2.5-flash': Object.freeze({
       reasoning: true,
       reasoningLevels: Object.freeze(['none', 'minimal', 'low', 'medium', 'high']),
@@ -89,6 +108,7 @@ const DOCUMENTED_MODALITIES = Object.freeze({
     }),
   }),
   'ollama-cloud': Object.freeze(Object.fromEntries([
+    'gemma4:31b-cloud',
     'glm-5.2:cloud',
     'kimi-k2.7-code:cloud',
     'minimax-m2.7:cloud',
@@ -147,7 +167,12 @@ const DOCUMENTED_MODALITIES = Object.freeze({
 });
 
 function applyDocumentedModalities(provider, model) {
-  const documented = DOCUMENTED_MODALITIES[provider]?.[model.id];
+  const familyOverride = provider === 'google' && /^gemma-4-/u.test(model.id)
+    ? GOOGLE_GEMMA4_REASONING
+    : (provider === 'ollama' || provider === 'ollama-cloud') && /^gemma4(?::|$)/u.test(model.id)
+      ? OLLAMA_GEMMA4_REASONING
+      : null;
+  const documented = DOCUMENTED_MODALITIES[provider]?.[model.id] || familyOverride;
   if (!documented) return model;
   const enriched = { ...model, metadataSources: { ...model.metadataSources } };
   for (const field of [

@@ -237,7 +237,7 @@
     },
     {
       "id": "command-r-08-2024",
-      "displayName": "command-r-08-2024",
+      "displayName": "Cohere: Command R (08-2024)",
       "contextWindow": 128000,
       "maxOutputTokens": 4000,
       "inputModalities": [
@@ -270,7 +270,7 @@
     },
     {
       "id": "command-r-plus-08-2024",
-      "displayName": "command-r-plus-08-2024",
+      "displayName": "Cohere: Command R+ (08-2024)",
       "contextWindow": 128000,
       "maxOutputTokens": 4000,
       "inputModalities": [
@@ -303,7 +303,7 @@
     },
     {
       "id": "command-r7b-12-2024",
-      "displayName": "command-r7b-12-2024",
+      "displayName": "Cohere: Command R7B (12-2024)",
       "contextWindow": 132000,
       "maxOutputTokens": 4000,
       "inputModalities": [

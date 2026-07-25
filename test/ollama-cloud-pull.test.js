@@ -46,6 +46,21 @@ test('cloud puller accepts an already registered cloud model without pulling it'
   }]);
 });
 
+test('cloud puller recognizes allowlisted cloud models without the colon-cloud suffix', async () => {
+  const calls = [];
+  const puller = createOllamaCloudPuller({
+    baseUrl: 'http://localhost:11434/v1',
+    loadCatalog: catalog('gemma4:31b-cloud'),
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ models: [{ name: 'gemma4:31b-cloud' }] }));
+    },
+  });
+
+  assert.deepEqual(await puller.ensureModel('gemma4:31b-cloud'), { status: 'ready' });
+  assert.deepEqual(calls, ['http://localhost:11434/api/tags']);
+});
+
 test('cloud puller registers and confirms an allowlisted model through local Ollama', async () => {
   const calls = [];
   const puller = createOllamaCloudPuller({
