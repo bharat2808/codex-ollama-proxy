@@ -738,8 +738,7 @@ function isNativeImageOutput(body) {
 }
 
 function generatedImageCacheEnabled(body) {
-  return ROUTE_CFG.auto_route_image
-    && ROUTE_CFG.persist_inline_images
+  return ROUTE_CFG.persist_inline_images
     && isNativeImageOutput(body);
 }
 
@@ -750,6 +749,14 @@ async function cacheGeneratedResponse(response, requestBody) {
     retentionDays: ROUTE_CFG.inline_image_retention_days,
     log: debugLog,
   });
+}
+
+async function appendVisibleGeneratedImageMessages(response, requestBody) {
+  await cacheGeneratedResponse(response, requestBody);
+  if (!response || !Array.isArray(response.output)) return [];
+  const messages = generatedImageCache.visibleImageMessages(response);
+  response.output.push(...messages);
+  return messages;
 }
 
 // Apply per-request model routing based on the config + presence of an image.
@@ -1690,8 +1697,11 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
 
       seq.index = Math.max(seq.index, result.maxOutputIndex + 1);
       seq.num = Math.max(seq.num, result.maxSequenceNumber + 1);
-      await cacheGeneratedResponse({ output: result.visibleOutputItems }, body);
+      const generatedResponse = { output: [...result.visibleOutputItems] };
+      const imageMessages = await appendVisibleGeneratedImageMessages(generatedResponse, body);
+      for (const message of imageMessages) markers.emitOutputItem(clientRes, message, seq);
       completedItems.push(...result.visibleOutputItems);
+      completedItems.push(...imageMessages);
 
       if (result.failureEvent) {
         failStream(clientRes, streamState, 'upstream response failed', result.failureEvent, completedItems);
@@ -1884,7 +1894,7 @@ const server = http.createServer((clientReq, clientRes) => {
       try {
         debugLog('native image endpoint bridge enabled for ' + nativeImageGeneration.nativeImageProvider(upstream.baseUrl));
         const response = await nativeImageGeneration.generateNativeImageResponse({ upstream, body });
-        await cacheGeneratedResponse(response, body);
+        await appendVisibleGeneratedImageMessages(response, body);
         if (originalStream) sendSseCompleted(clientRes, response);
         else sendJsonResponse(clientRes, 200, response);
       } catch (error) {
@@ -2039,7 +2049,7 @@ const server = http.createServer((clientReq, clientRes) => {
           try {
             const response = JSON.parse(raw);
             translateFinalResponse(response, info);
-            await cacheGeneratedResponse(response, body);
+            await appendVisibleGeneratedImageMessages(response, body);
             sendJsonResponse(clientRes, upstreamRes.statusCode || 200, response);
           } catch (e) {
             clientRes.writeHead(upstreamRes.statusCode, upstreamRes.headers);

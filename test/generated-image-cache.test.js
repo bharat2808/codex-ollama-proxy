@@ -10,6 +10,7 @@ const {
   cacheGeneratedImages,
   isPrivateAddress,
   rehydrateGeneratedImageChain,
+  visibleImageMessages,
 } = require('../src/generated-image-cache');
 
 const PNG_BYTES = Buffer.concat([
@@ -200,4 +201,29 @@ test('keeps a new user image after historical generated images for provider refe
   } finally {
     fs.rmSync(cacheRoot, { recursive: true, force: true });
   }
+});
+
+test('creates a renderable assistant message for each persisted generated image', () => {
+  const imagePath = path.join(os.tmpdir(), 'generated image.png');
+  const messages = visibleImageMessages({
+    output: [{
+      id: 'ig_123',
+      type: 'image_generation_call',
+      status: 'completed',
+      result: 'data:image/png;base64,ignored',
+      saved_path: imagePath,
+    }],
+  });
+
+  assert.deepEqual(messages, [{
+    id: 'msg_proxy_generated_image_ig_123',
+    type: 'message',
+    role: 'assistant',
+    status: 'completed',
+    content: [{
+      type: 'output_text',
+      text: `![Generated image](<${imagePath}>)`,
+      annotations: [],
+    }],
+  }]);
 });

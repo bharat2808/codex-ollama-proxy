@@ -1730,8 +1730,11 @@ test('proxy caches non-streaming native image results and returns their saved pa
     const savedPath = body.output[0].saved_path;
     assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images') + path.sep));
     assert.deepEqual(fs.readFileSync(savedPath), inlineImageBytes('image/png', 'provider-generated'));
+    assert.equal(body.output[1].type, 'message');
+    assert.equal(body.output[1].role, 'assistant');
+    assert.equal(body.output[1].content[0].text, `![Generated image](<${savedPath}>)`);
   }, [
-    'auto_route_image = true',
+    'auto_route_image = false',
     'persist_inline_images = true',
     'stream_proxy_loop = false',
     'imagine_enabled = false',
@@ -1790,8 +1793,18 @@ test('proxy caches streamed native image results before the terminal response', 
     const savedPath = events.at(-1).data.response.output[0].saved_path;
     assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images') + path.sep));
     assert.deepEqual(fs.readFileSync(savedPath), inlineImageBytes('image/png', 'streamed-provider-generated'));
+    const visibleMessage = events
+      .filter((event) => event.event === 'response.output_item.done')
+      .map((event) => event.data.item)
+      .find((item) => item && item.type === 'message');
+    assert.equal(visibleMessage.role, 'assistant');
+    assert.equal(visibleMessage.content[0].text, `![Generated image](<${savedPath}>)`);
+    assert.deepEqual(events.at(-1).data.response.output, [
+      events.at(-1).data.response.output[0],
+      visibleMessage,
+    ]);
   }, [
-    'auto_route_image = true',
+    'auto_route_image = false',
     'persist_inline_images = true',
     'stream_proxy_loop = false',
     'imagine_enabled = false',

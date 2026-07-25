@@ -147,6 +147,34 @@ async function cacheGeneratedImages(response, requestBody, options = {}) {
   return response;
 }
 
+function visibleImageMessages(response) {
+  if (!response || !Array.isArray(response.output)) return [];
+  return response.output.flatMap((item, index) => {
+    if (
+      !item
+      || item.type !== 'image_generation_call'
+      || typeof item.saved_path !== 'string'
+      || !path.isAbsolute(item.saved_path)
+    ) {
+      return [];
+    }
+    const suffix = typeof item.id === 'string' && item.id
+      ? item.id.replace(/[^A-Za-z0-9_-]/gu, '_')
+      : String(index);
+    return [{
+      id: `msg_proxy_generated_image_${suffix}`,
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      content: [{
+        type: 'output_text',
+        text: `![Generated image](<${item.saved_path}>)`,
+        annotations: [],
+      }],
+    }];
+  });
+}
+
 function cachedImageDataUrl(savedPath, options) {
   if (typeof savedPath !== 'string' || !savedPath || !options.cacheRoot) return null;
   const cacheRoot = path.resolve(options.cacheRoot);
@@ -226,4 +254,5 @@ module.exports = {
   cacheGeneratedImages,
   isPrivateAddress,
   rehydrateGeneratedImageChain,
+  visibleImageMessages,
 };
