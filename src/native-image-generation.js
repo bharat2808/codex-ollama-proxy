@@ -70,6 +70,24 @@ function responseErrorMessage(payload, fallback) {
   return fallback;
 }
 
+function responsesUsage(usage) {
+  if (!usage || typeof usage !== 'object') return null;
+  const inputTokens = Number.isFinite(usage.input_tokens)
+    ? usage.input_tokens
+    : Number.isFinite(usage.prompt_tokens) ? usage.prompt_tokens : 0;
+  const outputTokens = Number.isFinite(usage.output_tokens)
+    ? usage.output_tokens
+    : Number.isFinite(usage.completion_tokens) ? usage.completion_tokens : 0;
+  return {
+    ...usage,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: Number.isFinite(usage.total_tokens)
+      ? usage.total_tokens
+      : inputTokens + outputTokens,
+  };
+}
+
 async function generateNativeImageResponse({ upstream, body, fetchImpl = fetch }) {
   if (!upstream || nativeImageProvider(upstream.baseUrl) !== 'xai') {
     throw new Error('native image endpoint bridge is not available for this upstream');
@@ -134,7 +152,7 @@ async function generateNativeImageResponse({ upstream, body, fetchImpl = fetch }
     model: body.model,
     output,
     output_text: '',
-    usage: payload && payload.usage ? payload.usage : null,
+    usage: responsesUsage(payload && payload.usage),
   };
 }
 

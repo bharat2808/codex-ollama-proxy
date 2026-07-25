@@ -77,7 +77,12 @@ test('bridges xAI image generation into a Responses image_generation_call', asyn
     result: 'https://images.example/fox.jpeg',
     revised_prompt: 'A blue fox',
   }]);
-  assert.deepEqual(response.usage, { cost_in_usd_ticks: 200000000 });
+  assert.deepEqual(response.usage, {
+    cost_in_usd_ticks: 200000000,
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+  });
 });
 
 test('reports native image endpoint failures without exposing credentials', async () => {
