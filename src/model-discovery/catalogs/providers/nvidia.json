@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "provider": "nvidia",
+  "models": [
+    {
+      "id": "deepseek-ai/deepseek-v4-pro",
+      "displayName": "DeepSeek V4 Pro",
+      "contextWindow": 262144,
+      "maxOutputTokens": 16384,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "high",
+        "max"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": false,
+      "reasoningMandatory": false
+    },
+    {
+      "id": "minimaxai/minimax-m3",
+      "displayName": "Minimax M3",
+      "contextWindow": 196608,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "nvidia/nemotron-3-super-120b-a12b",
+      "displayName": "Nemotron 3 Super 120B",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "low",
+        "medium"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "openrouter-catalog",
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": "openrouter-catalog",
+        "reasoningMandatory": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
+    },
+    {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b",
+      "displayName": "Nemotron 3 Ultra 550B",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "medium",
+        "high"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "openrouter-catalog",
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": "openrouter-catalog",
+        "reasoningMandatory": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
+    },
+    {
+      "id": "z-ai/glm-5.2",
+      "displayName": "GLM 5.2",
+      "contextWindow": 202752,
+      "maxOutputTokens": 8192,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "high",
+        "xhigh"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "openrouter-catalog",
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
+    }
+  ]
+}

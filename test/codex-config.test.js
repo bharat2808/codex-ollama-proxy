@@ -15,11 +15,12 @@ test('inline image persistence is enabled by default in schema and packaged conf
   assert.match(packaged, /^persist_inline_images\s*=\s*true$/m);
 });
 
-test('model_config ollama defaults to proxy route text_model', () => {
+test('model_config ollama uses catalog reasoning defaults instead of a global effort override', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-route-model-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'config.toml'), [
+    'model_reasoning_effort = "none"',
     'sandbox_mode = "danger-full-access"',
     '',
     '[plugins."storefront-builder@personal"]',
@@ -27,7 +28,7 @@ test('model_config ollama defaults to proxy route text_model', () => {
     '',
   ].join('\n'), 'utf8');
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "z-ai/glm-5.2"',
+    'default_model = "z-ai/glm-5.2"',
     'image_model = "thinkingmachines/inkling"',
     'auto_route_image = true',
     '',
@@ -46,10 +47,10 @@ test('model_config ollama defaults to proxy route text_model', () => {
     });
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stdout, /model=z-ai\/glm-5\.2/);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
     const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
-    assert.match(config, /^model = "z-ai\/glm-5\.2"$/m);
     assert.match(config, /^model_provider = "ollama-launch-codex-app"$/m);
+    assert.doesNotMatch(config, /^model_reasoning_effort\s*=/m);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
@@ -61,7 +62,7 @@ test('CLI switch ollama resets chat-completion upstream config to local Ollama r
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "z-ai/glm-5.2"',
+    'default_model = "z-ai/glm-5.2"',
     'image_model = "thinkingmachines/inkling"',
     'upstream_url = "https://integrate.api.nvidia.com/v1"',
     'upstream_api_key = "secret"',
@@ -85,9 +86,9 @@ test('CLI switch ollama resets chat-completion upstream config to local Ollama r
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /route_reset=ollama/);
-    assert.match(result.stdout, /model=glm-5\.2:cloud/);
+    assert.match(result.stdout, /switched=ollama/);
     const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
-    assert.match(route, /^text_model\s*=\s*"glm-5\.2:cloud"$/m);
+    assert.match(route, /^default_model\s*=\s*"glm-5\.2:cloud"$/m);
     assert.match(route, /^image_model\s*=\s*"kimi-k2\.7-code:cloud"$/m);
     assert.match(route, /^upstream_url\s*=\s*"http:\/\/127\.0\.0\.1:11434\/v1"$/m);
     assert.match(route, /^upstream_api_key\s*=\s*""$/m);
@@ -159,7 +160,9 @@ test('CLI preset add stores provider config without API key and preset use appli
       'chat-completion',
       '--url',
       'https://integrate.api.nvidia.com/v1',
-      '--text-model',
+      '--models',
+      'z-ai/glm-5.2,thinkingmachines/inkling,z-ai/glm-5.2',
+      '--default-model',
       'z-ai/glm-5.2',
       '--image-model',
       'thinkingmachines/inkling',
@@ -176,6 +179,8 @@ test('CLI preset add stores provider config without API key and preset use appli
     const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^adaptor\s*=\s*"chat-completion"$/m);
     assert.match(preset, /^upstream_url\s*=\s*"https:\/\/integrate\.api\.nvidia\.com\/v1"$/m);
+    assert.match(preset, /^models\s*=\s*\["z-ai\/glm-5\.2", "thinkingmachines\/inkling"\]$/m);
+    assert.match(preset, /^default_model\s*=\s*"z-ai\/glm-5\.2"$/m);
     assert.doesNotMatch(preset, /api_key|secret|nvapi/u);
 
     const use = spawnSync(process.execPath, [
@@ -199,7 +204,9 @@ test('CLI preset add stores provider config without API key and preset use appli
     const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
     assert.match(route, /^upstream_url\s*=\s*"https:\/\/integrate\.api\.nvidia\.com\/v1"$/m);
     assert.match(route, /^upstream_api_key\s*=\s*"provider-secret"$/m);
-    assert.match(route, /^text_model\s*=\s*"z-ai\/glm-5\.2"$/m);
+    assert.doesNotMatch(route, /^text_model\s*=/m);
+    assert.match(route, /^models\s*=\s*\["z-ai\/glm-5\.2", "thinkingmachines\/inkling"\]$/m);
+    assert.match(route, /^default_model\s*=\s*"z-ai\/glm-5\.2"$/m);
     assert.match(route, /^image_model\s*=\s*"thinkingmachines\/inkling"$/m);
     assert.match(route, /^auto_route_image\s*=\s*true$/m);
   } finally {
@@ -235,8 +242,10 @@ test('CLI preset add can store API key when requested', () => {
 
     assert.equal(add.status, 0, add.stderr || add.stdout);
     assert.match(add.stdout, /api_key=stored/);
-    const preset = fs.readFileSync(path.join(runtimeDir, 'presets', 'nvidia.toml'), 'utf8');
+    const presetPath = path.join(runtimeDir, 'presets', 'nvidia.toml');
+    const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^upstream_api_key\s*=\s*"stored-secret"$/m);
+    assert.equal(fs.statSync(presetPath).mode & 0o777, 0o600);
 
     const use = spawnSync(process.execPath, [
       path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
@@ -253,8 +262,10 @@ test('CLI preset add can store API key when requested', () => {
     });
 
     assert.equal(use.status, 0, use.stderr || use.stdout);
-    const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
+    const routePath = path.join(runtimeDir, 'proxy-models.toml');
+    const route = fs.readFileSync(routePath, 'utf8');
     assert.match(route, /^upstream_api_key\s*=\s*"stored-secret"$/m);
+    assert.equal(fs.statSync(routePath).mode & 0o777, 0o600);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
@@ -399,6 +410,134 @@ test('CLI preset add rejects an explicitly empty API key', () => {
   }
 });
 
+test('CLI preset add resolves AI Studio without an explicit URL or adaptor', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-aistudio-provider-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'add',
+      'gemini',
+      '--provider',
+      'aistudio',
+      '--models',
+      'gemini-2.5-flash',
+      '--api-key',
+      'gemini-secret',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const preset = fs.readFileSync(path.join(runtimeDir, 'presets', 'gemini.toml'), 'utf8');
+    assert.match(preset, /^adaptor\s*=\s*"google"$/m);
+    assert.match(
+      preset,
+      /^upstream_url\s*=\s*"https:\/\/generativelanguage\.googleapis\.com\/v1beta\/openai"$/m,
+    );
+    assert.match(preset, /^upstream_api_key\s*=\s*"gemini-secret"$/m);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('CLI preset add resolves Vertex AI project, location, and optional token', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-vertex-provider-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'add',
+      'vertex',
+      '--provider',
+      'vertexai',
+      '--project',
+      'sample-project',
+      '--location',
+      'global',
+      '--models',
+      'gemini-2.5-flash',
+      '--vertex-token',
+      'vertex-token',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const preset = fs.readFileSync(path.join(runtimeDir, 'presets', 'vertex.toml'), 'utf8');
+    assert.match(preset, /^adaptor\s*=\s*"google"$/m);
+    assert.match(
+      preset,
+      /^upstream_url\s*=\s*"https:\/\/aiplatform\.googleapis\.com\/v1\/projects\/sample-project\/locations\/global\/endpoints\/openapi"$/m,
+    );
+    assert.match(preset, /^upstream_api_key\s*=\s*"vertex-token"$/m);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('CLI can keep Vertex ADC implicit and accept a run-only Vertex token later', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-vertex-adc-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'add',
+      'vertex-adc',
+      '--provider',
+      'vertexai',
+      '--project',
+      'sample-project',
+      '--location',
+      'global',
+      '--models',
+      'gemini-2.5-flash',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const presetPath = path.join(runtimeDir, 'presets', 'vertex-adc.toml');
+    const preset = fs.readFileSync(presetPath, 'utf8');
+    assert.doesNotMatch(preset, /^upstream_api_key\s*=/m);
+
+    const use = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'use',
+      'vertex-adc',
+      '--vertex-token',
+      'run-only-token',
+      '--no-refresh',
+      '--no-backup',
+      '--no-start',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+    assert.equal(use.status, 0, use.stderr || use.stdout);
+    const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
+    assert.match(route, /^upstream_api_key\s*=\s*"run-only-token"$/m);
+    assert.doesNotMatch(fs.readFileSync(presetPath, 'utf8'), /run-only-token/u);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test('CLI preset add --model sets both text and image model, and preset use --model overrides both for the run', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-preset-model-shorthand-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
@@ -414,7 +553,7 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
       'single',
       '--url',
       'https://provider.example.com/v1',
-      '--model',
+      '--text-model',
       'single-model',
     ], {
       cwd: path.join(__dirname, '..'),
@@ -426,7 +565,7 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
     const presetPath = path.join(runtimeDir, 'presets', 'single.toml');
     const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^adaptor\s*=\s*"none"$/m);
-    assert.match(preset, /^text_model\s*=\s*"single-model"$/m);
+    assert.match(preset, /^default_model\s*=\s*"single-model"$/m);
     assert.match(preset, /^image_model\s*=\s*"single-model"$/m);
 
     // --model at use time overrides both text and image for this run only,
@@ -436,7 +575,7 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
       'preset',
       'use',
       'single',
-      '--model',
+      '--text-model',
       'override-model',
       '--no-refresh',
       '--no-backup',
@@ -450,13 +589,13 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
     assert.match(use.stdout, /preset_applied=single/);
 
     const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
-    assert.match(route, /^text_model\s*=\s*"override-model"$/m);
+    assert.match(route, /^default_model\s*=\s*"override-model"$/m);
     assert.match(route, /^image_model\s*=\s*"override-model"$/m);
     assert.match(route, /^upstream_url\s*=\s*"https:\/\/provider\.example\.com\/v1"$/m);
 
     // The stored preset is unchanged.
     const presetAfter = fs.readFileSync(presetPath, 'utf8');
-    assert.match(presetAfter, /^text_model\s*=\s*"single-model"$/m);
+    assert.match(presetAfter, /^default_model\s*=\s*"single-model"$/m);
     assert.match(presetAfter, /^image_model\s*=\s*"single-model"$/m);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
@@ -595,7 +734,7 @@ test('preset normalize rejects an unknown key (schema validation)', () => {
       '# codex-ollama-proxy preset',
       'adaptor = "none"',
       'upstream_url = "https://provider.example.com/v1"',
-      'text_model = "m"',
+      'default_model = "m"',
       'not_a_real_key = true',
     ].join('\n')),
     /unknown key "not_a_real_key"/,
@@ -617,7 +756,7 @@ test('CLI preset use preserves replacement-token sequences in API keys', () => {
       'literal-key',
       '--url',
       'https://provider.example.com/v1',
-      '--model',
+      '--text-model',
       'test-model',
       '--api-key',
       apiKey,
@@ -661,7 +800,7 @@ test('CLI preset add rejects a fractional dedupe threshold', () => {
       'fractional',
       '--url',
       'https://provider.example.com/v1',
-      '--model',
+      '--text-model',
       'test-model',
       '--dedupe-min-chars',
       '0.5',
@@ -692,7 +831,7 @@ test('CLI preset use stops when the route reset fails', () => {
       'reset-failure',
       '--url',
       'https://provider.example.com/v1',
-      '--model',
+      '--text-model',
       'provider-model',
     ], {
       cwd: path.join(__dirname, '..'),
@@ -745,56 +884,107 @@ test('CLI preset use stops when the route reset fails', () => {
   }
 });
 
-test('local Ollama capability discovery uses bounded show requests and preserves lookup failures as unknown', async () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-capabilities-'));
-  const previousCodexHome = process.env.CODEX_HOME;
-  process.env.CODEX_HOME = codexHome;
-  fs.writeFileSync(path.join(codexHome, 'ollama-launch-models-ollama-working.json'), JSON.stringify({
+test('catalog capability state comes only from normalized discovery metadata', () => {
+  const {
+    nativeCapabilitiesFromDiscovery,
+  } = require('../src/model-catalog/project-codex-catalog');
+  const capabilities = nativeCapabilitiesFromDiscovery({
+    provider: 'ollama',
+    traits: {
+      local: true,
+      nativeInspection: true,
+      supportsCloudPull: true,
+    },
     models: [
-      { slug: 'model-1' },
-      { slug: 'catalog-only' },
-      { slug: 'lookup-failed' },
+      { id: 'vision-tools', inputModalities: ['text', 'image'], toolCalling: true },
+      { id: 'text-only', inputModalities: ['text'], toolCalling: false },
+      { id: 'unknown', inputModalities: null, toolCalling: null },
     ],
-  }));
+  }, 'forced-image');
+
+  assert.equal(capabilities.isOllama, true);
+  assert.deepEqual([...capabilities.visionCapable], ['vision-tools', 'forced-image']);
+  assert.equal(capabilities.toolCalling.get('vision-tools'), true);
+  assert.equal(capabilities.toolCalling.get('text-only'), false);
+  assert.equal(capabilities.toolCalling.has('unknown'), false);
+});
+
+test('discovered metadata maps into supported Codex catalog fields without guessing unknowns', () => {
+  const previousCodexHome = process.env.CODEX_HOME;
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-discovered-metadata-'));
+  process.env.CODEX_HOME = codexHome;
   delete require.cache[require.resolve('../src/codex-config')];
-  const codexConfig = require('../src/codex-config');
-  const originalFetch = global.fetch;
-  const models = Array.from({ length: 40 }, (_, index) => ({
-    name: `model-${index + 1}`,
-    ...(index === 0 ? { capabilities: ['completion'] } : {}),
-  }));
-  let active = 0;
-  let peak = 0;
-  const shown = [];
-
-  global.fetch = async (url, options = {}) => {
-    if (String(url).endsWith('/api/tags')) {
-      return { json: async () => ({ models }) };
-    }
-    const request = JSON.parse(options.body);
-    shown.push(request);
-    active += 1;
-    peak = Math.max(peak, active);
-    await new Promise((resolve) => setTimeout(resolve, 2));
-    active -= 1;
-    return {
-      json: async () => request.model === 'lookup-failed'
-        ? { error: 'model unavailable' }
-        : { capabilities: ['completion', 'tools'] },
-    };
-  };
-
+  const {
+    applyDiscoveredMetadata,
+  } = require('../src/model-catalog/project-codex-catalog');
   try {
-    const discovered = await codexConfig.localOllamaModels();
-    assert.equal(peak, codexConfig.OLLAMA_SHOW_CONCURRENCY);
-    assert.equal(shown.length, 41);
-    assert.ok(shown.every((request) => typeof request.model === 'string' && request.name === undefined));
-    assert.deepEqual(discovered['model-1'], ['completion']);
-    assert.deepEqual(discovered['model-40'], ['completion', 'tools']);
-    assert.deepEqual(discovered['catalog-only'], ['completion', 'tools']);
-    assert.equal(Object.prototype.hasOwnProperty.call(discovered, 'lookup-failed'), false);
+    const catalogModels = [
+      { slug: 'vision-reasoning', input_modalities: ['text'], supported_reasoning_levels: [] },
+      {
+        slug: 'unknown',
+        input_modalities: ['text'],
+        supported_reasoning_levels: [{
+          effort: 'high',
+          description: 'Greater reasoning depth for complex problems',
+        }],
+      },
+    ];
+    const discovered = [
+      {
+        id: 'vision-reasoning', displayName: 'Vision Reasoning', contextWindow: 128000,
+        maxOutputTokens: 8192, inputModalities: ['text', 'image'], outputModalities: ['text'],
+        reasoning: true, reasoningLevels: ['low', 'high'], toolCalling: true,
+      },
+      {
+        id: 'unknown', displayName: 'Unknown', contextWindow: null, maxOutputTokens: null,
+        inputModalities: null, outputModalities: null, reasoning: null,
+        reasoningLevels: null, toolCalling: null,
+      },
+    ];
+    applyDiscoveredMetadata(catalogModels, discovered);
+    assert.deepEqual(catalogModels[0].input_modalities, ['text', 'image']);
+    assert.equal(catalogModels[0].supports_image_detail_original, true);
+    assert.deepEqual(catalogModels[0].supported_reasoning_levels, [
+      {
+        effort: 'low',
+        description: 'Fast responses with lighter reasoning',
+      },
+      {
+        effort: 'high',
+        description: 'Greater reasoning depth for complex problems',
+      },
+    ]);
+    assert.equal(catalogModels[0].context_window, 128000);
+    assert.equal(catalogModels[0].max_context_window, 128000);
+    assert.deepEqual(catalogModels[1].input_modalities, ['text']);
+    assert.deepEqual(catalogModels[1].supported_reasoning_levels, [{
+      effort: 'high',
+      description: 'Greater reasoning depth for complex problems',
+    }]);
   } finally {
-    global.fetch = originalFetch;
+    delete require.cache[require.resolve('../src/codex-config')];
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('upstream catalog IDs exclude models that are obviously not generative text models', () => {
+  const previousCodexHome = process.env.CODEX_HOME;
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-filter-upstream-'));
+  process.env.CODEX_HOME = codexHome;
+  delete require.cache[require.resolve('../src/codex-config')];
+  const {
+    upstreamModelIds,
+  } = require('../src/model-catalog/resolve-model-inventory');
+  try {
+    assert.deepEqual([...upstreamModelIds([
+      { id: 'meta/llama-3.3-70b-instruct' },
+      { id: 'nvidia/embed-qa-4' },
+      { id: 'meta/llama-guard-4-12b' },
+      { name: 'z-ai/glm-5.2' },
+    ])], ['meta/llama-3.3-70b-instruct', 'z-ai/glm-5.2']);
+  } finally {
     delete require.cache[require.resolve('../src/codex-config')];
     if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = previousCodexHome;

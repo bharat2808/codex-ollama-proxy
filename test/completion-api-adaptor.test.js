@@ -123,6 +123,29 @@ function waitForHttp(port, path, timeoutMs = 5000) {
   });
 }
 
+test('completion adaptor preserves every image in a user content chain', () => {
+  const { responsesInputToChatMessages } = require('../adaptor/completion-api-adaptor');
+  const messages = responsesInputToChatMessages({
+    input: [{
+      role: 'user',
+      content: [
+        { type: 'input_text', text: 'Combine these.' },
+        { type: 'input_image', image_url: 'data:image/png;base64,b25l' },
+        { type: 'input_image', image_url: 'data:image/jpeg;base64,dHdv' },
+      ],
+    }],
+  });
+
+  assert.deepEqual(messages, [{
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Combine these.' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,b25l' } },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,dHdv' } },
+    ],
+  }]);
+});
+
 test('completion API adaptor translates Responses requests to Chat Completions', async () => {
   const received = [];
   const chatServer = http.createServer((req, res) => {
@@ -158,6 +181,7 @@ test('completion API adaptor translates Responses requests to Chat Completions',
     const response = await postJson(adaptorPort, '/v1/responses', {
       input: 'say hello',
       stream: false,
+      reasoning: { effort: 'max' },
       tools: [{
         type: 'function',
         name: 'lookup',
@@ -172,8 +196,146 @@ test('completion API adaptor translates Responses requests to Chat Completions',
     assert.equal(received[0].url, '/v1/chat/completions');
     assert.equal(received[0].authorization, 'Bearer test-key');
     assert.equal(received[0].body.model, 'test-model');
+    assert.equal(received[0].body.reasoning_effort, 'max');
     assert.deepEqual(received[0].body.messages, [{ role: 'user', content: 'say hello' }]);
     assert.equal(received[0].body.tools[0].function.name, 'lookup');
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
+test('completion API adaptor forwards requested output modalities and maps non-streaming images', async () => {
+  const received = [];
+  const imageUrl = 'data:image/png;base64,aW1hZ2U=';
+  const chatServer = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: '',
+            images: [{ type: 'image_url', image_url: { url: imageUrl } }],
+          },
+        }],
+      }));
+    });
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'image-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+
+  try {
+    const response = await postJson(adaptorServer.address().port, '/v1/responses', {
+      model: 'image-model',
+      input: 'draw a giraffe',
+      modalities: ['image', 'text'],
+      stream: false,
+    });
+    assert.deepEqual(received[0].modalities, ['image', 'text']);
+    assert.deepEqual(response.body.output, [{
+      id: response.body.output[0].id,
+      type: 'image_generation_call',
+      status: 'completed',
+      result: imageUrl,
+    }]);
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
+test('completion API adaptor maps streamed chat images into image generation calls', async () => {
+  const imageUrl = 'data:image/png;base64,c3RyZWFtZWQ=';
+  const chatServer = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write(`data: ${JSON.stringify({
+      choices: [{
+        delta: {
+          content: '',
+          images: [{ type: 'image_url', image_url: { url: imageUrl } }],
+        },
+      }],
+    })}\n\n`);
+    res.end('data: [DONE]\n\n');
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'image-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+
+  try {
+    const response = await postJsonText(adaptorServer.address().port, '/v1/responses', {
+      model: 'image-model',
+      input: 'draw a giraffe',
+      modalities: ['image', 'text'],
+      stream: true,
+    });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.body, /"type":"image_generation_call"/);
+    assert.match(response.body, new RegExp(imageUrl));
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
+test('completion API adaptor deduplicates repeated streamed image positions and keeps distinct images', async () => {
+  const firstVersion = 'data:image/png;base64,Zmlyc3QtdmVyc2lvbg==';
+  const finalVersion = 'data:image/png;base64,ZmluYWwtdmVyc2lvbg==';
+  const secondImage = 'data:image/png;base64,c2Vjb25kLWltYWdl';
+  const chatServer = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    for (const images of [
+      [{ type: 'image_url', image_url: { url: firstVersion } }],
+      [
+        { type: 'image_url', image_url: { url: finalVersion } },
+        { type: 'image_url', image_url: { url: secondImage } },
+      ],
+    ]) {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { images } }] })}\n\n`);
+    }
+    res.end('data: [DONE]\n\n');
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'image-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+
+  try {
+    const response = await postJsonText(adaptorServer.address().port, '/v1/responses', {
+      model: 'image-model',
+      input: 'draw two images',
+      modalities: ['image', 'text'],
+      stream: true,
+    });
+    const completed = response.body
+      .split('\n')
+      .filter((line) => line.startsWith('data: '))
+      .map((line) => JSON.parse(line.slice(6)))
+      .find((event) => event.type === 'response.completed');
+    const images = completed.response.output.filter((item) => item.type === 'image_generation_call');
+
+    assert.equal(images.length, 2);
+    assert.deepEqual(images.map((item) => item.result), [finalVersion, secondImage]);
+    assert.doesNotMatch(response.body, new RegExp(firstVersion));
   } finally {
     await close(adaptorServer);
     await close(chatServer);
@@ -226,6 +388,35 @@ test('completion API adaptor streams upstream errors without crashing', async ()
   }
 });
 
+test('completion API adaptor bounds stalled upstream requests', async () => {
+  const chatServer = http.createServer(() => {});
+  const chatPort = await listen(chatServer);
+
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    apiKey: 'test-key',
+    defaultModel: 'stalled-model',
+    requestTimeoutMs: 50,
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+  const adaptorPort = adaptorServer.address().port;
+
+  try {
+    const response = await postJson(adaptorPort, '/v1/responses', {
+      input: 'do not wait forever',
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 504);
+    assert.match(response.body.error, /timed out after 50ms/u);
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
 test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstream config', async () => {
   const received = [];
   const provider = http.createServer((req, res) => {
@@ -264,7 +455,7 @@ test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstre
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     `upstream_url = "http://127.0.0.1:${providerPort}/v1"`,
     'upstream_api_key = "provider-secret"',
@@ -352,8 +543,10 @@ test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstre
 
 test('CLI run PRESET applies preset and starts proxy plus chat-completion adaptor', async () => {
   const received = [];
+  const modelRequests = [];
   const provider = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
+      modelRequests.push({ authorization: req.headers.authorization });
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ object: 'list', data: [{ id: 'preset-model', object: 'model' }] }));
       return;
@@ -409,7 +602,6 @@ test('CLI run PRESET applies preset and starts proxy plus chat-completion adapto
     path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
     'run',
     'fake-provider',
-    '--no-refresh',
     '--no-backup',
     '--foreground',
     '--adaptor-port',
@@ -444,6 +636,13 @@ test('CLI run PRESET applies preset and starts proxy plus chat-completion adapto
     assert.equal(received[0].authorization, 'Bearer preset-secret');
     assert.equal(received[0].body.model, 'preset-model');
     assert.deepEqual(received[0].body.messages, [{ role: 'user', content: 'hello preset' }]);
+    assert.ok(modelRequests.length >= 1);
+    assert.ok(modelRequests.every((request) => request.authorization === 'Bearer preset-secret'));
+    const catalog = JSON.parse(fs.readFileSync(
+      path.join(codexHome, 'ollama-launch-models-ollama-working.json'),
+      'utf8',
+    ));
+    assert.deepEqual(catalog.models.map((model) => model.slug), ['preset-model']);
     const storedPreset = fs.readFileSync(path.join(codexHome, 'ollama-shape-proxy', 'presets', 'fake-provider.toml'), 'utf8');
     assert.match(storedPreset, /^upstream_api_key\s*=\s*"preset-secret"$/m);
   } finally {
@@ -639,7 +838,7 @@ test('CLI serve --adaptor chat-completion reports occupied unhealthy proxy port 
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     'image_model = "test-model"',
     'upstream_url = "http://127.0.0.1:9/v1"',
     'upstream_api_key = "provider-secret"',
@@ -706,7 +905,7 @@ test('CLI serve --adaptor chat-completion treats an existing healthy proxy as al
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     'image_model = "test-model"',
     'upstream_url = "http://127.0.0.1:9/v1"',
     'upstream_api_key = "provider-secret"',
@@ -891,7 +1090,7 @@ test('CLI preset add rejects an unsupported adaptor value', () => {
       encoding: 'utf8',
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr || result.stdout, /chat-completion" or "none"/);
+    assert.match(result.stderr || result.stdout, /chat-completion", "google", or "none"/);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

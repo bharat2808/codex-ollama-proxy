@@ -5,6 +5,7 @@ const http = require('http');
 const crypto = require('crypto');
 
 const DEFAULT_PORT = 8787;
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 function now() {
   return Math.floor(Date.now() / 1000);
@@ -175,6 +176,12 @@ function buildChatBody(body, options, stream) {
   for (const key of ['temperature', 'top_p', 'seed', 'presence_penalty', 'frequency_penalty']) {
     if (body[key] != null) payload[key] = body[key];
   }
+  if (Array.isArray(body.modalities) && body.modalities.length) {
+    payload.modalities = [...body.modalities];
+  }
+  if (body.reasoning && typeof body.reasoning.effort === 'string') {
+    payload.reasoning_effort = body.reasoning.effort;
+  }
   payload.max_tokens = body.max_tokens || body.max_output_tokens || options.maxTokens;
   if (tools.length) {
     payload.tools = tools;
@@ -205,12 +212,34 @@ function toolItem(toolCall) {
   };
 }
 
+function imageUrl(image) {
+  if (typeof image === 'string') return image;
+  if (!image || typeof image !== 'object') return '';
+  if (typeof image.url === 'string') return image.url;
+  if (typeof image.image_url === 'string') return image.image_url;
+  return image.image_url && typeof image.image_url.url === 'string' ? image.image_url.url : '';
+}
+
+function imageItem(image, itemId = id('ig')) {
+  const result = imageUrl(image);
+  return result ? {
+    id: itemId,
+    type: 'image_generation_call',
+    status: 'completed',
+    result,
+  } : null;
+}
+
 function completionToResponse(completion, model) {
   const choice = completion.choices && completion.choices[0];
   const msg = choice && choice.message ? choice.message : {};
   const text = msg.content || '';
   const output = [];
   for (const call of msg.tool_calls || []) output.push(toolItem(call));
+  for (const image of msg.images || []) {
+    const item = imageItem(image);
+    if (item) output.push(item);
+  }
   if (text || output.length === 0) output.push(messageItem(text));
   return {
     id: id('resp'),
@@ -229,11 +258,25 @@ async function callChatCompletion(body, options, stream) {
   const target = new URL(options.baseUrl.replace(/\/+$/u, '') + '/chat/completions');
   const headers = { 'content-type': 'application/json' };
   if (options.apiKey) headers.authorization = 'Bearer ' + options.apiKey;
-  const response = await fetch(target, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(buildChatBody(body, options, stream)),
-  });
+  const timeoutMs = Number.isFinite(options.requestTimeoutMs) && options.requestTimeoutMs > 0
+    ? options.requestTimeoutMs
+    : DEFAULT_REQUEST_TIMEOUT_MS;
+  let response;
+  try {
+    response = await fetch(target, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(buildChatBody(body, options, stream)),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+      const timeoutError = new Error('upstream request timed out after ' + timeoutMs + 'ms');
+      timeoutError.statusCode = 504;
+      throw timeoutError;
+    }
+    throw error;
+  }
   if (!response.ok) {
     const detail = await response.text();
     throw new Error('upstream ' + response.status + ': ' + detail);
@@ -259,8 +302,10 @@ async function streamResponse(res, body, options) {
   let outputIndex = 0;
   const msgId = id('msg');
   let textStarted = false;
+  let textOutputIndex = null;
   let text = '';
   const toolStates = new Map();
+  const imageStates = new Map();
   const output = [];
 
   res.writeHead(200, {
@@ -321,19 +366,41 @@ async function streamResponse(res, body, options) {
         }
       }
 
+      for (const [imageIndex, image] of (delta.images || []).entries()) {
+        const result = imageUrl(image);
+        if (!result) continue;
+        const key = image && typeof image === 'object' && image.id != null
+          ? `id:${image.id}`
+          : image && typeof image === 'object' && image.index != null
+            ? `index:${image.index}`
+            : `position:${imageIndex}`;
+        const existing = imageStates.get(key);
+        if (existing) {
+          existing.result = result;
+        } else {
+          imageStates.set(key, {
+            id: id('ig'),
+            type: 'image_generation_call',
+            status: 'completed',
+            result,
+          });
+        }
+      }
+
       if (delta.content) {
         if (!textStarted) {
           textStarted = true;
+          textOutputIndex = outputIndex++;
           sse(res, 'response.output_item.added', {
             type: 'response.output_item.added',
-            output_index: outputIndex,
+            output_index: textOutputIndex,
             sequence_number: sequence++,
             item: { id: msgId, type: 'message', status: 'in_progress', role: 'assistant', content: [] },
           });
           sse(res, 'response.content_part.added', {
             type: 'response.content_part.added',
             item_id: msgId,
-            output_index: outputIndex,
+            output_index: textOutputIndex,
             content_index: 0,
             sequence_number: sequence++,
             part: { type: 'output_text', text: '', annotations: [] },
@@ -343,7 +410,7 @@ async function streamResponse(res, body, options) {
         sse(res, 'response.output_text.delta', {
           type: 'response.output_text.delta',
           item_id: msgId,
-          output_index: outputIndex,
+          output_index: textOutputIndex,
           content_index: 0,
           sequence_number: sequence++,
           delta: delta.content,
@@ -359,11 +426,28 @@ async function streamResponse(res, body, options) {
     output.push(item);
   }
 
+  for (const item of imageStates.values()) {
+    const imageOutputIndex = outputIndex++;
+    sse(res, 'response.output_item.added', {
+      type: 'response.output_item.added',
+      output_index: imageOutputIndex,
+      sequence_number: sequence++,
+      item: { id: item.id, type: 'image_generation_call', status: 'in_progress' },
+    });
+    sse(res, 'response.output_item.done', {
+      type: 'response.output_item.done',
+      output_index: imageOutputIndex,
+      sequence_number: sequence++,
+      item,
+    });
+    output.push(item);
+  }
+
   if (textStarted) {
     const item = { id: msgId, type: 'message', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] };
-    sse(res, 'response.output_text.done', { type: 'response.output_text.done', item_id: msgId, output_index: outputIndex, content_index: 0, sequence_number: sequence++, text });
-    sse(res, 'response.content_part.done', { type: 'response.content_part.done', item_id: msgId, output_index: outputIndex, content_index: 0, sequence_number: sequence++, part: item.content[0] });
-    sse(res, 'response.output_item.done', { type: 'response.output_item.done', output_index: outputIndex, sequence_number: sequence++, item });
+    sse(res, 'response.output_text.done', { type: 'response.output_text.done', item_id: msgId, output_index: textOutputIndex, content_index: 0, sequence_number: sequence++, text });
+    sse(res, 'response.content_part.done', { type: 'response.content_part.done', item_id: msgId, output_index: textOutputIndex, content_index: 0, sequence_number: sequence++, part: item.content[0] });
+    sse(res, 'response.output_item.done', { type: 'response.output_item.done', output_index: textOutputIndex, sequence_number: sequence++, item });
     output.push(item);
   }
 
@@ -382,6 +466,7 @@ function envOptions(env = process.env) {
     apiKey: env.CHAT_COMPLETION_API_KEY || env.COMPLETION_API_KEY || '',
     defaultModel: env.CHAT_COMPLETION_MODEL || env.COMPLETION_MODEL || env.MODEL || '',
     maxTokens: parseInt(env.CHAT_COMPLETION_MAX_TOKENS || env.COMPLETION_MAX_TOKENS || '16384', 10),
+    requestTimeoutMs: parseInt(env.CHAT_COMPLETION_REQUEST_TIMEOUT_MS || env.COMPLETION_REQUEST_TIMEOUT_MS || String(DEFAULT_REQUEST_TIMEOUT_MS), 10),
     verbose: parseBool(env.CHAT_COMPLETION_ADAPTOR_VERBOSE, false),
   };
 }
@@ -433,7 +518,7 @@ function startServer(options = {}) {
       return jsonResponse(res, 404, { error: 'not found' });
     } catch (error) {
       if (config.verbose) console.error('[completion-api-adaptor]', error);
-      if (!res.headersSent) return jsonResponse(res, 500, { error: error.message });
+      if (!res.headersSent) return jsonResponse(res, error.statusCode || 500, { error: error.message });
       sse(res, 'response.error', { type: 'response.error', error: { message: error.message } });
       res.end();
     }

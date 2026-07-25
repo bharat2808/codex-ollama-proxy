@@ -1,0 +1,537 @@
+{
+  "schemaVersion": 1,
+  "provider": "cohere",
+  "models": [
+    {
+      "id": "c4ai-aya-expanse-32b",
+      "displayName": "c4ai-aya-expanse-32b",
+      "contextWindow": 128000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "c4ai-aya-vision-32b",
+      "displayName": "c4ai-aya-vision-32b",
+      "contextWindow": 16384,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "command-a-03-2025",
+      "displayName": "Command A",
+      "contextWindow": 288000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "command-a-plus-05-2026",
+      "displayName": "Command A+",
+      "contextWindow": 436000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": null,
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
+    },
+    {
+      "id": "command-a-reasoning-08-2025",
+      "displayName": "Command A Reasoning",
+      "contextWindow": 288768,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
+    },
+    {
+      "id": "command-a-translate-08-2025",
+      "displayName": "command-a-translate-08-2025",
+      "contextWindow": 8992,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "command-a-vision-07-2025",
+      "displayName": "Command A Vision",
+      "contextWindow": 128000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": false,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "command-r-08-2024",
+      "displayName": "Cohere: Command R (08-2024)",
+      "contextWindow": 128000,
+      "maxOutputTokens": 4000,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "command-r-plus-08-2024",
+      "displayName": "Cohere: Command R+ (08-2024)",
+      "contextWindow": 128000,
+      "maxOutputTokens": 4000,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "command-r7b-12-2024",
+      "displayName": "Cohere: Command R7B (12-2024)",
+      "contextWindow": 132000,
+      "maxOutputTokens": 4000,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "command-r7b-arabic-02-2025",
+      "displayName": "command-r7b-arabic-02-2025",
+      "contextWindow": 128000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "north-mini-code-1-0",
+      "displayName": "North Mini Code 1.0",
+      "contextWindow": 436000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
+    },
+    {
+      "id": "tiny-aya-earth",
+      "displayName": "tiny-aya-earth",
+      "contextWindow": 8192,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "tiny-aya-fire",
+      "displayName": "tiny-aya-fire",
+      "contextWindow": 8192,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "tiny-aya-global",
+      "displayName": "tiny-aya-global",
+      "contextWindow": 8192,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    },
+    {
+      "id": "tiny-aya-water",
+      "displayName": "tiny-aya-water",
+      "contextWindow": 8192,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": null,
+      "reasoningLevels": null,
+      "toolCalling": null,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": null,
+        "reasoningLevels": null,
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    }
+  ]
+}

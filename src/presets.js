@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const schema = require('./route-config-schema');
+const { resolveProviderProfile } = require('./provider-profiles');
 
 function die(message) {
   const error = new Error(message);
@@ -49,29 +50,36 @@ function readTomlNumber(text, key, fallback = 0) {
   const match = text.match(new RegExp('^\\s*' + key + '\\s*=\\s*(\\d+)\\b', 'm'));
   return match ? Number(match[1]) : fallback;
 }
+function readTomlStringArray(text, key, fallback = []) {
+  const match = text.match(new RegExp('^\\s*' + key + '\\s*=\\s*\\[([^\\]]*)\\]', 'm'));
+  if (!match) return fallback;
+  return [...match[1].matchAll(/"((?:\\.|[^"])*)"/gu)].map((entry) => unescapeTomlString(entry[1]));
+}
 
 function readTomlKey(text, def) {
   if (def.type === 'bool') return readTomlBool(text, def.key, def.default);
   if (def.type === 'number') return readTomlNumber(text, def.key, def.default);
+  if (def.type === 'string-array') return readTomlStringArray(text, def.key, def.default);
   return readTomlString(text, def.key, def.default);
 }
 
 function renderValue(def, value) {
   if (def.type === 'bool') return value ? 'true' : 'false';
   if (def.type === 'number') return String(Number(value) || 0);
+  if (def.type === 'string-array') return `[${value.map((entry) => `"${escapeTomlString(entry)}"`).join(', ')}]`;
   return `"${escapeTomlString(value)}"`;
 }
 
 // A preset is a saved partial proxy-models.toml: a bag of the non-imagine
 // ROUTE_CFG keys the user chose to pin, plus the special `adaptor` launcher
-// field (none|chat-completion). Keys the preset does not store keep the
+// field (none|chat-completion|google). Keys the preset does not store keep the
 // template default at apply time — this is the single source of truth the
 // proxy already reads, so new toggles become preset-able with no schema
 // surgery here.
 
 // Render the preset TOML. `adaptor` is always written first; then every stored
-// config value in schema order. Required keys (upstream_url, text_model) are
-// always present; image_model is always present (derived from text_model when
+// config value in schema order. Required keys (upstream_url, default_model) are
+// always present; image_model is always present (derived from default_model when
 // not explicitly set), preserving the --model/--text-model shorthand.
 function renderPresetToml(preset) {
   const lines = ['# codex-ollama-proxy preset', `adaptor = "${escapeTomlString(preset.adaptor)}"`];
@@ -86,8 +94,8 @@ function renderPresetToml(preset) {
 
 function normalizePreset(name, text) {
   const adaptor = readTomlString(text, 'adaptor', 'none');
-  if (adaptor !== 'none' && adaptor !== 'chat-completion') {
-    die(`Error: preset ${name} uses unsupported adaptor "${adaptor}". Supported: "chat-completion" (Chat Completions provider via the adaptor) or "none" (direct Responses API, e.g. local Ollama or a hosted Responses endpoint).`);
+  if (!['none', 'chat-completion', 'google'].includes(adaptor)) {
+    die(`Error: preset ${name} uses unsupported adaptor "${adaptor}". Supported: "chat-completion", "google", or "none".`);
   }
 
   // Collect every top-level key declared in the preset file so we can validate
@@ -115,16 +123,16 @@ function normalizePreset(name, text) {
 
   // Required fields.
   for (const key of schema.REQUIRED_PRESET_KEYS) {
-    if (!(key in values) || values[key] === '' || values[key] == null) {
+    if (!(key in values) || values[key] === '' || values[key] == null
+      || (Array.isArray(values[key]) && values[key].length === 0)) {
       die(`Error: preset ${name} is missing ${key}.`);
     }
   }
   // image_model is a derived shorthand: if not explicitly set, mirror
-  // text_model so a single --model/--text-model is enough (matches `switch
+  // default_model so a single --model/--text-model is enough (matches `switch
   // ollama --model`). It is always present in the stored preset.
-  if (!('image_model' in values) || values.image_model === '') {
-    values.image_model = values.text_model;
-  }
+  if (!values.models.includes(values.default_model)) die(`Error: preset ${name} default_model must occur in models.`);
+  if (values.image_model && !values.models.includes(values.image_model)) die(`Error: preset ${name} image_model must occur in models.`);
   // auto_route_image is a core identity field, always resolved by the preset
   // (false when absent) so a preset fully determines image routing — matching
   // addPreset, which always stores it.
@@ -142,7 +150,7 @@ function readPreset(runtimeDir, name) {
 // Map CLI flags -> preset config keys. Booleans use paired --flag/--no-flag
 // forms; a toggle is only stored when one of the pair is passed (undeclared
 // toggles keep the template default at apply time). Required keys (upstream_url,
-// text_model) are always stored; image_model is always stored (derived).
+// default_model) are always stored; image_model is always stored (derived).
 function flagsToValues(flags) {
   const values = {};
 
@@ -155,12 +163,24 @@ function flagsToValues(flags) {
   }
   values.upstream_url = flags.url;
 
-  // --model is a shorthand that sets both text_model and image_model (mirrors
+  // --model is a shorthand that sets both default_model and image_model (mirrors
   // `switch ollama --model`). --text-model/--image-model override it per-field.
-  const textModel = flags.textModel || flags.model;
-  if (!textModel) die('Error: preset add requires --text-model MODEL (or --model MODEL to set both).');
-  values.text_model = textModel;
-  values.image_model = flags.imageModel || textModel;
+  const rawModels = flags.models || [
+    flags.textModel,
+    flags.imageModel,
+  ].filter(Boolean).join(',');
+  if (!rawModels) die('Error: preset add requires --models MODEL[,MODEL...].');
+  const seen = new Set();
+  values.models = String(rawModels).split(',').map((entry) => entry.trim()).filter((entry) => {
+    if (!entry || seen.has(entry)) return false;
+    seen.add(entry);
+    return true;
+  });
+  if (!values.models.length) die('Error: --models must contain at least one model.');
+  values.default_model = flags.defaultModel || values.models[0];
+  values.image_model = flags.imageModel || (flags.textModel ? flags.textModel : '');
+  if (!values.models.includes(values.default_model)) die('Error: --default-model must occur in --models.');
+  if (values.image_model && !values.models.includes(values.image_model)) die('Error: --image-model must occur in --models.');
 
   if (flags.apiKey === '') {
     die('Error: --api-key was passed but empty. Check your shell variable with: echo ${NVIDIA_API_KEY:+set}');
@@ -204,15 +224,32 @@ function flagsToValues(flags) {
 
 function addPreset(runtimeDir, name, flags, log = console.log) {
   validatePresetName(name);
-  const adaptor = flags.adaptor || 'none';
-  if (adaptor !== 'none' && adaptor !== 'chat-completion') die('Error: --adaptor must be "chat-completion" or "none".');
+  const resolved = resolveProviderProfile(flags);
+  const adaptor = resolved.adaptor;
+  if (!['none', 'chat-completion', 'google'].includes(adaptor)) {
+    die('Error: --adaptor must be "chat-completion", "google", or "none".');
+  }
 
-  const values = flagsToValues(flags);
+  if (flags.vertexToken !== undefined && resolved.provider !== 'vertexai') {
+    die('Error: --vertex-token can only be used with --provider vertexai.');
+  }
+  if (flags.vertexToken !== undefined && flags.apiKey !== undefined) {
+    die('Error: use either --vertex-token or --api-key, not both.');
+  }
+  if (flags.vertexToken === '') {
+    die('Error: --vertex-token was passed but empty.');
+  }
+  const values = flagsToValues({
+    ...flags,
+    url: resolved.url,
+    apiKey: flags.vertexToken !== undefined ? flags.vertexToken : flags.apiKey,
+  });
 
   fs.mkdirSync(presetsDir(runtimeDir), { recursive: true });
   const preset = { name, adaptor, values };
   const file = presetPath(runtimeDir, name);
-  fs.writeFileSync(file, renderPresetToml(preset), 'utf8');
+  fs.writeFileSync(file, renderPresetToml(preset), { encoding: 'utf8', mode: 0o600 });
+  fs.chmodSync(file, 0o600);
   log(`preset=${name}`);
   log(`created=${file}`);
   log(`api_key=${flags.apiKey !== undefined && flags.apiKey ? 'stored' : 'not_stored'}`);

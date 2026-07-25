@@ -98,7 +98,7 @@ test('derives migration state from an active preset without copying route values
     adaptor: 'none',
     proxy_port: 11436,
   });
-  assert.deepEqual(launcherState.fromPreset({ adaptor: 'chat-completion', values: { text_model: 'text', upstream_api_key: 'secret' } }), {
+  assert.deepEqual(launcherState.fromPreset({ adaptor: 'chat-completion', values: { default_model: 'text', upstream_api_key: 'secret' } }), {
     version: 1,
     adaptor: 'chat-completion',
     proxy_port: 11436,

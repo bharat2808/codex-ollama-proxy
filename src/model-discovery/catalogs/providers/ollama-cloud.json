@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "provider": "ollama-cloud",
+  "models": [
+    {
+      "id": "gemma4:31b-cloud",
+      "displayName": "Google: Gemma 4 31B",
+      "contextWindow": 262144,
+      "maxOutputTokens": 262144,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog",
+        "toolCalling": "provider-inspection"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": false,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
+    },
+    {
+      "id": "glm-5.2:cloud",
+      "displayName": "Z.ai: GLM 5.2",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 131072,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog",
+        "toolCalling": "provider-inspection"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningMandatory": false,
+      "reasoningSupportsMaxTokens": null
+    },
+    {
+      "id": "kimi-k2.7-code:cloud",
+      "displayName": "MoonshotAI: Kimi K2.7 Code",
+      "contextWindow": 262144,
+      "maxOutputTokens": 262144,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog",
+        "toolCalling": "provider-inspection"
+      },
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": true,
+      "reasoningMandatory": true,
+      "defaultReasoningLevel": null,
+      "reasoningSupportsMaxTokens": null
+    },
+    {
+      "id": "minimax-m2.7:cloud",
+      "displayName": "MiniMax: MiniMax M2.7",
+      "contextWindow": 196608,
+      "maxOutputTokens": 131072,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog",
+        "toolCalling": "provider-inspection"
+      },
+      "source": "bundled-provider-catalog",
+      "reasoningMandatory": true,
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null
+    },
+    {
+      "id": "nemotron-3-ultra:cloud",
+      "displayName": "nemotron-3-ultra:cloud",
+      "contextWindow": 262144,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-inspection"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
+    }
+  ]
+}

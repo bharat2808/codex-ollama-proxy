@@ -27,22 +27,23 @@ const PROXY_PORT = process.env.PROXY_PORT || String(launcherState.DEFAULT_PROXY_
 function usage() {
   console.log(`Usage:
   codex-ollama-proxy init [--force]
-  codex-ollama-proxy serve [--adaptor chat-completion] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
+  codex-ollama-proxy serve [--adaptor chat-completion|google] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
   codex-ollama-proxy serve --preset NAME [--api-key KEY] [--replace]
-  codex-ollama-proxy serve --adaptor chat-completion [--completion-model MODEL] [--adaptor-port PORT]
-  codex-ollama-proxy preset add NAME [--adaptor chat-completion|none] --url URL (--text-model MODEL | --model MODEL) [--image-model MODEL] [--api-key KEY]
+  codex-ollama-proxy serve --adaptor chat-completion|google [--completion-model MODEL] [--adaptor-port PORT]
+  codex-ollama-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
+  codex-ollama-proxy preset add NAME --provider vertexai --project PROJECT --location LOCATION --models MODEL[,MODEL...] [--vertex-token TOKEN]
     [--auto-image|--no-auto-image] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
     [--persist-images|--no-persist-images] [--image-retention-days DAYS]
     [--verbose-tools|--no-verbose-tools] [--log-upstream-body|--no-log-upstream-body]
     [--enable-find-skill|--no-enable-find-skill] [--stream-loop|--no-stream-loop]
   codex-ollama-proxy preset list
   codex-ollama-proxy preset show NAME
-  codex-ollama-proxy preset use NAME [--api-key KEY] [--model MODEL] [--no-start]
-  codex-ollama-proxy run NAME [--api-key KEY] [--model MODEL] [--adaptor-port PORT] [--replace] [--foreground]
+  codex-ollama-proxy preset use NAME [--api-key KEY] [--default-model MODEL] [--no-start]
+  codex-ollama-proxy run NAME [--api-key KEY] [--default-model MODEL] [--adaptor-port PORT] [--replace] [--foreground]
   codex-ollama-proxy status
   codex-ollama-proxy switch openai
   codex-ollama-proxy switch ollama [--model MODEL] [--no-start]
-  codex-ollama-proxy route --text-model MODEL --image-model MODEL [--auto-image|--no-auto-image]
+  codex-ollama-proxy route --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--auto-image|--no-auto-image]
                            [--persist-images|--no-persist-images] [--image-retention-days DAYS]
   codex-ollama-proxy upstream [--url URL] [--api-key KEY] [--status]
   codex-ollama-proxy logs [--tail N]
@@ -136,6 +137,11 @@ function parseFlags(argv) {
   return { flags, rest };
 }
 
+function writePrivateText(file, text) {
+  fs.writeFileSync(file, text, { encoding: 'utf8', mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+}
+
 function init(options = {}) {
   fs.mkdirSync(RUNTIME_DIR, { recursive: true });
   imagineConfig.ensure(IMAGINE_CONFIG);
@@ -153,6 +159,7 @@ function init(options = {}) {
   } else {
     console.log(`catalog_exists=${MODEL_CATALOG}`);
   }
+  fs.chmodSync(ROUTE_CONFIG, 0o600);
 }
 
 // Redact secret values in a TOML string so status() never leaks API keys.
@@ -178,10 +185,12 @@ function writeRouteValue(text, key, value) {
   // Render booleans/numbers bare and strings quoted; match an existing
   // quoted-string, boolean, or bare-number assignment so numeric config keys
   // (e.g. duplicate_input_min_chars) are replaced in place rather than appended.
-  const rendered = typeof value === 'boolean' ? String(value)
+  const rendered = Array.isArray(value)
+    ? `[${value.map((entry) => `"${String(entry).replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`).join(', ')}]`
+    : typeof value === 'boolean' ? String(value)
     : typeof value === 'number' ? String(value)
     : `"${value}"`;
-  const pattern = new RegExp(`^(\\s*${key}\\s*=\\s*)(?:"[^"]*"|true|false|-?\\d+\\b).*`, 'm');
+  const pattern = new RegExp(`^(\\s*${key}\\s*=\\s*)(?:\\[[^\\]]*\\]|"[^"]*"|true|false|-?\\d+\\b).*`, 'm');
   if (pattern.test(text)) return text.replace(pattern, (_match, prefix) => prefix + rendered);
   return `${text.replace(/\s+$/u, '')}\n${key} = ${rendered}\n`;
 }
@@ -196,7 +205,7 @@ function applyImagineConfigToText(text) {
 
 function applyImagineConfigToRoute() {
   const text = applyImagineConfigToText(readRouteConfig());
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
 }
 
 function applyPreset(name, flags = {}) {
@@ -208,19 +217,40 @@ function applyPreset(name, flags = {}) {
   // top (the stored preset file is not modified), mirroring `switch ollama
   // --model`.
   const values = Object.assign({}, preset.values);
-  const overrideModel = flags.model || '';
-  if (overrideModel) {
-    values.text_model = overrideModel;
-    values.image_model = overrideModel;
+  if (flags.textModel) {
+    values.models = [flags.textModel];
+    values.default_model = flags.textModel;
+    values.image_model = flags.textModel;
+  }
+  if (flags.defaultModel) {
+    if (!values.models.includes(flags.defaultModel)) die('Error: --default-model must occur in the preset models.');
+    values.default_model = flags.defaultModel;
+  }
+  if (flags.vertexToken !== undefined && flags.apiKey !== undefined) {
+    die('Error: use either --vertex-token or --api-key, not both.');
+  }
+  if (flags.vertexToken === '') {
+    die('Error: --vertex-token was passed but empty.');
+  }
+  if (flags.vertexToken !== undefined) {
+    const presetUrl = values.upstream_url || '';
+    if (preset.adaptor !== 'google'
+      || !/^https:\/\/aiplatform\.googleapis\.com\/v1\/projects\/[^/]+\/locations\/[^/]+\/endpoints\/openapi\/?$/u.test(presetUrl)) {
+      die('Error: --vertex-token can only be used with a Vertex AI preset.');
+    }
   }
   if (flags.apiKey === '') {
     die('Error: --api-key was passed but empty. Check your shell variable with: echo ${NVIDIA_API_KEY:+set}');
   }
-  const apiKey = flags.apiKey !== undefined ? flags.apiKey : values.upstream_api_key;
+  const apiKey = flags.vertexToken !== undefined
+    ? flags.vertexToken
+    : flags.apiKey !== undefined ? flags.apiKey : values.upstream_api_key;
   if (apiKey !== undefined) values.upstream_api_key = apiKey || '';
+  // Normalize Codex into proxy mode without refreshing yet. The preset route
+  // must be written first so model discovery queries the preset provider
+  // instead of the temporary local-Ollama defaults installed by switchMode.
   switchMode('ollama', {
-    model: values.text_model,
-    noRefresh: flags.noRefresh,
+    noRefresh: true,
     noBackup: flags.noBackup,
     noStart: true,
   });
@@ -230,7 +260,8 @@ function applyPreset(name, flags = {}) {
   }
   text = writeRouteValue(text, 'active_preset', name);
   text = applyImagineConfigToText(text);
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
+  if (!flags.noRefresh) codexConfig(['refresh']);
   launcherState.write(LAUNCHER_STATE, launcherState.fromPreset(preset, {
     proxy_port: configuredProxyPort(),
   }));
@@ -261,17 +292,25 @@ function resetRouteForOllama(flags = {}) {
   fs.mkdirSync(RUNTIME_DIR, { recursive: true });
   let text = fs.readFileSync(DEFAULT_ROUTE_CONFIG, 'utf8');
   if (flags.model) {
-    text = writeRouteValue(text, 'text_model', flags.model);
+    text = writeRouteValue(text, 'default_model', flags.model);
     text = writeRouteValue(text, 'image_model', flags.model);
   }
   text = applyImagineConfigToText(text);
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
   console.log(`route_reset=ollama (${ROUTE_CONFIG})`);
 }
 
 function route(flags) {
   let text = readRouteConfig();
-  if (flags.textModel) text = writeRouteValue(text, 'text_model', flags.textModel);
+  const routedModels = flags.models
+    ? String(flags.models).split(',').map((entry) => entry.trim()).filter(Boolean)
+    : flags.textModel ? [flags.textModel] : null;
+  if (routedModels) {
+    text = writeRouteValue(text, 'models', [...new Set(routedModels)]);
+    text = writeRouteValue(text, 'default_model', flags.defaultModel || routedModels[0]);
+  } else if (flags.defaultModel) {
+    text = writeRouteValue(text, 'default_model', flags.defaultModel);
+  }
   if (flags.imageModel) text = writeRouteValue(text, 'image_model', flags.imageModel);
   if (flags.autoImage) text = writeRouteValue(text, 'auto_route_image', true);
   if (flags.noAutoImage) text = writeRouteValue(text, 'auto_route_image', false);
@@ -285,7 +324,7 @@ function route(flags) {
     text = writeRouteValue(text, 'inline_image_retention_days', retentionDays);
   }
   text = applyImagineConfigToText(text);
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
   console.log(`updated=${ROUTE_CONFIG}`);
 }
 
@@ -314,7 +353,7 @@ function upstreamCmd(flags) {
   if (!flags.url && !flags.apiKey) {
     die('Error: upstream requires --url, --api-key, or --status.');
   }
-  fs.writeFileSync(ROUTE_CONFIG, text, 'utf8');
+  writePrivateText(ROUTE_CONFIG, text);
   console.log(`updated=${ROUTE_CONFIG}`);
 }
 
@@ -602,25 +641,27 @@ async function serveCmd(flags = {}) {
     );
     return proxyServer;
   }
-  if (flags.adaptor !== 'chat-completion') {
-    die('Error: --adaptor must be "chat-completion" or "none".');
+  if (!['chat-completion', 'google'].includes(flags.adaptor)) {
+    die('Error: --adaptor must be "chat-completion", "google", or "none".');
   }
 
   const routeConfig = readRouteConfig();
   const adaptorPort = String(flags.adaptorPort || process.env.CHAT_COMPLETION_ADAPTOR_PORT || process.env.COMPLETION_ADAPTOR_PORT || '8787');
   const providerUrl = readRouteValue(routeConfig, 'upstream_url');
   const providerApiKey = readRouteValue(routeConfig, 'upstream_api_key');
-  const providerModel = flags.completionModel || readRouteValue(routeConfig, 'text_model');
+  const providerModel = flags.completionModel || readRouteValue(routeConfig, 'default_model');
   if (!providerUrl) die('Error: configure the chat-completion provider with: codex-ollama-proxy upstream --url URL [--api-key KEY]');
 
   const savedLauncherState = {
     version: launcherState.VERSION,
-    adaptor: 'chat-completion',
+    adaptor: flags.adaptor,
     adaptor_port: parseInt(adaptorPort, 10),
     ...runtimeOverrides,
   };
   if (flags.completionModel) savedLauncherState.completion_model = String(flags.completionModel);
-  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptor = flags.adaptor === 'google'
+    ? require('../adaptor/google-api-adaptor')
+    : require('../adaptor/completion-api-adaptor');
   const adaptorServer = adaptor.startServer({
     port: parseInt(adaptorPort, 10),
     baseUrl: providerUrl,
@@ -672,7 +713,7 @@ async function startPresetServer(preset, flags = {}) {
     'serve',
   ];
   // Direct presets (adaptor "none") talk straight to the configured
-  // upstream_url — no adaptor process. Only chat-completion spawns one.
+  // upstream_url — no adaptor process. Adapted presets spawn their selected adaptor.
   if (preset.adaptor && preset.adaptor !== 'none') {
     args.push('--adaptor', preset.adaptor);
   }
@@ -787,7 +828,7 @@ async function imagineCmd(flags) {
 
 function readImagineConfig() {
   const cfg = imagineConfig.read(IMAGINE_CONFIG);
-  cfg.text_model = readRouteValue(readRouteConfig(), 'text_model', null);
+  cfg.default_model = readRouteValue(readRouteConfig(), 'default_model', null);
   return cfg;
 }
 async function main() {

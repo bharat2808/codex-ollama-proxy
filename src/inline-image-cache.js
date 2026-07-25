@@ -35,6 +35,15 @@ function hasImageSignature(mimeType, bytes) {
   return false;
 }
 
+function imageMimeType(bytes, declaredMimeType = '') {
+  const declared = String(declaredMimeType || '').split(';', 1)[0].trim().toLowerCase();
+  if (MIME_EXTENSIONS.has(declared) && hasImageSignature(declared, bytes)) return declared;
+  for (const mimeType of MIME_EXTENSIONS.keys()) {
+    if (hasImageSignature(mimeType, bytes)) return mimeType;
+  }
+  return null;
+}
+
 function parseInlineImage(block, options = {}) {
   if (!block || typeof block !== 'object') return null;
   const imageUrl = typeof block.image_url === 'string'
@@ -189,6 +198,16 @@ function persistImageBytes(sessionDir, bytes, mimeType) {
   return imagePath;
 }
 
+function persistSessionImage(body, image, options = {}) {
+  if (!options.cacheRoot) return null;
+  const sessionSeed = stableSessionSeed(body);
+  if (!sessionSeed) return null;
+  cleanupExpiredSessions(options.cacheRoot, options);
+  const sessionKey = hash(sessionSeed).slice(0, 24);
+  const sessionDir = touchSession(options.cacheRoot, sessionKey, options.now);
+  return persistImageBytes(sessionDir, image.bytes, image.mimeType);
+}
+
 function pathReference(block, imagePath) {
   return {
     type: block.type === 'output_image' ? 'output_text' : 'input_text',
@@ -234,8 +253,10 @@ module.exports = {
   MAX_INLINE_IMAGE_BYTES,
   activeTurnStartIndex,
   cleanupExpiredSessions,
+  imageMimeType,
   isLoopbackUpstream,
   parseInlineImage,
+  persistSessionImage,
   persistImageBytes,
   rewriteInlineImages,
   sessionDirectory,

@@ -91,7 +91,7 @@ Create the preset:
 
 ```bash
 codex-ollama-proxy preset add openrouter \
-  --url "https://openrouter.ai/api/v1" \
+  --provider openrouter \
   --text-model "PROVIDER/MODEL" \
   --api-key "$OPENROUTER_API_KEY"
 ```
@@ -160,8 +160,7 @@ The adaptor converts Codex Responses API traffic into Chat Completions requests.
 export NVIDIA_API_KEY="nvapi-..."
 
 codex-ollama-proxy preset add nvidia \
-  --adaptor chat-completion \
-  --url "https://integrate.api.nvidia.com/v1" \
+  --provider nvidia \
   --text-model "z-ai/glm-5.2" \
   --image-model "thinkingmachines/inkling" \
   --auto-image \
@@ -176,7 +175,7 @@ To save the provider configuration without storing its key:
 
 ```bash
 codex-ollama-proxy preset add openrouter \
-  --url "https://openrouter.ai/api/v1" \
+  --provider openrouter \
   --text-model "PROVIDER/MODEL"
 ```
 

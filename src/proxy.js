@@ -7,6 +7,9 @@ const webSearch = require('./web-search');
 const skillFind = require('./skill-find');
 const imagine = require('./imagine');
 const inlineImageCache = require('./inline-image-cache');
+const generatedImageCache = require('./generated-image-cache');
+const nativeImageGeneration = require('./native-image-generation');
+const { createOllamaCloudPuller } = require('./ollama-cloud-pull');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
 
@@ -38,6 +41,8 @@ function loadRouteConfig() {
       const n = line.match(/^\s*([A-Za-z_]+)\s*=\s*(\d+)\b/);
       if (n && n[1] in ROUTE_CFG && typeof ROUTE_CFG[n[1]] === 'number') ROUTE_CFG[n[1]] = Number(n[2]);
     }
+    const modelsMatch = raw.match(/^\s*models\s*=\s*\[([^\]]*)\]/m);
+    if (modelsMatch) ROUTE_CFG.models = [...modelsMatch[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
   } catch (e) {
     // Missing file is fine; auto-routing just stays off.
   }
@@ -51,7 +56,7 @@ function loadRouteConfig() {
     const minChars = parseInt(process.env.PROXY_DEDUPE_MIN_CHARS, 10);
     if (Number.isFinite(minChars) && minChars >= 0) ROUTE_CFG.duplicate_input_min_chars = minChars;
   }
-  log('route config: text=' + ROUTE_CFG.text_model + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
+  log('route config: text=' + ROUTE_CFG.default_model + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
 }
 
 function getUpstream() {
@@ -73,14 +78,53 @@ const MODEL_CATALOG_PATHS = [
   path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json'),
   path.join(CODEX_DIR, 'ollama-launch-models.json'),
 ];
+const VISION_CACHE_PATH = path.join(CODEX_DIR, 'cache', 'vision_capable_models.json');
 
-// When auto_route_image is on, force the text_model's catalog entry to claim
-// image capability so Codex emits input_image blocks even when the active
-// model (text_model) is really text-only. The proxy then rewrites the model
-// to image_model per-request, so the text model never actually sees the image.
-// Idempotent: only writes if the entry actually changed.
+// Set of model names that actually have vision capability (from Ollama probes).
+// Empty means either non-Ollama (all assumed vision-capable) or not yet probed.
+let visionCapableModels = null;
+let imageOutputCapableModels = null;
+let imageInputOutputCapableModels = null;
+let toolUnsupportedModels = null;
+let ollamaCloudPuller = null;
+let ollamaCloudPullerBase = '';
+const XAI_FIXED_REASONING_MODELS = new Set([
+  'grok-4.20-0309-non-reasoning',
+  'grok-4.20-0309-reasoning',
+  'grok-build-0.1',
+]);
+
+function localOllamaUpstreamBase(upstream) {
+  const base = upstream && upstream.baseUrl;
+  if (!base || base.protocol !== 'http:' || base.pathname !== '/v1') return null;
+  if (base.hostname !== '127.0.0.1' && base.hostname !== 'localhost' && base.hostname !== '[::1]') return null;
+  return base.origin + '/v1';
+}
+
+async function ensureCloudModelForRequest(upstream, body) {
+  if (!body || typeof body.model !== 'string') return { status: 'not-cloud' };
+  const baseUrl = localOllamaUpstreamBase(upstream);
+  if (!baseUrl) return { status: 'not-cloud' };
+  if (!ollamaCloudPuller || ollamaCloudPullerBase !== baseUrl) {
+    ollamaCloudPuller = createOllamaCloudPuller({
+      baseUrl,
+      cacheDir: path.join(RUNTIME_DIR, 'model-discovery-cache'),
+    });
+    ollamaCloudPullerBase = baseUrl;
+  }
+  return ollamaCloudPuller.ensureModel(body.model);
+}
+
+// When auto_route_image is on, force ALL catalog entries to claim image
+// capability so Codex emits input_image blocks regardless of which model
+// is selected. The proxy then rewrites non-vision models to image_model
+// per-request. Before forcing, snapshot which models actually have vision
+// (from Ollama probes) so the proxy knows which models can handle images
+// directly vs which need rewriting.
+// Idempotent: only writes if an entry actually changed.
 function forceImageCapabilityForTextModel() {
-  if (!ROUTE_CFG.auto_route_image || !ROUTE_CFG.text_model) return;
+  if (!ROUTE_CFG.auto_route_image) return;
+  imageInputOutputCapableModels = new Set();
   for (const catalogPath of MODEL_CATALOG_PATHS) {
     let raw;
     try {
@@ -98,24 +142,57 @@ function forceImageCapabilityForTextModel() {
       continue;
     }
     const models = Array.isArray(catalog.models) ? catalog.models : [];
+    for (const name of imageInputOutputCapabilities(models)) imageInputOutputCapableModels.add(name);
+
+    // Snapshot which models actually have vision before forcing.
+    // Prefer the vision cache file written by refreshCatalog (has TRUE capabilities).
+    // Fall back to reading catalog modalities (only correct if catalog hasn't been forced yet).
+    if (!visionCapableModels) {
+      visionCapableModels = new Set();
+      let cacheSource = 'catalog';
+      try {
+        const cacheRaw = fs.readFileSync(VISION_CACHE_PATH, 'utf8');
+        const cache = JSON.parse(cacheRaw);
+        if (cache && Array.isArray(cache.models)) {
+          for (const name of cache.models) {
+            if (name) visionCapableModels.add(name);
+          }
+          cacheSource = 'vision cache';
+        }
+      } catch (e) {
+        // No cache file — fall back to catalog
+      }
+      if (visionCapableModels.size === 0) {
+        for (const m of models) {
+          const mods = Array.isArray(m && m.input_modalities) ? m.input_modalities : [];
+          if (mods.includes('image')) {
+            const name = (m && (m.slug || m.display_name)) || '';
+            if (name) visionCapableModels.add(name);
+          }
+        }
+      }
+      if (visionCapableModels.size > 0) {
+        log('vision-capable models (from ' + cacheSource + '): ' + [...visionCapableModels].join(', '));
+      } else {
+        log('vision-capable models: (none — all image requests will rewrite to image_model)');
+      }
+    }
+
+    // Force ALL entries to image-capable
     for (const m of models) {
-      if (m && (m.slug === ROUTE_CFG.text_model || m.display_name === ROUTE_CFG.text_model)) {
-        const mods = Array.isArray(m.input_modalities) ? m.input_modalities : [];
-        if (!mods.includes('image')) {
-          m.input_modalities = ['text', 'image'];
-          changed = true;
-        }
-        if (m.supports_image_detail_original !== true) {
-          m.supports_image_detail_original = true;
-          changed = true;
-        }
-        if (changed) {
-          log('force-image: patched catalog entry "' + ROUTE_CFG.text_model + '" -> image-capable in ' + catalogPath + ' (auto_route_image=true)');
-        }
-        break;
+      if (!m) continue;
+      const mods = Array.isArray(m.input_modalities) ? m.input_modalities : [];
+      if (!mods.includes('image')) {
+        m.input_modalities = ['text', 'image'];
+        changed = true;
+      }
+      if (m.supports_image_detail_original !== true) {
+        m.supports_image_detail_original = true;
+        changed = true;
       }
     }
     if (changed) {
+      log('force-image: patched all catalog entries -> image-capable in ' + catalogPath + ' (auto_route_image=true)');
       try {
         fs.writeFileSync(catalogPath, JSON.stringify(catalog, null, 2) + '\n', 'utf8');
         log('force-image: catalog written ' + catalogPath);
@@ -212,6 +289,41 @@ function flattenNamespaceTool(namespace, tool) {
   };
 }
 
+function flattenCustomTool(tool) {
+  if (!tool || tool.type !== 'custom' || !tool.name) return null;
+  const format = tool.format;
+  let inputDescription = tool.name === 'apply_patch'
+    ? 'Complete patch in apply_patch format, not unified diff. It must begin with "*** Begin Patch" and end with "*** End Patch". Use "*** Add File: <path>" and prefix every added content line with "+". Use "*** Delete File: <path>" to delete. Use "*** Update File: <path>" with "@@" hunks whose context, added, and removed lines start with " ", "+", and "-".'
+    : 'Raw input for the custom tool.';
+  if (format && format.type === 'text') {
+    if (tool.name !== 'apply_patch') {
+      inputDescription = 'Raw unconstrained text input for the custom tool.';
+    }
+  } else if (format && format.type === 'grammar'
+    && (format.syntax === 'lark' || format.syntax === 'regex')
+    && typeof format.definition === 'string') {
+    inputDescription += ' It must conform to this ' + format.syntax
+      + ' grammar:\n' + format.definition;
+  }
+  return {
+    type: 'function',
+    name: tool.name,
+    description: tool.description || '',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        input: {
+          type: 'string',
+          description: inputDescription,
+        },
+      },
+      required: ['input'],
+      additionalProperties: false,
+    },
+  };
+}
+
 function flattenDiscoveredTools(tools) {
   const out = [];
   if (!Array.isArray(tools)) return out;
@@ -227,6 +339,16 @@ function flattenDiscoveredTools(tools) {
     }
   }
   return out;
+}
+
+function isImageGenerationTool(tool) {
+  if (!tool || typeof tool !== 'object') return false;
+  if (tool.type === 'image_generation') return true;
+  if (tool.type === 'namespace' && tool.name === 'image_gen') return true;
+  if (tool.type !== 'function') return false;
+  return tool.name === imagine.GENERATE_IMAGE
+    || tool.name === 'imagegen'
+    || tool.name === 'image_gen__imagegen';
 }
 
 // Ollama-compatible providers require unique function names. Walk backward so
@@ -369,6 +491,7 @@ function translateInputItem(item) {
           call_id: item.call_id,
           name: flat,
           arguments: asArgsString(item.arguments),
+          ...(item.thought_signature ? { thought_signature: item.thought_signature } : {}),
           ...(item.status ? { status: item.status } : {}),
           ...(item.id ? { id: item.id } : {}),
         };
@@ -519,22 +642,184 @@ function activeTurnHasImage(body) {
   return false;
 }
 
+function modelHasVision(modelName) {
+  if (!modelName) return false;
+  if (!visionCapableModels) return false;
+  return visionCapableModels.has(modelName);
+}
+
+function imageOutputCapabilities(models) {
+  const capable = new Set();
+  for (const model of Array.isArray(models) ? models : []) {
+    if (!model) continue;
+    const name = model.slug || model.display_name;
+    const modalities = Array.isArray(model.output_modalities)
+      ? model.output_modalities
+      : model.outputModalities;
+    if (name && Array.isArray(modalities) && modalities.includes('image')) capable.add(name);
+  }
+  return capable;
+}
+
+function imageInputOutputCapabilities(models) {
+  const capable = new Set();
+  for (const model of Array.isArray(models) ? models : []) {
+    if (!model) continue;
+    const name = model.slug || model.display_name;
+    const input = Array.isArray(model.input_modalities) ? model.input_modalities : model.inputModalities;
+    const output = Array.isArray(model.output_modalities) ? model.output_modalities : model.outputModalities;
+    if (name && Array.isArray(input) && input.includes('image')
+      && Array.isArray(output) && output.includes('image')) {
+      capable.add(name);
+    }
+  }
+  return capable;
+}
+
+function toolUnsupportedCapabilities(models) {
+  const unsupported = new Set();
+  for (const model of Array.isArray(models) ? models : []) {
+    if (!model || model.supports_tools !== false) continue;
+    const name = model.slug || model.display_name;
+    if (name) unsupported.add(name);
+  }
+  return unsupported;
+}
+
+function imageOutputSupport(modelName, models) {
+  if (!modelName || !Array.isArray(models)) return null;
+  const model = models.find((entry) => entry && (entry.slug || entry.display_name) === modelName);
+  if (!model) return null;
+  const modalities = Array.isArray(model.output_modalities)
+    ? model.output_modalities
+    : model.outputModalities;
+  return Array.isArray(modalities) && modalities.includes('image');
+}
+
+function loadImageOutputCapabilities() {
+  if (imageOutputCapableModels) return imageOutputCapableModels;
+  imageOutputCapableModels = new Set();
+  for (const catalogPath of MODEL_CATALOG_PATHS) {
+    try {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+      const models = Array.isArray(catalog.models) ? catalog.models : catalog;
+      for (const name of imageOutputCapabilities(models)) imageOutputCapableModels.add(name);
+      if (imageOutputCapableModels.size) break;
+    } catch {}
+  }
+  return imageOutputCapableModels;
+}
+
+function loadImageInputOutputCapabilities() {
+  if (imageInputOutputCapableModels) return imageInputOutputCapableModels;
+  imageInputOutputCapableModels = new Set();
+  for (const catalogPath of MODEL_CATALOG_PATHS) {
+    try {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+      const models = Array.isArray(catalog.models) ? catalog.models : catalog;
+      for (const name of imageInputOutputCapabilities(models)) imageInputOutputCapableModels.add(name);
+    } catch {}
+  }
+  return imageInputOutputCapableModels;
+}
+
+function loadToolUnsupportedCapabilities() {
+  if (toolUnsupportedModels) return toolUnsupportedModels;
+  toolUnsupportedModels = new Set();
+  for (const catalogPath of MODEL_CATALOG_PATHS) {
+    try {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+      const models = Array.isArray(catalog.models) ? catalog.models : catalog;
+      for (const name of toolUnsupportedCapabilities(models)) toolUnsupportedModels.add(name);
+    } catch {}
+  }
+  return toolUnsupportedModels;
+}
+
+function applyOutputModalities(body, capable = loadImageOutputCapabilities()) {
+  if (!body || typeof body !== 'object' || !capable.has(body.model) || body.modalities !== undefined) return body;
+  body.modalities = ['image', 'text'];
+  return body;
+}
+
+function isNativeImageOutput(body) {
+  return Boolean(body && Array.isArray(body.modalities)
+    && body.modalities.some((modality) => String(modality).toLowerCase() === 'image'));
+}
+
+function generatedImageCacheEnabled(body) {
+  return ROUTE_CFG.persist_inline_images
+    && isNativeImageOutput(body);
+}
+
+async function cacheGeneratedResponse(response, requestBody) {
+  if (!generatedImageCacheEnabled(requestBody)) return response;
+  return generatedImageCache.cacheGeneratedImages(response, requestBody, {
+    cacheRoot: INLINE_IMAGE_CACHE_DIR,
+    retentionDays: ROUTE_CFG.inline_image_retention_days,
+    log: debugLog,
+  });
+}
+
+async function appendVisibleGeneratedImageMessages(response, requestBody) {
+  await cacheGeneratedResponse(response, requestBody);
+  if (!response || !Array.isArray(response.output)) return [];
+  const messages = generatedImageCache.visibleImageMessages(response);
+  response.output.push(...messages);
+  return messages;
+}
+
 // Apply per-request model routing based on the config + presence of an image.
+// Vision-capable models always pass through with images, regardless of auto_route_image.
+// Text-only models pass through when auto_route_image is off.
+// Text-only models get rewritten to image_model when auto_route_image is on.
 function applyModelRouting(body) {
   if (!body || typeof body !== 'object') return body;
-  if (!ROUTE_CFG.auto_route_image) return body;
   const hasImage = activeTurnHasImage(body);
-  debugLog('auto-route: activeTurnHasImage=' + hasImage + ' model="' + body.model + '" image_model="' + ROUTE_CFG.image_model + '"');
-  if (hasImage) {
-    if (ROUTE_CFG.image_model && body.model !== ROUTE_CFG.image_model) {
-      debugLog('auto-route: request has image -> model "' + body.model + '" -> "' + ROUTE_CFG.image_model + '"');
-      body.model = ROUTE_CFG.image_model;
-    }
-  } else if (ROUTE_CFG.text_model && body.model !== ROUTE_CFG.text_model) {
-    debugLog('auto-route: text request -> model "' + body.model + '" -> "' + ROUTE_CFG.text_model + '"');
-    body.model = ROUTE_CFG.text_model;
+  if (!hasImage) return body; // text requests always pass through unchanged
+  // Model has vision — let it through regardless of auto_route setting
+  if (modelHasVision(body.model)) {
+    debugLog('auto-route: model "' + body.model + '" has vision -> passing through');
+    return body;
+  }
+  // Model is text-only
+  if (!ROUTE_CFG.auto_route_image) return body; // no rewrite — let upstream error if it can't handle images
+  if (ROUTE_CFG.image_model && body.model !== ROUTE_CFG.image_model) {
+    debugLog('auto-route: text-only model "' + body.model + '" has image -> rewrite to "' + ROUTE_CFG.image_model + '"');
+    body.model = ROUTE_CFG.image_model;
   }
   return body;
+}
+
+function removeUnsupportedReasoningEffort(body) {
+  if (!body || !body.reasoning || typeof body.reasoning !== 'object'
+    || !Object.prototype.hasOwnProperty.call(body.reasoning, 'effort')) return false;
+  const upstream = getUpstream();
+  if (nativeImageGeneration.nativeImageProvider(upstream.baseUrl) !== 'xai'
+    || !XAI_FIXED_REASONING_MODELS.has(body.model)) return false;
+  const { effort: _effort, ...supported } = body.reasoning;
+  if (Object.keys(supported).length > 0) body.reasoning = supported;
+  else delete body.reasoning;
+  debugLog('xAI fixed-reasoning model: removed unsupported reasoning.effort');
+  return true;
+}
+
+function normalizeXaiReasoningInput(body) {
+  if (!body || !Array.isArray(body.input)) return false;
+  const upstream = getUpstream();
+  if (nativeImageGeneration.nativeImageProvider(upstream.baseUrl) !== 'xai') return false;
+  let changed = false;
+  for (const item of body.input) {
+    if (!item || item.type !== 'reasoning' || typeof item !== 'object') continue;
+    for (const key of ['content', 'encrypted_content']) {
+      if (item[key] === null) {
+        delete item[key];
+        changed = true;
+      }
+    }
+  }
+  if (changed) debugLog('xAI request: removed null fields from replayed reasoning input');
+  return changed;
 }
 
 function translateRequestBody(body) {
@@ -551,6 +836,9 @@ function translateRequestBody(body) {
   if (Array.isArray(body.tools)) ingestNamespaces(body.tools);
   const activeImageTurn = activeTurnHasImage(body);
   applyModelRouting(body);
+  removeUnsupportedReasoningEffort(body);
+  normalizeXaiReasoningInput(body);
+  applyOutputModalities(body);
   if (ROUTE_CFG.persist_inline_images && ROUTE_CFG.auto_route_image) {
     inlineImageCache.rewriteInlineImages(body, {
       cacheRoot: INLINE_IMAGE_CACHE_DIR,
@@ -562,6 +850,18 @@ function translateRequestBody(body) {
       retentionDays: ROUTE_CFG.inline_image_retention_days,
       log: debugLog,
     });
+  }
+  if (
+    ROUTE_CFG.persist_inline_images
+    && isNativeImageOutput(body)
+    && loadImageInputOutputCapabilities().has(body.model)
+  ) {
+    const rehydrated = generatedImageCache.rehydrateGeneratedImageChain(body, {
+      cacheRoot: INLINE_IMAGE_CACHE_DIR,
+    });
+    if (rehydrated > 0) {
+      debugLog('generated-image-chain: rehydrated ' + rehydrated + ' cached image(s) for ' + body.model);
+    }
   }
   let inputChanged = false;
   const deferredTools = [];
@@ -579,73 +879,98 @@ function translateRequestBody(body) {
   }
   {
     verboseToolLog('request tools', body.tools);
-    const hasIncomingTools = Array.isArray(body.tools) && body.tools.length > 0;
-    let toolsChanged = false;
-    const mapped = [];
-    for (const t of (Array.isArray(body.tools) ? body.tools : [])) {
-      if (t && t.type === WEB_SEARCH) {
-        debugLog('native web_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
-        toolsChanged = true;
-        mapped.push(WEB_SEARCH_FN);
-        continue;
-      }
-      if (t && t.type === TOOL_SEARCH) {
-        debugLog('native tool_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
-        toolsChanged = true;
-        mapped.push(TOOL_SEARCH_FN);
-        continue;
-      }
-      if (t && t.type === 'namespace' && t.name && Array.isArray(t.tools)) {
-        let count = 0;
-        for (const sub of t.tools) {
-          const flat = flattenNamespaceTool(t.name, sub);
-          if (flat) {
-            mapped.push(flat);
-            count += 1;
-          }
-        }
-        if (count > 0) {
-          debugLog('flattened namespace tool definitions: ' + t.name + ' -> ' + count + ' function tools');
+    if (isNativeImageOutput(body) || loadToolUnsupportedCapabilities().has(body.model)) {
+      body.tools = [];
+      delete body.tool_choice;
+      debugLog(isNativeImageOutput(body)
+        ? 'native image-output request: removed function tools and tool_choice'
+        : 'model without tool support: removed function tools and tool_choice');
+    } else {
+      let toolsChanged = false;
+      const mapped = [];
+      for (const t of (Array.isArray(body.tools) ? body.tools : [])) {
+        if (isImageGenerationTool(t)) {
+          debugLog('removed client image-generation tool: ' + JSON.stringify(summarizeToolShape(t)));
           toolsChanged = true;
           continue;
         }
-      }
-      mapped.push(t);
-    }
-    for (const t of deferredTools) {
-      if (!mapped.some((existing) => existing && existing.type === 'function' && existing.name === t.name)) {
+        if (t && t.type === WEB_SEARCH) {
+          debugLog('native web_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
+          toolsChanged = true;
+          mapped.push(WEB_SEARCH_FN);
+          continue;
+        }
+        if (t && t.type === TOOL_SEARCH) {
+          debugLog('native tool_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
+          toolsChanged = true;
+          mapped.push(TOOL_SEARCH_FN);
+          continue;
+        }
+        if (t && t.type === 'custom') {
+          const flat = flattenCustomTool(t);
+          if (flat) {
+            debugLog('custom tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
+            toolsChanged = true;
+            mapped.push(flat);
+            continue;
+          }
+        }
+        if (t && t.type === 'namespace' && t.name && Array.isArray(t.tools)) {
+          let count = 0;
+          for (const sub of t.tools) {
+            const flat = flattenNamespaceTool(t.name, sub);
+            if (flat) {
+              mapped.push(flat);
+              count += 1;
+            }
+          }
+          if (count > 0) {
+            debugLog('flattened namespace tool definitions: ' + t.name + ' -> ' + count + ' function tools');
+            toolsChanged = true;
+            continue;
+          }
+        }
         mapped.push(t);
+      }
+      for (const t of deferredTools) {
+        if (isImageGenerationTool(t)) {
+          toolsChanged = true;
+          continue;
+        }
+        if (!mapped.some((existing) => existing && existing.type === 'function' && existing.name === t.name)) {
+          mapped.push(t);
+          toolsChanged = true;
+        }
+      }
+      if (ROUTE_CFG.enable_find_skill && !mapped.some((t) => t && t.type === 'function' && t.name === skillFind.FIND_SKILL)) {
+        mapped.push(skillFind.FIND_SKILL_FN);
         toolsChanged = true;
       }
-    }
-    if (ROUTE_CFG.enable_find_skill && !mapped.some((t) => t && t.type === 'function' && t.name === skillFind.FIND_SKILL)) {
-      mapped.push(skillFind.FIND_SKILL_FN);
-      toolsChanged = true;
-    }
-    if (!mapped.some((t) => t && ((t.type === 'function' && t.name === TOOL_SEARCH) || t.type === TOOL_SEARCH))) {
-      mapped.push(TOOL_SEARCH_FN);
-      toolsChanged = true;
-    }
-    if (!mapped.some((t) => t && ((t.type === 'function' && t.name === WEB_SEARCH) || t.type === WEB_SEARCH))) {
-      mapped.push(WEB_SEARCH_FN);
-      toolsChanged = true;
-    }
-    if (ROUTE_CFG.imagine_enabled && !mapped.some((t) => t && t.type === 'function' && t.name === imagine.GENERATE_IMAGE)) {
-      mapped.push(imagine.GENERATE_IMAGE_FN);
-      toolsChanged = true;
-    }
-    if (!mapped.some((t) => t && t.type === 'function' && t.name === imagine.PROXY_STATUS)) {
-      mapped.push(imagine.PROXY_STATUS_FN);
-      toolsChanged = true;
-    }
-    const deduped = dedupeFunctionTools(mapped);
-    if (deduped.length !== mapped.length) {
-      debugLog('removed ' + (mapped.length - deduped.length) + ' duplicate function tool definition(s)');
-      toolsChanged = true;
-    }
-    if (toolsChanged) {
-      body.tools = deduped;
-      debugLog('rewrote request tools for Ollama-compatible function surface');
+      if (!mapped.some((t) => t && ((t.type === 'function' && t.name === TOOL_SEARCH) || t.type === TOOL_SEARCH))) {
+        mapped.push(TOOL_SEARCH_FN);
+        toolsChanged = true;
+      }
+      if (!mapped.some((t) => t && ((t.type === 'function' && t.name === WEB_SEARCH) || t.type === WEB_SEARCH))) {
+        mapped.push(WEB_SEARCH_FN);
+        toolsChanged = true;
+      }
+      if (ROUTE_CFG.imagine_enabled && !mapped.some((t) => t && t.type === 'function' && t.name === imagine.GENERATE_IMAGE)) {
+        mapped.push(imagine.GENERATE_IMAGE_FN);
+        toolsChanged = true;
+      }
+      if (!mapped.some((t) => t && t.type === 'function' && t.name === imagine.PROXY_STATUS)) {
+        mapped.push(imagine.PROXY_STATUS_FN);
+        toolsChanged = true;
+      }
+      const deduped = dedupeFunctionTools(mapped);
+      if (deduped.length !== mapped.length) {
+        debugLog('removed ' + (mapped.length - deduped.length) + ' duplicate function tool definition(s)');
+        toolsChanged = true;
+      }
+      if (toolsChanged) {
+        body.tools = deduped;
+        debugLog('rewrote request tools for Ollama-compatible function surface');
+      }
     }
   }
   if (inputChanged) debugLog('translated request input items');
@@ -717,34 +1042,48 @@ function coerceArgsForSchema(args, schema) {
   return args;
 }
 
+function normalizeApplyPatchDialect(patch) {
+  if (typeof patch !== 'string') return patch;
+  return patch.replace(
+    /^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@(?:[ \t]+([^\r\n]*))?\r?$/gmu,
+    (_line, heading) => heading ? '@@ ' + heading : '@@'
+  );
+}
+
+function normalizeCustomToolInput(name, input) {
+  return name === 'apply_patch' ? normalizeApplyPatchDialect(input) : input;
+}
+
 function customToolInput(name, args) {
   // Normalise a string argument first: the model may hand us the raw patch,
   // a JSON string, or a JSON object depending on how the freeform slot serialises.
   if (typeof args === 'string') {
     const trimmed = args.trim();
     // Raw patch passthrough: nothing to unwrap.
-    if (name === 'apply_patch' && trimmed.startsWith('*** Begin Patch')) return args;
+    if (name === 'apply_patch' && trimmed.startsWith('*** Begin Patch')) {
+      return normalizeCustomToolInput(name, args);
+    }
     try {
       args = JSON.parse(trimmed);
     } catch {
       // Not JSON; treat the literal string as the body.
-      return args;
+      return normalizeCustomToolInput(name, args);
     }
   }
 
   if (args && typeof args === 'object') {
     // `command: ['apply_patch', '<patch>']` tuple form.
     if (Array.isArray(args.command) && args.command[0] === 'apply_patch' && typeof args.command[1] === 'string') {
-      return args.command[1];
+      return normalizeCustomToolInput(name, args.command[1]);
     }
     // Any string value in the object is treated as the patch body, regardless
     // of how the freeform slot was named (e.g. {"parameter1": "*** Begin Patch…"}).
     for (const v of Object.values(args)) {
-      if (typeof v === 'string') return v;
+      if (typeof v === 'string') return normalizeCustomToolInput(name, v);
     }
   }
 
-  return asArgsString(args);
+  return normalizeCustomToolInput(name, asArgsString(args));
 }
 
 // state.rewrittenIds: item ids rewritten to a NON-function_call type
@@ -871,6 +1210,7 @@ function translateOutputItem(item, state) {
     };
     if (item.id) out.id = item.id;
     if (item.status) out.status = item.status;
+    if (item.thought_signature) out.thought_signature = item.thought_signature;
     debugLog('response: function_call split -> namespace=' + info.namespace + ' name=' + info.name + ' (call_id=' + item.call_id + ')');
     return out;
   }
@@ -985,6 +1325,25 @@ function responseSnapshot(response) {
   return snapshot;
 }
 
+function normalizeResponseUsage(response) {
+  if (!response || !response.usage || typeof response.usage !== 'object') return response;
+  const usage = response.usage;
+  const inputTokens = Number.isFinite(usage.input_tokens)
+    ? usage.input_tokens
+    : Number.isFinite(usage.prompt_tokens) ? usage.prompt_tokens : 0;
+  const outputTokens = Number.isFinite(usage.output_tokens)
+    ? usage.output_tokens
+    : Number.isFinite(usage.completion_tokens) ? usage.completion_tokens : 0;
+  response.usage = Object.assign({}, usage, {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: Number.isFinite(usage.total_tokens)
+      ? usage.total_tokens
+      : inputTokens + outputTokens,
+  });
+  return response;
+}
+
 function rememberResponse(streamState, response) {
   streamState.response = Object.assign({}, streamState.response, responseSnapshot(response));
 }
@@ -1029,6 +1388,7 @@ function completeStream(clientRes, streamState, sourceEvent, output) {
   );
   delete response.error;
   delete response.incomplete_details;
+  normalizeResponseUsage(response);
   return writeStreamTerminal(clientRes, streamState, 'response.completed', {
     type: 'response.completed',
     response,
@@ -1389,7 +1749,11 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
 
       seq.index = Math.max(seq.index, result.maxOutputIndex + 1);
       seq.num = Math.max(seq.num, result.maxSequenceNumber + 1);
+      const generatedResponse = { output: [...result.visibleOutputItems] };
+      const imageMessages = await appendVisibleGeneratedImageMessages(generatedResponse, body);
+      for (const message of imageMessages) markers.emitOutputItem(clientRes, message, seq);
       completedItems.push(...result.visibleOutputItems);
+      completedItems.push(...imageMessages);
 
       if (result.failureEvent) {
         failStream(clientRes, streamState, 'upstream response failed', result.failureEvent, completedItems);
@@ -1483,7 +1847,7 @@ function translateFinalResponse(response, info) {
   if (Array.isArray(response.output)) {
     response.output = response.output.map((it) => translateOutputItem(it, state));
   }
-  return response;
+  return normalizeResponseUsage(response);
 }
 
 function sendJsonResponse(clientRes, statusCode, response) {
@@ -1548,8 +1912,14 @@ const server = http.createServer((clientReq, clientRes) => {
       try {
         body = JSON.parse(bodyBuf.toString('utf8'));
         originalStream = body && body.stream === true;
-        translateRequestBody(body);
+        body._originalModel = body.model; // save before routing rewrites it
+        // Newer Codex builds may define custom tools only in a turn-local
+        // additional_tools input item. Lift those definitions before recording
+        // their original types so response translation can restore function
+        // calls to custom_tool_call items.
+        liftAdditionalToolsInput(body);
         info = collectCustomToolInfo(body.tools);
+        translateRequestBody(body);
         {
           const byType = {};
           const nsNames = [];
@@ -1567,7 +1937,48 @@ const server = http.createServer((clientReq, clientRes) => {
       }
     }
     const upstream = getUpstream();
-    if (isResponses && body && originalStream && ROUTE_CFG.stream_proxy_loop) {
+    if (
+      isResponses
+      && body
+      && isNativeImageOutput(body)
+      && nativeImageGeneration.nativeImageProvider(upstream.baseUrl)
+    ) {
+      try {
+        debugLog('native image endpoint bridge enabled for ' + nativeImageGeneration.nativeImageProvider(upstream.baseUrl));
+        const response = await nativeImageGeneration.generateNativeImageResponse({ upstream, body });
+        await appendVisibleGeneratedImageMessages(response, body);
+        if (originalStream) sendSseCompleted(clientRes, response);
+        else sendJsonResponse(clientRes, 200, response);
+      } catch (error) {
+        log('native image endpoint failed: ' + error.message);
+        sendJsonResponse(clientRes, error.statusCode || 502, {
+          error: {
+            message: error.message,
+            type: 'native_image_error',
+          },
+        });
+      }
+      return;
+    }
+    if (isResponses && body) {
+      try {
+        const cloudStatus = await ensureCloudModelForRequest(upstream, body);
+        if (cloudStatus.status === 'pulled') {
+          log('cloud model: registered "' + body.model + '" through local Ollama');
+        }
+      } catch (error) {
+        log('cloud model preparation failed: ' + error.message);
+        sendJsonResponse(clientRes, 502, {
+          error: {
+            message: error.message,
+            type: 'ollama_cloud_pull_error',
+            code: error.code || 'PULL_FAILED',
+          },
+        });
+        return;
+      }
+    }
+    if (isResponses && body && originalStream && (ROUTE_CFG.stream_proxy_loop || generatedImageCacheEnabled(body))) {
       debugLog('streaming response lifecycle enabled');
       await runStreamingLoop(upstream, body, clientRes, info, {
         log: (...a) => log(...a),
@@ -1581,6 +1992,10 @@ const server = http.createServer((clientReq, clientRes) => {
           debugLog('imagine proxy loop enabled (generate_image + ollama_proxy_status)');
           const result = await imagine.runGenerateImageLoop(upstream, body, ROUTE_CFG, {
             log: (...a) => debugLog(...a),
+            originalModel: body._originalModel,
+            routedModel: body.model,
+            visionCapableModels: visionCapableModels,
+            upstreamUrl: upstreamLib.displayUrl(getUpstream()),
             outputDirectory: generatedImageOutputDirectory(body),
           });
           const response = result.response;
@@ -1681,11 +2096,12 @@ const server = http.createServer((clientReq, clientRes) => {
       } else if (isResponses) {
         const chunks = [];
         upstreamRes.on('data', (chunk) => chunks.push(chunk));
-        upstreamRes.on('end', () => {
+        upstreamRes.on('end', async () => {
           const raw = Buffer.concat(chunks).toString('utf8');
           try {
             const response = JSON.parse(raw);
             translateFinalResponse(response, info);
+            await appendVisibleGeneratedImageMessages(response, body);
             sendJsonResponse(clientRes, upstreamRes.statusCode || 200, response);
           } catch (e) {
             clientRes.writeHead(upstreamRes.statusCode, upstreamRes.headers);
@@ -1708,7 +2124,7 @@ const server = http.createServer((clientReq, clientRes) => {
   clientReq.on('error', (e) => log('client error: ' + e.message));
 });
 
-// Best-effort startup check that the configured text_model / image_model
+// Best-effort startup check that the configured default_model / image_model
 // resolve in the local Ollama registry. Only runs when the upstream is the
 // local Ollama daemon (host is 127.0.0.1/localhost AND the OpenAI mount path
 // is /v1, the standard Ollama topology). Remote Responses-API upstreams, the
@@ -1721,7 +2137,7 @@ const server = http.createServer((clientReq, clientRes) => {
 // Non-fatal: Ollama may start after the proxy, and the proxy still serves; the
 // per-request path already handles upstream errors.
 async function verifyConfiguredModels() {
-  const slugs = [ROUTE_CFG.text_model, ROUTE_CFG.image_model].filter(Boolean);
+  const slugs = [...new Set([...ROUTE_CFG.models, ROUTE_CFG.default_model, ROUTE_CFG.image_model].filter(Boolean))];
   if (!slugs.length) return;
   const upstream = getUpstream();
   const base = upstream && upstream.baseUrl ? upstream.baseUrl : null;
@@ -1778,7 +2194,7 @@ async function verifyConfiguredModels() {
       }
       if (data && typeof data.error === 'string') {
         log('model check: WARNING model "' + slug + '" not found in Ollama registry — ' + data.error);
-        log('  check proxy-models.toml text_model/image_model; if the slug is correct run: ollama pull ' + slug);
+        log('  check proxy-models.toml default_model/image_model; if the slug is correct run: ollama pull ' + slug);
         continue;
       }
       // Unexpected shape (not Ollama): skip silently.
@@ -1821,10 +2237,16 @@ if (require.main === module || process.env.CODEX_OLLAMA_PROXY_AUTOSTART === '1')
 }
 
 module.exports = {
+  applyOutputModalities,
   dedupeLargeInputBlocks,
+  imageInputOutputCapabilities,
+  imageOutputCapabilities,
+  imageOutputSupport,
+  toolUnsupportedCapabilities,
   translateInputItem,
   translateRequestBody,
   getUpstream,
+  ensureCloudModelForRequest,
   startServer,
   server,
 };

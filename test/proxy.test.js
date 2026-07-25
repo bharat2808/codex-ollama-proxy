@@ -1,11 +1,18 @@
 'use strict';
 
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const {
+  applyOutputModalities,
+  imageInputOutputCapabilities,
+  imageOutputCapabilities,
+  imageOutputSupport,
+} = require('../src/proxy');
 
 const LOCAL_UPSTREAM = { baseUrl: new URL('http://127.0.0.1:11434/v1') };
 const IMAGE_SIGNATURES = {
@@ -22,6 +29,176 @@ function inlineImageBytes(mimeType, suffix = '') {
 function inlineImageUrl(mimeType, suffix = '') {
   return `data:${mimeType};base64,${inlineImageBytes(mimeType, suffix).toString('base64')}`;
 }
+
+test('adds image output modalities only for models discovered with image output', () => {
+  const capable = imageOutputCapabilities([
+    { slug: 'image-model', output_modalities: ['image', 'text'] },
+    { slug: 'text-model', output_modalities: ['text'] },
+  ]);
+  const imageBody = { model: 'image-model', input: 'draw a giraffe' };
+  const textBody = { model: 'text-model', input: 'say hello' };
+
+  applyOutputModalities(imageBody, capable);
+  applyOutputModalities(textBody, capable);
+
+  assert.deepEqual(imageBody.modalities, ['image', 'text']);
+  assert.equal(textBody.modalities, undefined);
+});
+
+test('distinguishes image-output support from text-only and unknown models by exact id', () => {
+  const models = [
+    { slug: 'provider/image-model', output_modalities: ['image', 'text'] },
+    { slug: 'provider/text-model', output_modalities: ['text'] },
+  ];
+
+  assert.equal(imageOutputSupport('provider/image-model', models), true);
+  assert.equal(imageOutputSupport('provider/text-model', models), false);
+  assert.equal(imageOutputSupport('image-model', models), null);
+  assert.equal(imageOutputSupport('provider/unknown', models), null);
+});
+
+test('selects only exact models supporting both image input and image output', () => {
+  const capable = imageInputOutputCapabilities([
+    { slug: 'provider/dual', input_modalities: ['text', 'image'], output_modalities: ['image'] },
+    { slug: 'provider/output-only', input_modalities: ['text'], output_modalities: ['image'] },
+    { slug: 'provider/input-only', inputModalities: ['text', 'image'], outputModalities: ['text'] },
+    { slug: 'provider/camel-dual', inputModalities: ['image'], outputModalities: ['text', 'image'] },
+  ]);
+
+  assert.deepEqual([...capable], ['provider/dual', 'provider/camel-dual']);
+});
+
+test('native image-output requests do not forward or inject function tools', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'provider/image-model',
+    input: 'draw a giraffe',
+    modalities: ['image', 'text'],
+    tool_choice: 'required',
+    tools: [{
+      type: 'function',
+      name: 'lookup',
+      parameters: { type: 'object', properties: {} },
+    }],
+  };
+
+  translateRequestBody(body);
+
+  assert.deepEqual(body.tools, []);
+  assert.equal(body.tool_choice, undefined);
+});
+
+test('image generation tools are removed when Imagine is disabled', () => {
+  withRouteConfig([
+    'default_model = "text-model"',
+    'imagine_enabled = false',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'text-model',
+      input: 'draw a giraffe',
+      tools: [
+        {
+          type: 'namespace',
+          name: 'image_gen',
+          tools: [{
+            name: 'imagegen',
+            description: 'Generate an image.',
+            parameters: { type: 'object', properties: {} },
+          }],
+        },
+        {
+          type: 'function',
+          name: 'generate_image',
+          parameters: { type: 'object', properties: {} },
+        },
+        {
+          type: 'image_generation',
+        },
+      ],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.tools.some((tool) =>
+      tool && (tool.name === 'generate_image'
+        || tool.name === 'imagegen'
+        || tool.name === 'image_gen__imagegen'
+        || tool.name === 'image_gen'
+        || tool.type === 'image_generation')
+    ), false);
+  });
+});
+
+test('Imagine replaces client image tools with only the proxy generate_image tool', () => {
+  withRouteConfig([
+    'default_model = "text-model"',
+    'imagine_enabled = true',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'text-model',
+      input: 'draw a giraffe',
+      tools: [
+        {
+          type: 'namespace',
+          name: 'image_gen',
+          tools: [{
+            name: 'imagegen',
+            parameters: { type: 'object', properties: {} },
+          }],
+        },
+        {
+          type: 'function',
+          name: 'generate_image',
+          description: 'Untrusted client definition.',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+    };
+
+    translateRequestBody(body);
+
+    const imageTools = body.tools.filter((tool) =>
+      tool && (tool.name === 'generate_image'
+        || tool.name === 'imagegen'
+        || tool.name === 'image_gen__imagegen'
+        || tool.name === 'image_gen'
+        || tool.type === 'image_generation')
+    );
+    assert.equal(imageTools.length, 1);
+    assert.equal(imageTools[0].name, 'generate_image');
+    assert.notEqual(imageTools[0].description, 'Untrusted client definition.');
+  });
+});
+
+test('models explicitly catalogued without tool support do not receive injected tools', () => {
+  withRouteConfig([
+    'default_model = "no-tools-model"',
+    'auto_route_image = false',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'no-tools-model',
+      input: 'Describe the attached image.',
+      tools: [{
+        type: 'function',
+        name: 'echo',
+        parameters: { type: 'object' },
+      }],
+      tool_choice: 'required',
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.tools, []);
+    assert.equal(body.tool_choice, undefined);
+  }, ({ codexHome }) => {
+    fs.writeFileSync(path.join(codexHome, 'ollama-launch-models.json'), JSON.stringify({
+      models: [{
+        slug: 'no-tools-model',
+        supports_tools: false,
+      }],
+    }));
+  });
+});
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -125,7 +302,7 @@ async function withProxy(upstreamHandler, run, config = []) {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-stream-test-'));
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     ...config,
     '',
@@ -154,11 +331,46 @@ async function withProxy(upstreamHandler, run, config = []) {
   }
 }
 
-function withRouteConfig(config, run) {
+async function withLocalOllamaProxy(ollamaHandler, run) {
+  const ollama = http.createServer(ollamaHandler);
+  const ollamaPort = await listen(ollama);
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-ollama-cloud-test-'));
+  fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
+    'default_model = "local-default"',
+    `upstream_url = "http://127.0.0.1:${ollamaPort}/v1"`,
+    '',
+  ].join('\n'));
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousProxyPort = process.env.PROXY_PORT;
+  process.env.CODEX_HOME = codexHome;
+  process.env.PROXY_PORT = '0';
+  delete require.cache[require.resolve('../src/proxy')];
+  const proxy = require('../src/proxy');
+  const server = proxy.startServer(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+
+  try {
+    await run(server.address().port, proxy, codexHome);
+  } finally {
+    await close(server);
+    await close(ollama);
+    delete require.cache[require.resolve('../src/proxy')];
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousProxyPort === undefined) delete process.env.PROXY_PORT;
+    else process.env.PROXY_PORT = previousProxyPort;
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+}
+
+function withRouteConfig(config, run, setup) {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-routing-test-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [...config, ''].join('\n'));
+  if (typeof setup === 'function') setup({ codexHome, runtimeDir });
 
   const previousCodexHome = process.env.CODEX_HOME;
   process.env.CODEX_HOME = codexHome;
@@ -182,6 +394,168 @@ function textItem(id, text, attachments = []) {
     content: [{ type: 'output_text', text, annotations: [] }, ...attachments],
   };
 }
+
+test('proxy module loads when image routing snapshots a populated model catalog', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-startup-test-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
+    'default_model = "text-model"',
+    'image_model = "vision-model"',
+    'auto_route_image = true',
+    '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(codexHome, 'ollama-launch-models-ollama-working.json'), JSON.stringify({
+    models: [{ slug: 'vision-model', input_modalities: ['text', 'image'] }],
+  }));
+
+  try {
+    const result = spawnSync(process.execPath, ['-e', "require('./src/proxy')"], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, CODEX_HOME: codexHome },
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('proxy pulls an allowlisted cloud model before forwarding its first request', async () => {
+  const calls = [];
+  let pulled = false;
+  await withLocalOllamaProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
+      calls.push({ path: req.url, body });
+      if (req.url === '/api/tags') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ models: [] }));
+        return;
+      }
+      if (req.url === '/api/pull') {
+        pulled = true;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'success' }));
+        return;
+      }
+      if (req.url === '/api/show') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        if (body && body.model === 'kimi-k2.7-code:cloud' && pulled) {
+          res.end(JSON.stringify({ details: { family: 'cloud' }, capabilities: ['completion', 'tools'] }));
+        } else {
+          res.end(JSON.stringify({ error: 'model not found' }));
+        }
+        return;
+      }
+      assert.equal(req.url, '/v1/responses');
+      assert.equal(pulled, true, 'cloud model must be pulled before forwarding');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'resp_cloud', status: 'completed', output: [] }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'kimi-k2.7-code:cloud',
+      stream: false,
+      input: 'hello',
+      tools: [],
+    });
+    assert.equal(response.statusCode, 200, response.body);
+  });
+
+  const relevant = calls.filter((call) =>
+    call.path === '/api/pull'
+    || (call.path === '/api/show' && call.body && call.body.model === 'kimi-k2.7-code:cloud')
+    || call.path === '/v1/responses'
+  );
+  assert.deepEqual(relevant.map((call) => call.path), [
+    '/api/pull',
+    '/api/show',
+    '/v1/responses',
+  ]);
+  assert.deepEqual(relevant[0].body, { model: 'kimi-k2.7-code:cloud', stream: false });
+});
+
+test('proxy never auto-pulls a missing ordinary local model', async () => {
+  const calls = [];
+  await withLocalOllamaProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
+      calls.push({ path: req.url, body });
+      if (req.url === '/api/tags') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ models: [] }));
+        return;
+      }
+      if (req.url === '/api/show') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'model not found' }));
+        return;
+      }
+      assert.equal(req.url, '/v1/responses');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'resp_local', status: 'completed', output: [] }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'missing-local',
+      stream: false,
+      input: 'hello',
+      tools: [],
+    });
+    assert.equal(response.statusCode, 200, response.body);
+  });
+
+  assert.equal(calls.some((call) => call.path === '/api/pull'), false);
+  assert.equal(calls.some((call) => call.path === '/v1/responses'), true);
+});
+
+test('proxy returns a bounded error when an allowlisted cloud pull fails', async () => {
+  const calls = [];
+  await withLocalOllamaProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      calls.push(req.url);
+      if (req.url === '/api/tags') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ models: [] }));
+        return;
+      }
+      if (req.url === '/api/pull') {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'sensitive upstream detail' }));
+        return;
+      }
+      if (req.url === '/api/show') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'model not found' }));
+        return;
+      }
+      assert.fail(`request must not be forwarded after failed pull: ${req.url}`);
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'kimi-k2.7-code:cloud',
+      stream: false,
+      input: 'hello',
+      tools: [],
+    });
+    assert.equal(response.statusCode, 502);
+    const payload = JSON.parse(response.body);
+    assert.equal(payload.error.type, 'ollama_cloud_pull_error');
+    assert.equal(payload.error.code, 'PULL_FAILED');
+    assert.doesNotMatch(payload.error.message, /sensitive upstream detail/i);
+  });
+
+  assert.equal(calls.includes('/api/pull'), true);
+  assert.equal(calls.includes('/v1/responses'), false);
+});
 
 test('dedupeLargeInputBlocks keeps the newest large developer block', () => {
   const { dedupeLargeInputBlocks } = require('../src/proxy');
@@ -256,7 +630,13 @@ function writeTextTurn(res, options = {}) {
   });
   if (options.ending === 'completed') {
     writeSse(res, 'response.completed', {
-      type: 'response.completed', response: { id, status: 'completed', output: [item] },
+      type: 'response.completed',
+      response: {
+        id,
+        status: 'completed',
+        output: [item],
+        ...(options.usage ? { usage: options.usage } : {}),
+      },
     });
   } else if (options.ending === 'done') {
     writeSse(res, null, '[DONE]');
@@ -287,7 +667,7 @@ function writeFunctionTurn(res, item, ending) {
 
 function routeModel(body, autoRouteImage = true) {
   return withRouteConfig([
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = ' + autoRouteImage,
   ], ({ translateRequestBody }) => {
@@ -318,6 +698,351 @@ test('request translation converts replayed image_generation_call items for Olla
   assert.equal(body.input[0].content[0].type, 'output_text');
   assert.match(body.input[0].content[0].text, /saved_path=\/tmp\/flower\.png/);
   assert.doesNotMatch(JSON.stringify(body), /"image_generation_call"/);
+});
+
+test('request translation exposes Codex custom tools as provider-compatible functions', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'test-model',
+    input: [],
+    tools: [{
+      type: 'custom',
+      name: 'apply_patch',
+      description: 'Apply a patch.',
+      format: {
+        type: 'grammar',
+        syntax: 'lark',
+        definition: 'start: "patch"',
+      },
+    }],
+  };
+
+  translateRequestBody(body);
+
+  assert.equal(body.tools.some((tool) => tool && tool.type === 'custom'), false);
+  assert.deepEqual(body.tools.find((tool) => tool && tool.name === 'apply_patch'), {
+    type: 'function',
+    name: 'apply_patch',
+    description: 'Apply a patch.',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        input: {
+          type: 'string',
+          description: 'Complete patch in apply_patch format, not unified diff. It must begin with "*** Begin Patch" and end with "*** End Patch". Use "*** Add File: <path>" and prefix every added content line with "+". Use "*** Delete File: <path>" to delete. Use "*** Update File: <path>" with "@@" hunks whose context, added, and removed lines start with " ", "+", and "-". It must conform to this lark grammar:\nstart: "patch"',
+        },
+      },
+      required: ['input'],
+      additionalProperties: false,
+    },
+  });
+});
+
+test('request translation preserves arbitrary custom-tool grammar constraints', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'test-model',
+    input: 'Choose a label.',
+    tools: [{
+      type: 'custom',
+      name: 'emit_label',
+      description: 'Emit one permitted label.',
+      format: {
+        type: 'grammar',
+        syntax: 'regex',
+        definition: '^(alpha|beta)$',
+      },
+    }],
+  };
+
+  translateRequestBody(body);
+
+  const normalized = body.tools.find((tool) => tool && tool.name === 'emit_label');
+  assert.equal(normalized.type, 'function');
+  assert.deepEqual(normalized.parameters.required, ['input']);
+  assert.equal(normalized.parameters.properties.input.type, 'string');
+  assert.match(normalized.parameters.properties.input.description, /regex grammar/);
+  assert.match(normalized.parameters.properties.input.description, /\^\(alpha\|beta\)\$/);
+});
+
+test('proxy normalizes and restores a custom tool call end to end', async () => {
+  let upstreamBody = null;
+  const patch = '*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch';
+  await withProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      upstreamBody = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_custom_tool',
+        status: 'completed',
+        output: [{
+          id: 'fc_apply_patch',
+          type: 'function_call',
+          call_id: 'call_apply_patch',
+          name: 'apply_patch',
+          arguments: JSON.stringify({ input: patch }),
+          status: 'completed',
+        }],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'Create hello.txt.',
+      tools: [{
+        type: 'custom',
+        name: 'apply_patch',
+        description: 'Apply a patch.',
+        format: {
+          type: 'grammar',
+          syntax: 'lark',
+          definition: 'start: "patch"',
+        },
+      }],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const normalized = upstreamBody.tools.find((tool) => tool && tool.name === 'apply_patch');
+    assert.equal(normalized.type, 'function');
+    assert.deepEqual(normalized.parameters.required, ['input']);
+    assert.equal(normalized.parameters.properties.input.type, 'string');
+    assert.match(normalized.parameters.properties.input.description, /lark grammar/);
+    assert.match(normalized.parameters.properties.input.description, /start: "patch"/);
+    assert.equal(upstreamBody.tools.some((tool) => tool && tool.type === 'custom'), false);
+
+    const body = JSON.parse(response.body);
+    assert.deepEqual(body.output[0], {
+      id: 'fc_apply_patch',
+      type: 'custom_tool_call',
+      call_id: 'call_apply_patch',
+      name: 'apply_patch',
+      input: patch,
+      status: 'completed',
+    });
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
+test('proxy converts unified diff hunk coordinates in apply_patch calls', async () => {
+  const unifiedPatch = [
+    '*** Begin Patch',
+    '*** Update File: hello.txt',
+    '@@ -1,2 +1,2 @@',
+    '-hello',
+    '+goodbye',
+    '@@ -10 +10,2 @@ function heading',
+    ' context',
+    '+added',
+    '*** End Patch',
+  ].join('\n');
+  const codexPatch = [
+    '*** Begin Patch',
+    '*** Update File: hello.txt',
+    '@@',
+    '-hello',
+    '+goodbye',
+    '@@ function heading',
+    ' context',
+    '+added',
+    '*** End Patch',
+  ].join('\n');
+
+  await withProxy((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_unified_patch',
+        status: 'completed',
+        output: [{
+          id: 'fc_unified_patch',
+          type: 'function_call',
+          call_id: 'call_unified_patch',
+          name: 'apply_patch',
+          arguments: JSON.stringify({ input: unifiedPatch }),
+          status: 'completed',
+        }],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'Update hello.txt.',
+      tools: [{
+        type: 'custom',
+        name: 'apply_patch',
+        description: 'Apply a patch.',
+        format: { type: 'text' },
+      }],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.output[0].type, 'custom_tool_call');
+    assert.equal(body.output[0].input, codexPatch);
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
+test('proxy restores turn-local additional custom tools as custom tool calls', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'resp_turn_local_custom',
+        status: 'completed',
+        output: [{
+          type: 'function_call',
+          call_id: 'call_turn_local_patch',
+          name: 'apply_patch',
+          arguments: JSON.stringify({ input: '*** Begin Patch\n*** End Patch' }),
+          status: 'completed',
+        }],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: [{
+        type: 'additional_tools',
+        role: 'developer',
+        tools: [{
+          type: 'custom',
+          name: 'apply_patch',
+          description: 'Apply a patch.',
+          format: { type: 'text' },
+        }],
+      }],
+      tools: [],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.output[0].type, 'custom_tool_call');
+    assert.equal(body.output[0].name, 'apply_patch');
+    assert.equal(body.output[0].input, '*** Begin Patch\n*** End Patch');
+    assert.equal(Object.hasOwn(body.output[0], 'arguments'), false);
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
+test('request translation preserves every custom tool format in its function parameter', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'test-model',
+    input: 'Use a custom tool.',
+    tools: [
+      {
+        type: 'custom',
+        name: 'regex_writer',
+        description: 'Write a constrained identifier.',
+        format: {
+          type: 'grammar',
+          syntax: 'regex',
+          definition: '[A-Z]{3}-[0-9]{4}',
+        },
+      },
+      {
+        type: 'custom',
+        name: 'freeform_writer',
+        description: 'Write arbitrary text.',
+        format: { type: 'text' },
+      },
+    ],
+  };
+
+  translateRequestBody(body);
+
+  const regexTool = body.tools.find((tool) => tool.name === 'regex_writer');
+  const textTool = body.tools.find((tool) => tool.name === 'freeform_writer');
+  assert.equal(
+    regexTool.parameters.properties.input.description,
+    'Raw input for the custom tool. It must conform to this regex grammar:\n[A-Z]{3}-[0-9]{4}'
+  );
+  assert.equal(
+    textTool.parameters.properties.input.description,
+    'Raw unconstrained text input for the custom tool.'
+  );
+});
+
+test('xAI fixed-reasoning models omit unsupported reasoning effort but preserve summary', () => {
+  withRouteConfig([
+    'upstream_url = "https://api.x.ai/v1"',
+    'default_model = "grok-4.20-0309-reasoning"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'grok-4.20-0309-reasoning',
+      input: 'hello',
+      reasoning: {
+        effort: 'none',
+        summary: 'auto',
+      },
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.reasoning, { summary: 'auto' });
+  });
+});
+
+test('xAI Grok Build omits unsupported reasoning effort', () => {
+  withRouteConfig([
+    'upstream_url = "https://api.x.ai/v1"',
+    'default_model = "grok-build-0.1"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'grok-build-0.1',
+      input: 'hello',
+      reasoning: { effort: 'high', summary: 'auto' },
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.reasoning, { summary: 'auto' });
+  });
+});
+
+test('xAI request translation removes null fields from replayed reasoning items', () => {
+  withRouteConfig([
+    'upstream_url = "https://api.x.ai/v1"',
+    'default_model = "grok-4.3"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'grok-4.3',
+      input: [{
+        type: 'reasoning',
+        summary: [{ type: 'summary_text', text: 'Used the requested tool.' }],
+        content: null,
+        encrypted_content: null,
+      }],
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.input[0], {
+      type: 'reasoning',
+      summary: [{ type: 'summary_text', text: 'Used the requested tool.' }],
+    });
+  });
 });
 
 test('request translation exposes deferred tool_search namespace tools as callable functions', () => {
@@ -436,7 +1161,7 @@ function countRepeatedBlocks(body, repeated) {
 
 test('translateRequestBody does not dedupe large developer blocks by default (protects provider caching)', () => {
   const repeated = '<skills_instructions>' + 'x'.repeat(600) + '</skills_instructions>';
-  const retained = withRouteConfig(['text_model = "test-model"'], ({ translateRequestBody }) => {
+  const retained = withRouteConfig(['default_model = "test-model"'], ({ translateRequestBody }) => {
     const body = duplicateDeveloperBody(repeated);
     translateRequestBody(body);
     return countRepeatedBlocks(body, repeated);
@@ -446,7 +1171,7 @@ test('translateRequestBody does not dedupe large developer blocks by default (pr
 
 test('translateRequestBody dedupes large developer blocks when enabled via route config', () => {
   const repeated = '<skills_instructions>' + 'x'.repeat(600) + '</skills_instructions>';
-  const retained = withRouteConfig(['text_model = "test-model"', 'dedupe_large_input = true'], ({ translateRequestBody }) => {
+  const retained = withRouteConfig(['default_model = "test-model"', 'dedupe_large_input = true'], ({ translateRequestBody }) => {
     const body = duplicateDeveloperBody(repeated);
     translateRequestBody(body);
     return countRepeatedBlocks(body, repeated);
@@ -459,7 +1184,7 @@ test('PROXY_DEDUPE_LARGE_INPUT=1 opts in to large-input dedupe at proxy start (C
   const previous = process.env.PROXY_DEDUPE_LARGE_INPUT;
   process.env.PROXY_DEDUPE_LARGE_INPUT = '1';
   try {
-    const retained = withRouteConfig(['text_model = "test-model"'], ({ translateRequestBody }) => {
+    const retained = withRouteConfig(['default_model = "test-model"'], ({ translateRequestBody }) => {
       const body = duplicateDeveloperBody(repeated);
       translateRequestBody(body);
       return countRepeatedBlocks(body, repeated);
@@ -556,7 +1281,7 @@ test('image auto-routing sends a current Computer Use screenshot to the vision m
   assert.equal(model, 'vision-model');
 });
 
-test('image auto-routing ignores screenshots from earlier user turns', () => {
+test('image auto-routing ignores historical screenshots and preserves the incoming model', () => {
   const model = routeModel({
     model: 'vision-model',
     input: [
@@ -582,7 +1307,7 @@ test('image auto-routing ignores screenshots from earlier user turns', () => {
     tools: [],
   });
 
-  assert.equal(model, 'text-model');
+  assert.equal(model, 'vision-model');
 });
 
 test('disabled image auto-routing preserves the selected model', () => {
@@ -714,7 +1439,7 @@ test('HTTP persistence stays in the proxy-owned cache and preserves active image
     assert.equal(path.dirname(path.dirname(historicalPath)), path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images'));
     assert.equal(fs.existsSync(path.join(unrelatedDir, 'pasted-text.txt')), true);
   }, [
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = true',
     'persist_inline_images = true',
@@ -722,9 +1447,9 @@ test('HTTP persistence stays in the proxy-owned cache and preserves active image
   ]);
 });
 
-test('inline image persistence deduplicates historical images and sends text turns path references', () => {
+test('inline image persistence deduplicates historical images and preserves the incoming model on text turns', () => {
   withRouteConfig([
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = true',
     'persist_inline_images = true',
@@ -753,7 +1478,7 @@ test('inline image persistence deduplicates historical images and sends text tur
 
     const first = makeBody();
     translateRequestBody(first);
-    assert.equal(first.model, 'text-model');
+    assert.equal(first.model, 'vision-model');
     assert.equal(first.input[0].content[1].type, 'input_text');
     const firstPath = first.input[0].content[1].text.match(/^\[image saved: (.+)]$/)[1];
     assert.deepEqual(fs.readFileSync(firstPath), inlineImageBytes('image/png', 'cached-image'));
@@ -766,6 +1491,81 @@ test('inline image persistence deduplicates historical images and sends text tur
     const replayPath = replay.input[0].content[1].text.match(/^\[image saved: (.+)]$/)[1];
     assert.equal(replayPath, firstPath);
     assert.equal(fs.readdirSync(path.dirname(firstPath)).length, 1);
+  });
+});
+
+test('dual-modal image generation turns rehydrate the complete cached image chain without auto-routing', () => {
+  let cachedPaths;
+  withRouteConfig([
+    'default_model = "dual-image-model"',
+    'image_model = "dual-image-model"',
+    'auto_route_image = false',
+    'persist_inline_images = true',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'dual-image-model',
+      prompt_cache_key: 'generated-image-chain-proxy-test',
+      modalities: ['image', 'text'],
+      input: [
+        {
+          type: 'image_generation_call',
+          id: 'image-one',
+          result: 'https://expired.example/one.png',
+          saved_path: cachedPaths[0],
+        },
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Make it warmer.' }],
+        },
+        {
+          type: 'image_generation_call',
+          id: 'image-two',
+          result: 'https://expired.example/two.png',
+          saved_path: cachedPaths[1],
+        },
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Now change the background.' }],
+        },
+      ],
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    const latestContent = body.input.at(-1).content;
+    assert.equal(latestContent[0].text, 'Now change the background.');
+    assert.deepEqual(
+      latestContent.slice(1).map((part) => part.type),
+      ['input_image', 'input_image'],
+    );
+    assert.deepEqual(
+      latestContent.slice(1).map((part) => part.image_url),
+      [inlineImageUrl('image/png', 'one'), inlineImageUrl('image/png', 'two')],
+    );
+  }, ({ codexHome }) => {
+    fs.writeFileSync(path.join(codexHome, 'ollama-launch-models.json'), JSON.stringify({
+      models: [{
+        slug: 'dual-image-model',
+        input_modalities: ['text', 'image'],
+        output_modalities: ['text', 'image'],
+      }],
+    }));
+    const cacheDir = path.join(
+      codexHome,
+      'attachments',
+      'ollama-shape-proxy-inline-images',
+      'generated-image-chain-proxy-test',
+    );
+    fs.mkdirSync(cacheDir, { recursive: true });
+    cachedPaths = [
+      path.join(cacheDir, 'one.png'),
+      path.join(cacheDir, 'two.png'),
+    ];
+    fs.writeFileSync(cachedPaths[0], inlineImageBytes('image/png', 'one'));
+    fs.writeFileSync(cachedPaths[1], inlineImageBytes('image/png', 'two'));
   });
 });
 
@@ -810,7 +1610,7 @@ test('inline image persistence repairs a corrupt existing hash file', () => {
 
 test('inline image persistence keeps active image-turn pixels and dereferences history', () => {
   withRouteConfig([
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = true',
     'persist_inline_images = true',
@@ -850,7 +1650,7 @@ test('inline image persistence keeps active image-turn pixels and dereferences h
 
 test('inline image persistence is bypassed when image auto-routing is disabled', () => {
   withRouteConfig([
-    'text_model = "text-model"',
+    'default_model = "text-model"',
     'image_model = "vision-model"',
     'auto_route_image = false',
     'persist_inline_images = true',
@@ -968,7 +1768,7 @@ test('inline image persistence removes expired inactive session caches', () => {
   }
 });
 
-test('inline images remain unchanged when persistence is disabled', () => {
+test('historical inline images remain unchanged without a stable session and preserve the incoming model', () => {
   const imageUrl = inlineImageUrl('image/png', 'not-cached');
   const body = {
     model: 'vision-model',
@@ -987,7 +1787,7 @@ test('inline images remain unchanged when persistence is disabled', () => {
     tools: [],
   };
 
-  assert.equal(routeModel(body), 'text-model');
+  assert.equal(routeModel(body), 'vision-model');
   assert.equal(body.input[0].content[0].image_url, imageUrl);
 });
 
@@ -1011,7 +1811,7 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-test-'));
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     'upstream_api_key = "secret-token"',
     '',
@@ -1051,6 +1851,163 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
     else process.env.PROXY_PORT = previousProxyPort;
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
+});
+
+test('proxy caches non-streaming native image results and returns their saved path', async () => {
+  const imageUrl = inlineImageUrl('image/png', 'provider-generated');
+  await withProxy((req, res) => {
+    req.resume();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      id: 'resp_generated_image',
+      status: 'completed',
+      output: [{
+        id: 'ig_generated',
+        type: 'image_generation_call',
+        status: 'completed',
+        result: imageUrl,
+      }],
+    }));
+  }, async (proxyPort, proxy, codexHome) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'draw a circle',
+      prompt_cache_key: 'generated-image-proxy-test',
+      modalities: ['image', 'text'],
+      tools: [],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    const savedPath = body.output[0].saved_path;
+    assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images') + path.sep));
+    assert.deepEqual(fs.readFileSync(savedPath), inlineImageBytes('image/png', 'provider-generated'));
+    assert.equal(body.output[1].type, 'message');
+    assert.equal(body.output[1].role, 'assistant');
+    assert.equal(body.output[1].content[0].text, `![Generated image](<${savedPath}>)`);
+  }, [
+    'auto_route_image = false',
+    'persist_inline_images = true',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
+test('proxy caches streamed native image results before the terminal response', async () => {
+  const imageUrl = inlineImageUrl('image/png', 'streamed-provider-generated');
+  await withProxy((req, res) => {
+    req.resume();
+    const item = {
+      id: 'ig_streamed_generated',
+      type: 'image_generation_call',
+      status: 'completed',
+      result: imageUrl,
+    };
+    res.writeHead(200, { 'content-type': 'text/event-stream', connection: 'keep-alive' });
+    writeSse(res, 'response.created', {
+      type: 'response.created',
+      response: { id: 'resp_streamed_generated', status: 'in_progress', output: [] },
+    });
+    writeSse(res, 'response.output_item.added', {
+      type: 'response.output_item.added',
+      output_index: 0,
+      sequence_number: 0,
+      item: { id: item.id, type: item.type, status: 'in_progress' },
+    });
+    writeSse(res, 'response.output_item.done', {
+      type: 'response.output_item.done',
+      output_index: 0,
+      sequence_number: 1,
+      item,
+    });
+    writeSse(res, 'response.completed', {
+      type: 'response.completed',
+      response: {
+        id: 'resp_streamed_generated',
+        status: 'completed',
+        output: [item],
+      },
+    });
+    res.end();
+  }, async (proxyPort, proxy, codexHome) => {
+    const response = await postStream(proxyPort, {
+      model: 'test-model',
+      input: 'draw a square',
+      prompt_cache_key: 'streamed-generated-image-proxy-test',
+      modalities: ['image', 'text'],
+      tools: [],
+      stream: true,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const events = parseSse(response.body);
+    assertSuccessfulTerminal(events);
+    const savedPath = events.at(-1).data.response.output[0].saved_path;
+    assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images') + path.sep));
+    assert.deepEqual(fs.readFileSync(savedPath), inlineImageBytes('image/png', 'streamed-provider-generated'));
+    const visibleMessage = events
+      .filter((event) => event.event === 'response.output_item.done')
+      .map((event) => event.data.item)
+      .find((item) => item && item.type === 'message');
+    assert.equal(visibleMessage.role, 'assistant');
+    assert.equal(visibleMessage.content[0].text, `![Generated image](<${savedPath}>)`);
+    assert.deepEqual(events.at(-1).data.response.output, [
+      events.at(-1).data.response.output[0],
+      visibleMessage,
+    ]);
+  }, [
+    'auto_route_image = false',
+    'persist_inline_images = true',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
+test('proxy preserves thought signatures when restoring namespaced function calls', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      id: 'resp_signature',
+      status: 'completed',
+      output: [{
+        id: 'fc_signature',
+        type: 'function_call',
+        call_id: 'call_signature',
+        name: 'mcp__example__lookup',
+        arguments: '{"q":"test"}',
+        thought_signature: 'opaque-signature',
+        status: 'completed',
+      }],
+    }));
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: 'look it up',
+      tools: [{
+        type: 'namespace',
+        name: 'mcp__example',
+        tools: [{
+          type: 'function',
+          name: 'lookup',
+          parameters: {
+            type: 'object',
+            properties: { q: { type: 'string' } },
+          },
+        }],
+      }],
+      stream: false,
+    });
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.output[0].namespace, 'mcp__example');
+    assert.equal(body.output[0].name, 'lookup');
+    assert.equal(body.output[0].thought_signature, 'opaque-signature');
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+  ]);
 });
 
 test('streaming SSE preserves ordering and translates tool_search_call', async () => {
@@ -1108,7 +2065,7 @@ test('streaming SSE preserves ordering and translates tool_search_call', async (
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-test-'));
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
-    'text_model = "test-model"',
+    'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     '',
   ].join('\n'));
@@ -1174,6 +2131,30 @@ test('normal streamed text ending by EOF gets response.completed before closure'
     assertSuccessfulTerminal(events);
     assert.equal(events.at(-1).data.response.id, 'resp_eof');
     assert.equal(events.at(-1).data.response.output[0].content[0].text, 'hello from EOF');
+  });
+});
+
+test('completed responses fill required token counters for image-only provider usage', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    writeTextTurn(res, {
+      id: 'resp_usage',
+      text: 'image generated',
+      ending: 'completed',
+      usage: { num_images: 1 },
+    });
+  }, async (proxyPort) => {
+    const response = await postStream(proxyPort, {
+      model: 'test-model', input: 'generate an image', tools: [], stream: true,
+    });
+    const completed = parseSse(response.body).at(-1).data.response;
+
+    assert.deepEqual(completed.usage, {
+      num_images: 1,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+    });
   });
 });
 

@@ -200,7 +200,7 @@ function extractTextFromResponse(response) {
 async function enhancePrompt(upstream, userPrompt, config, systemPrompt, inputImageBase64, inputImageMime) {
   try {
     const body = {
-      model: config.text_model,
+      model: config.default_model,
       input: inputImageBase64
         ? [
             {
@@ -657,7 +657,12 @@ async function runGenerateImageLoop(upstream, originalBody, config, options) {
       outputs.push({ type: 'function_call_output', call_id: r.call_id, output: r.output });
     }
     for (const call of statusCalls) {
-      const r = fulfillProxyStatus(call, config, log);
+      const r = fulfillProxyStatus(call, config, log, {
+        originalModel: options.originalModel,
+        routedModel: options.routedModel,
+        visionCapableModels: options.visionCapableModels,
+        upstreamUrl: options.upstreamUrl,
+      });
       outputs.push({ type: 'function_call_output', call_id: r.call_id, output: r.output });
     }
 
@@ -783,17 +788,33 @@ function findProxyStatusCalls(response) {
   );
 }
 
-function fulfillProxyStatus(call, config, log) {
+function fulfillProxyStatus(call, config, log, ctx) {
+  ctx = ctx || {};
   const imagineService = config.imagine_service || 'gemini';
   const maskedKey = config.imagine_api_key
     ? 'set (' + config.imagine_api_key.slice(0, 4) + '...)'
     : (imagineService === 'ollama' ? 'not set' : 'not set (will use env var if available)');
 
+  const visionSet = ctx.visionCapableModels;
+  const visionList = visionSet && visionSet.size > 0 ? [...visionSet] : [];
+
   const status = {
     current_config: {
-      text_model: config.text_model || null,
+      default_model: config.default_model || null,
       image_model: config.image_model || null,
       auto_route_image: config.auto_route_image || false,
+      routing: {
+        incoming_model: ctx.originalModel || null,
+        routed_model: ctx.routedModel || null,
+        model_was_rewritten: ctx.originalModel && ctx.routedModel && ctx.originalModel !== ctx.routedModel,
+        upstream_url: ctx.upstreamUrl || null,
+        vision_capable_models: visionList,
+        explanation: ctx.originalModel && ctx.routedModel && ctx.originalModel !== ctx.routedModel
+          ? 'Model was rewritten from ' + ctx.originalModel + ' to ' + ctx.routedModel + ' because the incoming model lacks vision capability and auto_route_image is enabled.'
+          : ctx.originalModel
+            ? 'Model ' + ctx.originalModel + ' passed through unchanged.'
+            : 'No model routing information available for this request.',
+      },
       dedupe_large_input: config.dedupe_large_input !== false,
       duplicate_input_min_chars: config.duplicate_input_min_chars || 512,
       verbose_tools: config.verbose_tools || false,
