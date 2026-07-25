@@ -1116,7 +1116,7 @@ test('Ollama local discovery reads its cloud candidates without a catalog networ
   }
 });
 
-test('Ollama live discovery retains exact bundled Gemma 4 cloud enrichment', async () => {
+test('Ollama live discovery retains cloud enrichment but displays the exact model id', async () => {
   const result = await ollama.discover({
     baseUrl: 'http://localhost:11434/v1',
     detectionPayload: { models: [{ name: 'gemma4:31b-cloud' }] },
@@ -1131,11 +1131,12 @@ test('Ollama live discovery retains exact bundled Gemma 4 cloud enrichment', asy
   });
 
   const gemma4 = result.models.find((model) => model.id === 'gemma4:31b-cloud');
-  assert.equal(gemma4.displayName, 'Google: Gemma 4 31B');
+  assert.equal(gemma4.displayName, 'gemma4:31b-cloud');
   assert.deepEqual(gemma4.reasoningLevels, ['none', 'low', 'medium', 'high', 'max']);
   assert.equal(gemma4.metadataSources.reasoningLevels, 'provider-catalog');
   assert.equal(gemma4.contextWindow, 262144);
   assert.deepEqual(gemma4.inputModalities, ['text', 'image']);
+  assert.ok(result.models.every((model) => model.displayName === model.id));
 });
 
 test('Ollama live discovery applies reasoning controls to the full Gemma 4 family', async () => {

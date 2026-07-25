@@ -117,6 +117,12 @@ function modelFromInspection(id, inspection, capabilitySource) {
   };
 }
 
+function keepOllamaDisplayNameAsModelId(model) {
+  return model && typeof model.id === 'string'
+    ? { ...model, displayName: model.id }
+    : model;
+}
+
 async function mapLimit(values, limit, mapper) {
   const output = new Array(values.length);
   let next = 0;
@@ -185,10 +191,10 @@ async function discover(options = {}) {
         inspection,
         hasShowCapabilities ? 'provider-inspection' : 'provider-catalog',
       );
-      return applyDocumentedModalities(
+      return keepOllamaDisplayNameAsModelId(applyDocumentedModalities(
         id.endsWith(':cloud') ? 'ollama-cloud' : 'ollama',
         enrichModelFromSeed(model, cloudSeeds.get(id)),
-      );
+      ));
     } catch {
       warnings.push(`Ollama model inspection failed for ${id}.`);
       const capabilities = tagCapabilities.has(id)
@@ -199,15 +205,20 @@ async function discover(options = {}) {
         { contextWindow: null, capabilities },
         'provider-catalog',
       );
-      return applyDocumentedModalities(
+      return keepOllamaDisplayNameAsModelId(applyDocumentedModalities(
         id.endsWith(':cloud') ? 'ollama-cloud' : 'ollama',
         enrichModelFromSeed(model, cloudSeeds.get(id)),
-      );
+      ));
     }
   });
   const discoveredIds = new Set(models.map((model) => model.id));
   return adapterResult({
-    models: [...models, ...cloudCatalog.models.filter((model) => !discoveredIds.has(model.id))],
+    models: [
+      ...models,
+      ...cloudCatalog.models
+        .filter((model) => !discoveredIds.has(model.id))
+        .map(keepOllamaDisplayNameAsModelId),
+    ],
     warnings,
     origin: 'live',
     complete: true,
