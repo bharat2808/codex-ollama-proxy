@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const http = require('http');
+const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const presets = require('./presets');
@@ -11,7 +12,8 @@ const launcherState = require('./launcher-state');
 const { requireVerifiedProxyListeners } = require('./process-lifecycle');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
-const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
+const HOME_DIR = process.env.HOME || process.env.USERPROFILE || os.homedir();
+const CODEX_DIR = process.env.CODEX_HOME || path.join(HOME_DIR, '.codex');
 const RUNTIME_DIR = path.join(CODEX_DIR, 'ollama-shape-proxy');
 const ROUTE_CONFIG = path.join(RUNTIME_DIR, 'proxy-models.toml');
 const IMAGINE_CONFIG = path.join(RUNTIME_DIR, 'imagine.toml');
@@ -20,9 +22,13 @@ const DEFAULT_ROUTE_CONFIG = path.join(PACKAGE_DIR, 'config', 'proxy-models.defa
 const DEFAULT_MODEL_CATALOG = path.join(PACKAGE_DIR, 'config', 'model-catalogs', 'ollama-launch-models.default.json');
 const MODEL_CATALOG = path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json');
 const MODEL_CATALOG_COPY = path.join(CODEX_DIR, 'ollama-launch-models.json');
-const PLIST = path.join(process.env.HOME, 'Library', 'LaunchAgents', 'com.user.codex-ollama-shape-proxy.plist');
+const PLIST = path.join(HOME_DIR, 'Library', 'LaunchAgents', 'com.user.codex-ollama-shape-proxy.plist');
 const LABEL = 'com.user.codex-ollama-shape-proxy';
 const PROXY_PORT = process.env.PROXY_PORT || String(launcherState.DEFAULT_PROXY_PORT);
+const SERVICE_PLATFORM = process.env.CODEX_PROXY_PLATFORM || process.platform;
+const SYSTEMD_UNIT = path.join(HOME_DIR, '.config', 'systemd', 'user', 'codex-ollama-proxy.service');
+const WINDOWS_COMMAND = path.join(RUNTIME_DIR, 'start-proxy.cmd');
+const WINDOWS_TASK = 'Codex Ollama Proxy';
 
 function usage() {
   console.log(`Usage:
@@ -117,6 +123,17 @@ function bootoutLaunchAgent() {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return result.status === 0;
+}
+
+function stopPlatformService() {
+  if (SERVICE_PLATFORM === 'darwin') return bootoutLaunchAgent();
+  if (SERVICE_PLATFORM === 'linux') {
+    return run('systemctl', ['--user', 'stop', 'codex-ollama-proxy.service'], { check: false, stdio: 'pipe' }).status === 0;
+  }
+  if (SERVICE_PLATFORM === 'win32') {
+    return run('schtasks.exe', ['/End', '/TN', WINDOWS_TASK], { check: false, stdio: 'pipe' }).status === 0;
+  }
+  return false;
 }
 
 function parseFlags(argv) {
@@ -381,7 +398,7 @@ function switchMode(mode, flags) {
       adaptor: 'none',
       proxy_port: proxyPort,
     });
-    bootoutLaunchAgent();
+    stopPlatformService();
     stopListeningPort(proxyPort);
     install();
     return waitForProxyResponse(proxyPort).then((probe) => {
@@ -437,15 +454,31 @@ function probeJson(port, requestPath, timeoutMs = 750) {
 }
 
 function listeningPids(port) {
+  if (SERVICE_PLATFORM === 'win32') {
+    const result = spawnSync('netstat.exe', ['-ano', '-p', 'TCP'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return [...new Set(String(result.stdout || '').split(/\r?\n/u).flatMap((line) => {
+      const fields = line.trim().split(/\s+/u);
+      return fields.length >= 5 && fields[1].endsWith(`:${port}`) && fields[3] === 'LISTENING' ? [fields[4]] : [];
+    }))];
+  }
   const result = spawnSync('lsof', ['-nP', '-tiTCP:' + port, '-sTCP:LISTEN'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   });
+  if (result.error && result.error.code === 'ENOENT') {
+    const ss = spawnSync('ss', ['-ltnp', `sport = :${port}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return [...new Set([...String(ss.stdout || '').matchAll(/pid=(\d+)/gu)].map((match) => match[1]))];
+  }
   if (result.status !== 0 && !result.stdout) return [];
   return result.stdout.split(/\s+/u).filter(Boolean);
 }
 
 function describePortOwner(port) {
+  if (SERVICE_PLATFORM === 'win32') {
+    const result = spawnSync('netstat.exe', ['-ano', '-p', 'TCP'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return String(result.stdout || '').split(/\r?\n/u)
+      .filter((line) => line.trim().split(/\s+/u)[1]?.endsWith(`:${port}`)).join('\n').trim();
+  }
   const result = spawnSync('lsof', ['-nP', '-iTCP:' + port, '-sTCP:LISTEN'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
@@ -454,6 +487,13 @@ function describePortOwner(port) {
 }
 
 function processCommand(pid) {
+  if (SERVICE_PLATFORM === 'win32') {
+    const script = `(Get-CimInstance Win32_Process -Filter "ProcessId = ${Number(pid)}").CommandLine`;
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return result.status === 0 && result.stdout ? result.stdout.trim() : '';
+  }
   const result = spawnSync('ps', ['-p', String(pid), '-o', 'command='], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
@@ -499,7 +539,7 @@ async function ensureProxyCanStart(flags, proxyPort) {
   if (isHealthyProxyModelsResponse(existingProxy)) {
     if (flags.replace) {
       console.log(`replace=stopping_existing_listener port=${proxyPort}`);
-      if (bootoutLaunchAgent()) console.log(`replace=stopped_launch_agent ${LABEL}`);
+      if (stopPlatformService()) console.log('replace=stopped_background_service');
       if (!stopListeningPort(proxyPort)) die(`Error: could not stop existing listener on 127.0.0.1:${proxyPort}.`);
       return true;
     }
@@ -511,7 +551,7 @@ async function ensureProxyCanStart(flags, proxyPort) {
   if (existingProxy.statusCode > 0 || occupiedPids.length > 0) {
     if (flags.replace) {
       console.log(`replace=stopping_existing_listener port=${proxyPort}`);
-      if (bootoutLaunchAgent()) console.log(`replace=stopped_launch_agent ${LABEL}`);
+      if (stopPlatformService()) console.log('replace=stopped_background_service');
       if (!stopListeningPort(proxyPort)) die(`Error: could not stop existing listener on 127.0.0.1:${proxyPort}.`);
       return true;
     }
@@ -560,25 +600,73 @@ function renderPlist() {
     .replaceAll('__PORT__', String(state.proxy_port));
 }
 
+function launcherStateForInstall() {
+  let state = launcherState.read(LAUNCHER_STATE);
+  if (!state) {
+    const activePreset = readRouteValue(readRouteConfig(), 'active_preset', '');
+    state = activePreset
+      ? launcherState.fromPreset(presets.readPreset(RUNTIME_DIR, activePreset))
+      : { version: launcherState.VERSION, adaptor: 'none' };
+    state = launcherState.write(LAUNCHER_STATE, state);
+  }
+  if (process.env.PROXY_PORT !== undefined && parseProxyPort(process.env.PROXY_PORT) !== state.proxy_port) {
+    state = launcherState.write(LAUNCHER_STATE, { ...state, proxy_port: parseProxyPort(process.env.PROXY_PORT) });
+  }
+  return state;
+}
+
 function install() {
   init();
-  fs.mkdirSync(path.dirname(PLIST), { recursive: true });
-  fs.writeFileSync(PLIST, renderPlist(), 'utf8');
-  bootoutLaunchAgent();
-  bootstrapLaunchAgent();
-  run('launchctl', ['enable', `gui/${process.getuid()}/${LABEL}`], { check: false });
-  run('launchctl', ['kickstart', '-k', `gui/${process.getuid()}/${LABEL}`], { check: false });
+  const state = launcherStateForInstall();
+  if (SERVICE_PLATFORM === 'darwin') {
+    fs.mkdirSync(path.dirname(PLIST), { recursive: true });
+    fs.writeFileSync(PLIST, renderPlist(), 'utf8');
+    bootoutLaunchAgent();
+    bootstrapLaunchAgent();
+    run('launchctl', ['enable', `gui/${process.getuid()}/${LABEL}`], { check: false });
+    run('launchctl', ['kickstart', '-k', `gui/${process.getuid()}/${LABEL}`], { check: false });
+    return;
+  }
+  if (SERVICE_PLATFORM === 'linux') {
+    fs.mkdirSync(path.dirname(SYSTEMD_UNIT), { recursive: true });
+    fs.writeFileSync(SYSTEMD_UNIT, launcherState.renderSystemdUnit(state, process.execPath,
+      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log')), 'utf8');
+    run('systemctl', ['--user', 'daemon-reload']);
+    run('systemctl', ['--user', 'enable', '--now', 'codex-ollama-proxy.service']);
+    console.log(`installed=${SYSTEMD_UNIT}`);
+    return;
+  }
+  if (SERVICE_PLATFORM === 'win32') {
+    fs.writeFileSync(WINDOWS_COMMAND, launcherState.renderWindowsCommand(state, process.execPath,
+      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log')), 'utf8');
+    stopPlatformService();
+    const taskCommand = `cmd.exe /d /c ""${WINDOWS_COMMAND}""`;
+    run('schtasks.exe', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', taskCommand, '/F']);
+    run('schtasks.exe', ['/Run', '/TN', WINDOWS_TASK]);
+    console.log(`installed=${WINDOWS_COMMAND}`);
+    return;
+  }
+  die(`Error: background installation is not supported on ${SERVICE_PLATFORM}. Use codex-ollama-proxy serve.`);
 }
 
 function uninstall() {
-  bootoutLaunchAgent();
-  if (fs.existsSync(PLIST)) fs.unlinkSync(PLIST);
-  console.log(`removed=${PLIST}`);
+  stopPlatformService();
+  let serviceFile = PLIST;
+  if (SERVICE_PLATFORM === 'linux') {
+    run('systemctl', ['--user', 'disable', 'codex-ollama-proxy.service'], { check: false });
+    serviceFile = SYSTEMD_UNIT;
+  } else if (SERVICE_PLATFORM === 'win32') {
+    run('schtasks.exe', ['/Delete', '/TN', WINDOWS_TASK, '/F'], { check: false });
+    serviceFile = WINDOWS_COMMAND;
+  }
+  if (fs.existsSync(serviceFile)) fs.unlinkSync(serviceFile);
+  if (SERVICE_PLATFORM === 'linux') run('systemctl', ['--user', 'daemon-reload'], { check: false });
+  console.log(`removed=${serviceFile}`);
 }
 
 async function restart() {
   const proxyPort = configuredProxyPort();
-  bootoutLaunchAgent();
+  stopPlatformService();
 
   const listeners = listeningPids(proxyPort).filter((pid) => pid !== String(process.pid));
   let verifiedPids;
@@ -606,8 +694,14 @@ async function restart() {
 }
 
 function logs(flags) {
-  const n = String(flags.tail || 100);
-  run('tail', ['-n', n, path.join(RUNTIME_DIR, 'proxy.log')]);
+  const n = Number(flags.tail || 100);
+  if (!Number.isInteger(n) || n < 0) die('Error: --tail must be a non-negative integer.');
+  const logPath = path.join(RUNTIME_DIR, 'proxy.log');
+  if (!fs.existsSync(logPath)) die(`Error: log file does not exist: ${logPath}`);
+  if (n === 0) return;
+  const lines = fs.readFileSync(logPath, 'utf8').split(/\r?\n/u);
+  if (lines.at(-1) === '') lines.pop();
+  console.log(lines.slice(-n).join('\n'));
 }
 
 async function serveCmd(flags = {}) {

@@ -29,6 +29,7 @@ function installWithState(state) {
     env: Object.assign({}, process.env, {
       HOME: home,
       CODEX_HOME: codexHome,
+      CODEX_PROXY_PLATFORM: 'darwin',
       PATH: `${stubBin}:${process.env.PATH}`,
     }),
   });

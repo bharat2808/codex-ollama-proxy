@@ -23,6 +23,16 @@ codex-ollama-proxy init
 codex-ollama-proxy install
 ```
 
+`install` uses the native per-user background service for the current platform:
+
+* macOS: a launchd agent in `~/Library/LaunchAgents`
+* Linux: a systemd user service in `~/.config/systemd/user`
+* Windows: a Task Scheduler task that runs at sign-in
+
+The `restart`, `uninstall`, and `logs` commands use the same cross-platform setup. On Linux,
+the user systemd session must be available. To run without installing a background service,
+use `codex-ollama-proxy serve` in a terminal.
+
 The local proxy listens on:
 
 ```text
