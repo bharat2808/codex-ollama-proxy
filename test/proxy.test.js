@@ -630,7 +630,13 @@ function writeTextTurn(res, options = {}) {
   });
   if (options.ending === 'completed') {
     writeSse(res, 'response.completed', {
-      type: 'response.completed', response: { id, status: 'completed', output: [item] },
+      type: 'response.completed',
+      response: {
+        id,
+        status: 'completed',
+        output: [item],
+        ...(options.usage ? { usage: options.usage } : {}),
+      },
     });
   } else if (options.ending === 'done') {
     writeSse(res, null, '[DONE]');
@@ -2125,6 +2131,30 @@ test('normal streamed text ending by EOF gets response.completed before closure'
     assertSuccessfulTerminal(events);
     assert.equal(events.at(-1).data.response.id, 'resp_eof');
     assert.equal(events.at(-1).data.response.output[0].content[0].text, 'hello from EOF');
+  });
+});
+
+test('completed responses fill required token counters for image-only provider usage', async () => {
+  await withProxy((req, res) => {
+    req.resume();
+    writeTextTurn(res, {
+      id: 'resp_usage',
+      text: 'image generated',
+      ending: 'completed',
+      usage: { num_images: 1 },
+    });
+  }, async (proxyPort) => {
+    const response = await postStream(proxyPort, {
+      model: 'test-model', input: 'generate an image', tools: [], stream: true,
+    });
+    const completed = parseSse(response.body).at(-1).data.response;
+
+    assert.deepEqual(completed.usage, {
+      num_images: 1,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+    });
   });
 });
 

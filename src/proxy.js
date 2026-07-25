@@ -1325,6 +1325,25 @@ function responseSnapshot(response) {
   return snapshot;
 }
 
+function normalizeResponseUsage(response) {
+  if (!response || !response.usage || typeof response.usage !== 'object') return response;
+  const usage = response.usage;
+  const inputTokens = Number.isFinite(usage.input_tokens)
+    ? usage.input_tokens
+    : Number.isFinite(usage.prompt_tokens) ? usage.prompt_tokens : 0;
+  const outputTokens = Number.isFinite(usage.output_tokens)
+    ? usage.output_tokens
+    : Number.isFinite(usage.completion_tokens) ? usage.completion_tokens : 0;
+  response.usage = Object.assign({}, usage, {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: Number.isFinite(usage.total_tokens)
+      ? usage.total_tokens
+      : inputTokens + outputTokens,
+  });
+  return response;
+}
+
 function rememberResponse(streamState, response) {
   streamState.response = Object.assign({}, streamState.response, responseSnapshot(response));
 }
@@ -1369,6 +1388,7 @@ function completeStream(clientRes, streamState, sourceEvent, output) {
   );
   delete response.error;
   delete response.incomplete_details;
+  normalizeResponseUsage(response);
   return writeStreamTerminal(clientRes, streamState, 'response.completed', {
     type: 'response.completed',
     response,
@@ -1827,7 +1847,7 @@ function translateFinalResponse(response, info) {
   if (Array.isArray(response.output)) {
     response.output = response.output.map((it) => translateOutputItem(it, state));
   }
-  return response;
+  return normalizeResponseUsage(response);
 }
 
 function sendJsonResponse(clientRes, statusCode, response) {
