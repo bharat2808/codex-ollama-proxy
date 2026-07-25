@@ -2,7 +2,10 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
-const { loadBundledProviderCatalog } = require('../provider-catalog');
+const {
+  enrichModelFromSeed,
+  loadBundledProviderCatalog,
+} = require('../provider-catalog');
 const {
   MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
@@ -58,24 +61,45 @@ function parseRow(row, seeds = new Map()) {
     row.output_token_limit,
   );
   const liveInput = modalities(row.input_modalities);
+  const features = Array.isArray(row.features)
+    ? row.features
+      .filter((entry) => typeof entry === 'string')
+      .map((entry) => entry.trim().toLowerCase())
+    : null;
+  const featureInput = features
+    ? (features.includes('vision') ? ['text', 'image'] : ['text'])
+    : null;
   const liveReasoning = typeof row.reasoning === 'boolean'
     ? row.reasoning
-    : typeof row.supports_reasoning === 'boolean' ? row.supports_reasoning : null;
+    : typeof row.supports_reasoning === 'boolean'
+      ? row.supports_reasoning
+      : features ? features.includes('reasoning') : null;
   const liveTools = typeof row.supports_tools === 'boolean'
     ? row.supports_tools
-    : typeof row.tool_calling === 'boolean' ? row.tool_calling : null;
+    : typeof row.tool_calling === 'boolean'
+      ? row.tool_calling
+      : features ? features.includes('tools') : null;
   const contextWindow = liveContext ?? seed?.contextWindow ?? null;
   const maxOutputTokens = liveOutput ?? seed?.maxOutputTokens ?? null;
-  const inputModalities = liveInput ?? seed?.inputModalities ?? ['text'];
+  const inputModalities = liveInput ?? featureInput ?? seed?.inputModalities ?? ['text'];
   const outputModalities = seed?.outputModalities ?? ['text'];
   const reasoning = liveReasoning ?? seed?.reasoning ?? null;
   const reasoningLevels = seed?.reasoningLevels ?? null;
+  const reasoningDefaultEnabled = liveReasoning === true
+    ? true
+    : liveReasoning === false ? false : seed?.reasoningDefaultEnabled ?? null;
+  const reasoningSupportsMaxTokens = liveReasoning === true
+    ? true
+    : liveReasoning === false ? false : seed?.reasoningSupportsMaxTokens ?? null;
+  const reasoningMandatory = liveReasoning !== null
+    ? false
+    : seed?.reasoningMandatory ?? null;
   const toolCalling = liveTools ?? seed?.toolCalling ?? null;
   const metadataSources = emptyMetadataSources();
   for (const [field, liveValue] of [
     ['contextWindow', liveContext],
     ['maxOutputTokens', liveOutput],
-    ['inputModalities', liveInput],
+    ['inputModalities', liveInput ?? featureInput],
     ['reasoning', liveReasoning],
     ['toolCalling', liveTools],
   ]) {
@@ -91,7 +115,17 @@ function parseRow(row, seeds = new Map()) {
   if (reasoningLevels !== null) {
     metadataSources.reasoningLevels = seed?.metadataSources?.reasoningLevels || 'provider-seed';
   }
-  return {
+  for (const [field, value] of [
+    ['reasoningDefaultEnabled', reasoningDefaultEnabled],
+    ['reasoningSupportsMaxTokens', reasoningSupportsMaxTokens],
+    ['reasoningMandatory', reasoningMandatory],
+  ]) {
+    if (liveReasoning !== null) metadataSources[field] = 'provider-catalog';
+    else if (value !== null) {
+      metadataSources[field] = seed?.metadataSources?.[field] || 'provider-seed';
+    }
+  }
+  return enrichModelFromSeed({
     id,
     displayName: seed?.displayName || id,
     contextWindow,
@@ -100,10 +134,13 @@ function parseRow(row, seeds = new Map()) {
     outputModalities,
     reasoning,
     reasoningLevels,
+    reasoningDefaultEnabled,
+    reasoningSupportsMaxTokens,
+    reasoningMandatory,
     toolCalling,
     metadataSources,
     source: 'cohere-catalog',
-  };
+  }, seed);
 }
 
 async function discover(options = {}) {

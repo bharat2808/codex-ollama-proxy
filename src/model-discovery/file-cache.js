@@ -64,6 +64,13 @@ function validModel(model) {
     && !REASONING_LEVEL_SET.has(defaultReasoningLevel)) return false;
   if (defaultReasoningLevel !== null
     && !model.reasoningLevels?.includes(defaultReasoningLevel)) return false;
+  for (const field of [
+    'reasoningDefaultEnabled',
+    'reasoningSupportsMaxTokens',
+    'reasoningMandatory',
+  ]) {
+    if (![true, false, null, undefined].includes(model[field])) return false;
+  }
   if (![true, false, null].includes(model.toolCalling)) return false;
   if (!model.metadataSources || typeof model.metadataSources !== 'object') return false;
   if (METADATA_FIELDS.some((field) => model.metadataSources[field] !== undefined

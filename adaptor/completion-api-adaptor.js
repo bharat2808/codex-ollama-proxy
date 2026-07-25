@@ -179,6 +179,9 @@ function buildChatBody(body, options, stream) {
   if (Array.isArray(body.modalities) && body.modalities.length) {
     payload.modalities = [...body.modalities];
   }
+  if (body.reasoning && typeof body.reasoning.effort === 'string') {
+    payload.reasoning_effort = body.reasoning.effort;
+  }
   payload.max_tokens = body.max_tokens || body.max_output_tokens || options.maxTokens;
   if (tools.length) {
     payload.tools = tools;

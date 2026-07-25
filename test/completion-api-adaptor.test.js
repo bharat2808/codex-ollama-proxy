@@ -181,6 +181,7 @@ test('completion API adaptor translates Responses requests to Chat Completions',
     const response = await postJson(adaptorPort, '/v1/responses', {
       input: 'say hello',
       stream: false,
+      reasoning: { effort: 'max' },
       tools: [{
         type: 'function',
         name: 'lookup',
@@ -195,6 +196,7 @@ test('completion API adaptor translates Responses requests to Chat Completions',
     assert.equal(received[0].url, '/v1/chat/completions');
     assert.equal(received[0].authorization, 'Bearer test-key');
     assert.equal(received[0].body.model, 'test-model');
+    assert.equal(received[0].body.reasoning_effort, 'max');
     assert.deepEqual(received[0].body.messages, [{ role: 'user', content: 'say hello' }]);
     assert.equal(received[0].body.tools[0].function.name, 'lookup');
   } finally {

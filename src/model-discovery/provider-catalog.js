@@ -57,6 +57,8 @@ function nativeModel(row) {
   const model = clone(row);
   model.metadataSources = { ...(model.metadataSources || {}) };
   for (const field of METADATA_FIELDS) {
+    if (model[field] === undefined) model[field] = null;
+    if (model.metadataSources[field] === undefined) model.metadataSources[field] = null;
     if (model.metadataSources[field] === 'provider-seed') {
       model[field] = null;
       model.metadataSources[field] = null;
@@ -65,8 +67,29 @@ function nativeModel(row) {
   return model;
 }
 
+function enrichModelFromSeed(live, seed) {
+  if (!live || !seed) return live;
+  const enriched = clone(live);
+  enriched.metadataSources = { ...(enriched.metadataSources || {}) };
+  for (const field of METADATA_FIELDS) {
+    if (enriched[field] == null && seed[field] != null) {
+      enriched[field] = clone(seed[field]);
+      enriched.metadataSources[field] = seed.metadataSources?.[field] || 'provider-seed';
+    }
+  }
+  if (enriched.displayName === enriched.id && seed.displayName) {
+    enriched.displayName = seed.displayName;
+  }
+  return enriched;
+}
+
 function buildProviderCatalog(provider, providerModels, openRouterModels) {
-  const openrouter = new Map((openRouterModels || []).map((model) => [model.id, model]));
+  const openrouter = new Map();
+  for (const model of openRouterModels || []) {
+    if (model && typeof model.id === 'string' && !openrouter.has(model.id)) {
+      openrouter.set(model.id, model);
+    }
+  }
   const models = [];
   const seen = new Set();
   for (const row of providerModels || []) {
@@ -76,7 +99,7 @@ function buildProviderCatalog(provider, providerModels, openRouterModels) {
     model = applyDocumentedModalities(provider, model);
     const openrouterModel = openrouter.get(openRouterIdFor(provider, model.id));
     for (const field of METADATA_FIELDS) {
-      if (model[field] === null && openrouterModel && openrouterModel[field] !== null) {
+      if (model[field] === null && openrouterModel && openrouterModel[field] != null) {
         model[field] = clone(openrouterModel[field]);
         model.metadataSources[field] = 'openrouter-catalog';
       }
@@ -109,6 +132,7 @@ module.exports = {
   CATALOG_DIRECTORY,
   CATALOG_PROVIDERS,
   buildProviderCatalog,
+  enrichModelFromSeed,
   hasBundledProviderCatalog,
   loadBundledProviderCatalog,
   openRouterIdFor,

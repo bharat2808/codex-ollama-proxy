@@ -259,8 +259,20 @@ function buildGenerateContentRequest(body, model = '') {
   const effort = body.reasoning && body.reasoning.effort;
   if (effort) {
     if (/^gemini-2\.5-/u.test(normalizedModel(model))) {
-      const budgets = { low: 1024, medium: 8192, high: 24576, xhigh: 24576, max: 24576 };
-      generationConfig.thinkingConfig = { thinkingBudget: budgets[effort] || budgets.medium };
+      const budgets = {
+        none: 0,
+        minimal: 1024,
+        low: 1024,
+        medium: 8192,
+        high: 24576,
+        xhigh: 24576,
+        max: 24576,
+      };
+      generationConfig.thinkingConfig = {
+        thinkingBudget: Object.prototype.hasOwnProperty.call(budgets, effort)
+          ? budgets[effort]
+          : budgets.medium,
+      };
     } else {
       const levels = {
         none: 'MINIMAL',

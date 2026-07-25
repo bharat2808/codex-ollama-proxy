@@ -11,9 +11,21 @@ const METADATA_FIELDS = [
   'reasoning',
   'reasoningLevels',
   'defaultReasoningLevel',
+  'reasoningDefaultEnabled',
+  'reasoningSupportsMaxTokens',
+  'reasoningMandatory',
   'toolCalling',
 ];
-const REASONING_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+const REASONING_LEVELS = Object.freeze([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+]);
 const MODALITIES = Object.freeze(['text', 'image', 'audio', 'video', 'document']);
 
 function normalizeReasoningLevels(value) {
@@ -59,6 +71,9 @@ function suppliedModel(id) {
     reasoning: null,
     reasoningLevels: null,
     defaultReasoningLevel: null,
+    reasoningDefaultEnabled: null,
+    reasoningSupportsMaxTokens: null,
+    reasoningMandatory: null,
     toolCalling: null,
     metadataSources: emptyMetadataSources(),
     source: 'supplied',

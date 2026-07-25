@@ -14,19 +14,27 @@
       "outputModalities": [
         "text"
       ],
-      "reasoning": null,
+      "reasoning": false,
       "reasoningLevels": null,
+      "defaultReasoningLevel": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
+        "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": false,
+      "reasoningSupportsMaxTokens": false,
+      "reasoningMandatory": false
     },
     {
       "id": "grok-4.20-0309-reasoning",
@@ -40,19 +48,27 @@
       "outputModalities": [
         "text"
       ],
-      "reasoning": null,
+      "reasoning": true,
       "reasoningLevels": null,
+      "defaultReasoningLevel": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
+        "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": false,
+      "reasoningMandatory": true
     },
     {
       "id": "grok-4.3",
@@ -67,7 +83,13 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
+      "defaultReasoningLevel": "low",
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -75,10 +97,17 @@
         "inputModalities": "openrouter-catalog",
         "outputModalities": "openrouter-catalog",
         "reasoning": "openrouter-catalog",
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "grok-4.5",
@@ -107,10 +136,16 @@
         "outputModalities": "openrouter-catalog",
         "reasoning": "openrouter-catalog",
         "reasoningLevels": "provider-catalog",
+        "toolCalling": "openrouter-catalog",
         "defaultReasoningLevel": "provider-catalog",
-        "toolCalling": "openrouter-catalog"
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "grok-build-0.1",
@@ -126,17 +161,25 @@
       ],
       "reasoning": true,
       "reasoningLevels": null,
+      "defaultReasoningLevel": null,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
-        "inputModalities": "openrouter-catalog",
-        "outputModalities": "openrouter-catalog",
-        "reasoning": "openrouter-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": false,
+      "reasoningMandatory": true
     },
     {
       "id": "grok-imagine-image",
@@ -152,6 +195,7 @@
       ],
       "reasoning": null,
       "reasoningLevels": null,
+      "defaultReasoningLevel": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -160,9 +204,16 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "grok-imagine-image-quality",
@@ -178,6 +229,7 @@
       ],
       "reasoning": null,
       "reasoningLevels": null,
+      "defaultReasoningLevel": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -186,9 +238,16 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "grok-imagine-video",
@@ -205,6 +264,7 @@
       ],
       "reasoning": null,
       "reasoningLevels": null,
+      "defaultReasoningLevel": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": null,
@@ -213,9 +273,16 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "grok-imagine-video-1.5",
@@ -230,6 +297,7 @@
       ],
       "reasoning": null,
       "reasoningLevels": null,
+      "defaultReasoningLevel": null,
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": null,
@@ -238,9 +306,16 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     }
   ]
 }

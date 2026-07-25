@@ -849,6 +849,24 @@ test('xAI fixed-reasoning models omit unsupported reasoning effort but preserve 
   });
 });
 
+test('xAI Grok Build omits unsupported reasoning effort', () => {
+  withRouteConfig([
+    'upstream_url = "https://api.x.ai/v1"',
+    'default_model = "grok-build-0.1"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'grok-build-0.1',
+      input: 'hello',
+      reasoning: { effort: 'high', summary: 'auto' },
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.reasoning, { summary: 'auto' });
+  });
+});
+
 test('xAI request translation removes null fields from replayed reasoning items', () => {
   withRouteConfig([
     'upstream_url = "https://api.x.ai/v1"',

@@ -23,9 +23,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "c4ai-aya-vision-32b",
@@ -48,9 +56,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "command-a-03-2025",
@@ -73,9 +89,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "command-a-plus-05-2026",
@@ -89,19 +113,27 @@
       "outputModalities": [
         "text"
       ],
-      "reasoning": null,
+      "reasoning": true,
       "reasoningLevels": null,
-      "toolCalling": null,
+      "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": null,
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
+        "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
     },
     {
       "id": "command-a-reasoning-08-2025",
@@ -114,7 +146,7 @@
       "outputModalities": [
         "text"
       ],
-      "reasoning": null,
+      "reasoning": true,
       "reasoningLevels": null,
       "toolCalling": null,
       "metadataSources": {
@@ -122,11 +154,19 @@
         "maxOutputTokens": null,
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
+        "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
     },
     {
       "id": "command-a-translate-08-2025",
@@ -149,9 +189,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "command-a-vision-07-2025",
@@ -175,9 +223,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": "provider-catalog"
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "command-r-08-2024",
@@ -200,9 +256,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "command-r-plus-08-2024",
@@ -225,9 +289,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "command-r7b-12-2024",
@@ -250,9 +322,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "command-r7b-arabic-02-2025",
@@ -275,9 +355,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "north-mini-code-1-0",
@@ -291,7 +379,7 @@
       "outputModalities": [
         "text"
       ],
-      "reasoning": null,
+      "reasoning": true,
       "reasoningLevels": null,
       "toolCalling": null,
       "metadataSources": {
@@ -299,11 +387,19 @@
         "maxOutputTokens": null,
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
+        "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
     },
     {
       "id": "tiny-aya-earth",
@@ -326,9 +422,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "tiny-aya-fire",
@@ -351,9 +455,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "tiny-aya-global",
@@ -376,9 +488,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "tiny-aya-water",
@@ -401,9 +521,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     }
   ]
 }

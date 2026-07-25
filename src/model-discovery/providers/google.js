@@ -2,7 +2,10 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
-const { loadBundledProviderCatalog } = require('../provider-catalog');
+const {
+  enrichModelFromSeed,
+  loadBundledProviderCatalog,
+} = require('../provider-catalog');
 const { emptyMetadataSources, isObviousNonTextModelId, normalizeModelId } = require('../normalize');
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai';
@@ -118,9 +121,12 @@ async function discover(options = {}) {
     });
   }
   const rows = payload && Array.isArray(payload.models) ? payload.models : [];
+  const bundled = loadBundledProviderCatalog('google');
+  const seeds = new Map(bundled.models.map((model) => [model.id, model]));
   const models = new Map();
   for (const row of rows) {
-    const model = parseRow(row);
+    const parsed = parseRow(row);
+    const model = parsed ? enrichModelFromSeed(parsed, seeds.get(parsed.id)) : null;
     if (model && !models.has(model.id)) models.set(model.id, model);
   }
   return adapterResult({

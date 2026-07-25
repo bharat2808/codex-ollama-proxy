@@ -46,6 +46,9 @@ test('supplied model ids are validated, deduplicated, and retain unknown metadat
     reasoning: null,
     reasoningLevels: null,
     defaultReasoningLevel: null,
+    reasoningDefaultEnabled: null,
+    reasoningSupportsMaxTokens: null,
+    reasoningMandatory: null,
     toolCalling: null,
     metadataSources: {
       contextWindow: null,
@@ -55,6 +58,9 @@ test('supplied model ids are validated, deduplicated, and retain unknown metadat
       reasoning: null,
       reasoningLevels: null,
       defaultReasoningLevel: null,
+      reasoningDefaultEnabled: null,
+      reasoningSupportsMaxTokens: null,
+      reasoningMandatory: null,
       toolCalling: null,
     },
     source: 'supplied',
@@ -507,6 +513,9 @@ test('NVIDIA discovery maps bounded featured rows and preserves feed order', asy
       reasoning: null,
       reasoningLevels: null,
       defaultReasoningLevel: null,
+      reasoningDefaultEnabled: null,
+      reasoningSupportsMaxTokens: null,
+      reasoningMandatory: null,
       toolCalling: null,
     },
     source: 'nvidia-featured',
@@ -526,6 +535,13 @@ test('OpenRouter discovery preserves authoritative metadata and rejects non-text
           output_modalities: ['text'],
         },
         supported_parameters: ['reasoning', 'tools', 'tool_choice'],
+        reasoning: {
+          supported_efforts: ['xhigh', 'high', 'medium', 'low', 'none'],
+          default_effort: 'medium',
+          default_enabled: false,
+          supports_max_tokens: true,
+          mandatory: false,
+        },
         top_provider: { context_length: 200000, max_completion_tokens: 16384 },
       },
       {
@@ -568,7 +584,11 @@ test('OpenRouter discovery preserves authoritative metadata and rejects non-text
   assert.equal(rich.maxOutputTokens, 16384);
   assert.deepEqual(rich.inputModalities, ['text', 'image']);
   assert.deepEqual(rich.outputModalities, ['text']);
-  assert.deepEqual(rich.reasoningLevels, null);
+  assert.deepEqual(rich.reasoningLevels, ['none', 'low', 'medium', 'high', 'xhigh']);
+  assert.equal(rich.defaultReasoningLevel, 'medium');
+  assert.equal(rich.reasoningDefaultEnabled, false);
+  assert.equal(rich.reasoningSupportsMaxTokens, true);
+  assert.equal(rich.reasoningMandatory, false);
   assert.equal(rich.reasoning, true);
   assert.equal(rich.toolCalling, true);
   assert.deepEqual(rich.metadataSources, {
@@ -577,8 +597,11 @@ test('OpenRouter discovery preserves authoritative metadata and rejects non-text
     inputModalities: 'provider-catalog',
     outputModalities: 'provider-catalog',
     reasoning: 'provider-catalog',
-    reasoningLevels: null,
-    defaultReasoningLevel: null,
+    reasoningLevels: 'provider-catalog',
+    defaultReasoningLevel: 'provider-catalog',
+    reasoningDefaultEnabled: 'provider-catalog',
+    reasoningSupportsMaxTokens: 'provider-catalog',
+    reasoningMandatory: 'provider-catalog',
     toolCalling: 'provider-catalog',
   });
   assert.equal(models[0].contextWindow, null);
@@ -592,10 +615,41 @@ test('OpenRouter first-run failure exposes its complete owned snapshot', async (
     apiKey: 'openrouter-key',
     fetchImpl: async () => { throw new Error('offline'); },
   });
-  assert.equal(result.models.length, 343);
+  assert.equal(result.models.length, 345);
   assert.ok(result.models.some((model) => model.id === 'openrouter/auto'));
   assert.ok(result.models.some((model) => model.id === 'moonshotai/kimi-k2.6'));
   assert.equal(result.fallback.state, 'bundled');
+});
+
+test('OpenRouter reasoning metadata distinguishes all-efforts from no exposed effort selector', () => {
+  const allEfforts = openrouter.parseRow({
+    id: 'vendor/all-efforts',
+    architecture: { modality: 'text->text' },
+    reasoning: {
+      supported_efforts: null,
+      default_effort: 'medium',
+      default_enabled: true,
+      mandatory: false,
+    },
+  });
+  assert.deepEqual(allEfforts.reasoningLevels, [
+    'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+  ]);
+  assert.equal(allEfforts.defaultReasoningLevel, 'medium');
+
+  const noSelector = openrouter.parseRow({
+    id: 'vendor/no-selector',
+    architecture: { modality: 'text->text' },
+    reasoning: {
+      default_enabled: true,
+      mandatory: true,
+    },
+  });
+  assert.equal(noSelector.reasoning, true);
+  assert.equal(noSelector.reasoningLevels, null);
+  assert.equal(noSelector.defaultReasoningLevel, null);
+  assert.equal(noSelector.reasoningDefaultEnabled, true);
+  assert.equal(noSelector.reasoningMandatory, true);
 });
 
 test('Cohere discovery rejects deprecated rows and fills only exact-model seed metadata', async (t) => {
@@ -603,7 +657,11 @@ test('Cohere discovery rejects deprecated rows and fills only exact-model seed m
   t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
   const payload = {
     models: [
-      { name: 'command-a-plus-05-2026', is_deprecated: false },
+      {
+        name: 'command-a-plus-05-2026',
+        is_deprecated: false,
+        features: ['reasoning', 'vision', 'tools'],
+      },
       {
         name: 'custom-chat-model',
         context_window: 99999,
@@ -633,8 +691,13 @@ test('Cohere discovery rejects deprecated rows and fills only exact-model seed m
   assert.equal(result.models[0].contextWindow, 436000);
   assert.equal(result.models[0].maxOutputTokens, null);
   assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
-  assert.equal(result.models[0].reasoning, null);
+  assert.equal(result.models[0].reasoning, true);
+  assert.equal(result.models[0].reasoningDefaultEnabled, true);
+  assert.equal(result.models[0].reasoningSupportsMaxTokens, true);
+  assert.equal(result.models[0].reasoningMandatory, false);
+  assert.equal(result.models[0].toolCalling, true);
   assert.equal(result.models[0].metadataSources.contextWindow, 'provider-catalog');
+  assert.equal(result.models[0].metadataSources.reasoning, 'provider-catalog');
   assert.equal(result.models[1].contextWindow, 99999);
   assert.equal(result.models[1].toolCalling, true);
   assert.equal(result.models[1].metadataSources.contextWindow, 'provider-catalog');
@@ -658,8 +721,11 @@ test('Cohere discovery enriches exact live ids from the owned snapshot without m
     assert.equal(result.models[0].displayName, 'Command A+');
     assert.equal(result.models[0].contextWindow, 436000);
     assert.deepEqual(result.models[0].inputModalities, ['text', 'image']);
-    assert.equal(result.models[0].reasoning, null);
-    assert.equal(result.models[0].toolCalling, null);
+    assert.equal(result.models[0].reasoning, true);
+    assert.equal(result.models[0].reasoningDefaultEnabled, true);
+    assert.equal(result.models[0].reasoningSupportsMaxTokens, true);
+    assert.equal(result.models[0].reasoningMandatory, false);
+    assert.equal(result.models[0].toolCalling, true);
     assert.equal(result.models[0].metadataSources.contextWindow, 'provider-catalog');
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });

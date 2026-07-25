@@ -82,6 +82,7 @@ let ollamaCloudPullerBase = '';
 const XAI_FIXED_REASONING_MODELS = new Set([
   'grok-4.20-0309-non-reasoning',
   'grok-4.20-0309-reasoning',
+  'grok-build-0.1',
 ]);
 
 function localOllamaUpstreamBase(upstream) {

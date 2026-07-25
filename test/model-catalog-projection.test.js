@@ -152,6 +152,32 @@ test('discovered reasoning levels do not inherit an unrelated template default',
   assert.equal(models[0].default_reasoning_level, null);
 });
 
+test('fixed reasoning models do not inherit configurable effort selectors from the template', () => {
+  const result = projectCodexCatalog({
+    existingModels: [{
+      slug: 'template',
+      display_name: 'template',
+      supported_reasoning_levels: [{ effort: 'low', description: 'Low' }],
+      default_reasoning_level: 'low',
+    }],
+    knownIds: new Set(['fixed-reasoning']),
+    discovery: {
+      provider: 'xai',
+      models: [{
+        id: 'fixed-reasoning',
+        reasoning: true,
+        reasoningLevels: null,
+        source: 'provider-catalog',
+      }],
+    },
+    canonical,
+  });
+
+  assert.equal(result.models[0].slug, 'fixed-reasoning');
+  assert.deepEqual(result.models[0].supported_reasoning_levels, []);
+  assert.equal(result.models[0].default_reasoning_level, null);
+});
+
 test('Codex projection excludes unsupported-only outputs and filters mixed modalities', () => {
   const result = projectCodexCatalog({
     existingModels: [],

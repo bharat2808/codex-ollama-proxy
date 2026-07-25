@@ -24,9 +24,17 @@
         "outputModalities": "openrouter-catalog",
         "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "kimi-k2.7-code",
@@ -50,9 +58,17 @@
         "outputModalities": "openrouter-catalog",
         "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     }
   ]
 }

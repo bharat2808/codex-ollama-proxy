@@ -13,19 +13,31 @@
       "outputModalities": [
         "text"
       ],
-      "reasoning": null,
-      "reasoningLevels": null,
-      "toolCalling": null,
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "high",
+        "max"
+      ],
+      "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": null
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": false,
+      "reasoningMandatory": false
     },
     {
       "id": "minimaxai/minimax-m3",
@@ -33,24 +45,34 @@
       "contextWindow": 196608,
       "maxOutputTokens": 8192,
       "inputModalities": [
-        "text"
+        "text",
+        "image",
+        "video"
       ],
       "outputModalities": [
         "text"
       ],
-      "reasoning": null,
+      "reasoning": true,
       "reasoningLevels": null,
-      "toolCalling": null,
+      "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
+        "reasoning": "provider-catalog",
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": "provider-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "nvidia/nemotron-3-super-120b-a12b",
@@ -64,7 +86,10 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "low",
+        "medium"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -72,10 +97,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": "openrouter-catalog",
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": "openrouter-catalog",
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
     },
     {
       "id": "nvidia/nemotron-3-ultra-550b-a55b",
@@ -89,7 +122,10 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -97,10 +133,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": "openrouter-catalog",
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": "openrouter-catalog",
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
     },
     {
       "id": "z-ai/glm-5.2",
@@ -114,7 +158,10 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "high",
+        "xhigh"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -122,10 +169,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": "openrouter-catalog",
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     }
   ]
 }

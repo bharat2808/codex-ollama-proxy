@@ -14,7 +14,10 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "high",
+        "xhigh"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "openrouter-catalog",
@@ -22,10 +25,18 @@
         "inputModalities": "openrouter-catalog",
         "outputModalities": "openrouter-catalog",
         "reasoning": "openrouter-catalog",
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "deepseek-v4-pro",
@@ -39,7 +50,10 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "high",
+        "xhigh"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "openrouter-catalog",
@@ -47,10 +61,18 @@
         "inputModalities": "openrouter-catalog",
         "outputModalities": "openrouter-catalog",
         "reasoning": "openrouter-catalog",
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     }
   ]
 }

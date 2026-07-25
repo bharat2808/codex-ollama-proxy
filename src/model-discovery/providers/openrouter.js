@@ -9,6 +9,8 @@ const {
   emptyMetadataSources,
   isObviousNonTextModelId,
   normalizeModelId,
+  normalizeReasoningLevels,
+  REASONING_LEVELS,
 } = require('../normalize');
 const {
   firstBoundedPositiveInteger,
@@ -19,6 +21,8 @@ const {
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/models';
 const CACHE_TTL_MS = 60000;
+const OPENROUTER_REASONING_EFFORTS = REASONING_LEVELS.filter((effort) => effort !== 'ultra');
+
 function fallbackModels() {
   return loadBundledProviderCatalog('openrouter').models;
 }
@@ -42,6 +46,8 @@ function parseRow(row) {
   if (!outputModalities.length && isObviousNonTextModelId(id)) return null;
   const input = modalities(architecture, 'input');
   const parameters = normalizedStrings(value.supported_parameters);
+  const reasoningMetadata = value.reasoning && typeof value.reasoning === 'object'
+    && !Array.isArray(value.reasoning) ? value.reasoning : null;
   const topProvider = record(value.top_provider);
   const contextWindow = firstBoundedPositiveInteger(
     MAX_CONTEXT_WINDOW,
@@ -54,8 +60,42 @@ function parseRow(row) {
     value.max_completion_tokens,
     value.max_output_tokens,
   );
-  const reasoning = parameters.some((parameter) => parameter === 'reasoning' || parameter === 'include_reasoning')
+  const reasoning = reasoningMetadata
+    || parameters.some((parameter) => parameter === 'reasoning' || parameter === 'include_reasoning')
     ? true
+    : null;
+  const hasSnakeCaseEfforts = reasoningMetadata
+    && Object.prototype.hasOwnProperty.call(reasoningMetadata, 'supported_efforts');
+  const hasCamelCaseEfforts = reasoningMetadata
+    && Object.prototype.hasOwnProperty.call(reasoningMetadata, 'supportedEfforts');
+  const rawSupportedEfforts = hasSnakeCaseEfforts
+    ? reasoningMetadata.supported_efforts
+    : hasCamelCaseEfforts ? reasoningMetadata.supportedEfforts : undefined;
+  const exposesAllEfforts = (hasSnakeCaseEfforts || hasCamelCaseEfforts)
+    && rawSupportedEfforts === null;
+  const reasoningLevels = exposesAllEfforts
+    ? [...OPENROUTER_REASONING_EFFORTS]
+    : normalizeReasoningLevels(rawSupportedEfforts);
+  const rawDefaultEffort = reasoningMetadata
+    ? reasoningMetadata.default_effort ?? reasoningMetadata.defaultEffort
+    : null;
+  const normalizedDefaultEffort = typeof rawDefaultEffort === 'string'
+    ? rawDefaultEffort.trim().toLowerCase()
+    : null;
+  const defaultReasoningLevel = reasoningLevels?.includes(normalizedDefaultEffort)
+    ? normalizedDefaultEffort
+    : null;
+  const reasoningDefaultEnabled = reasoningMetadata
+    && typeof (reasoningMetadata.default_enabled ?? reasoningMetadata.defaultEnabled) === 'boolean'
+    ? reasoningMetadata.default_enabled ?? reasoningMetadata.defaultEnabled
+    : null;
+  const reasoningSupportsMaxTokens = reasoningMetadata
+    && typeof (reasoningMetadata.supports_max_tokens ?? reasoningMetadata.supportsMaxTokens) === 'boolean'
+    ? reasoningMetadata.supports_max_tokens ?? reasoningMetadata.supportsMaxTokens
+    : null;
+  const reasoningMandatory = reasoningMetadata
+    && typeof reasoningMetadata.mandatory === 'boolean'
+    ? reasoningMetadata.mandatory
     : null;
   const toolCalling = parameters.some((parameter) => parameter === 'tools' || parameter === 'tool_choice')
     ? true
@@ -66,6 +106,11 @@ function parseRow(row) {
   metadataSources.inputModalities = 'provider-catalog';
   if (outputModalities.length) metadataSources.outputModalities = 'provider-catalog';
   if (reasoning !== null) metadataSources.reasoning = 'provider-catalog';
+  if (reasoningLevels !== null) metadataSources.reasoningLevels = 'provider-catalog';
+  if (defaultReasoningLevel !== null) metadataSources.defaultReasoningLevel = 'provider-catalog';
+  if (reasoningDefaultEnabled !== null) metadataSources.reasoningDefaultEnabled = 'provider-catalog';
+  if (reasoningSupportsMaxTokens !== null) metadataSources.reasoningSupportsMaxTokens = 'provider-catalog';
+  if (reasoningMandatory !== null) metadataSources.reasoningMandatory = 'provider-catalog';
   if (toolCalling !== null) metadataSources.toolCalling = 'provider-catalog';
   return {
     id,
@@ -75,7 +120,11 @@ function parseRow(row) {
     inputModalities: input.includes('image') ? ['text', 'image'] : ['text'],
     outputModalities: outputModalities.length ? [...new Set(outputModalities)] : null,
     reasoning,
-    reasoningLevels: null,
+    reasoningLevels,
+    defaultReasoningLevel,
+    reasoningDefaultEnabled,
+    reasoningSupportsMaxTokens,
+    reasoningMandatory,
     toolCalling,
     metadataSources,
     source: 'openrouter-catalog',

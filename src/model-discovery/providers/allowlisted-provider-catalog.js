@@ -3,6 +3,7 @@
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
 const {
+  enrichModelFromSeed,
   hasBundledProviderCatalog,
   loadBundledProviderCatalog,
 } = require('../provider-catalog');
@@ -86,16 +87,7 @@ function parseLiveRow(row, source) {
 }
 
 function enrichLiveModel(live, seed) {
-  if (!seed) return live;
-  const enriched = { ...live, metadataSources: { ...live.metadataSources } };
-  for (const field of ['contextWindow', 'maxOutputTokens', 'inputModalities', 'outputModalities', 'reasoning', 'reasoningLevels', 'defaultReasoningLevel', 'toolCalling']) {
-    if (enriched[field] === null && seed[field] != null) {
-      enriched[field] = seed[field];
-      enriched.metadataSources[field] = seed.metadataSources?.[field] || 'provider-seed';
-    }
-  }
-  if (enriched.displayName === enriched.id && seed.displayName) enriched.displayName = seed.displayName;
-  return enriched;
+  return enrichModelFromSeed(live, seed);
 }
 
 function modelRows(payload) {

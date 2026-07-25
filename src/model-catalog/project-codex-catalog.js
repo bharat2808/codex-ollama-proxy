@@ -11,6 +11,8 @@ const TOOL_CAPABILITY_FIELDS = [
 
 const CODEX_MODEL_MODALITIES = new Set(['text', 'image', 'audio']);
 const REASONING_EFFORT_DESCRIPTIONS = Object.freeze({
+  none: 'No reasoning',
+  minimal: 'Minimal reasoning for the fastest responses',
   low: 'Fast responses with lighter reasoning',
   medium: 'Balances speed and reasoning depth for everyday tasks',
   high: 'Greater reasoning depth for complex problems',
@@ -74,6 +76,9 @@ function applyDiscoveredMetadata(catalogModels, discoveredModels) {
       } else {
         entry.default_reasoning_level = null;
       }
+    } else if (typeof metadata.reasoning === 'boolean') {
+      entry.supported_reasoning_levels = [];
+      entry.default_reasoning_level = null;
     }
     if (Number.isSafeInteger(metadata.contextWindow) && metadata.contextWindow > 0) {
       entry.context_window = metadata.contextWindow;

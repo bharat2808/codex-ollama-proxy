@@ -2,7 +2,10 @@
 
 const { fetchJson } = require('../live-catalog');
 const { adapterResult } = require('../adapter-result');
-const { loadBundledProviderCatalog } = require('../provider-catalog');
+const {
+  enrichModelFromSeed,
+  loadBundledProviderCatalog,
+} = require('../provider-catalog');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
 const ENDPOINT = 'https://assets.ngc.nvidia.com/products/api-catalog/featured-models.json';
@@ -59,6 +62,7 @@ function parseRow(row) {
 
 async function discover(options = {}) {
   const staticCatalog = loadBundledProviderCatalog('nvidia');
+  const seeds = new Map(staticCatalog.models.map((model) => [model.id, model]));
   let liveModels = [];
   const warnings = [...staticCatalog.warnings];
   try {
@@ -72,7 +76,12 @@ async function discover(options = {}) {
       allowedHostname: 'assets.ngc.nvidia.com',
     });
     const rows = payload && typeof payload === 'object' ? payload['featured-models'] : null;
-    if (Array.isArray(rows)) liveModels = rows.slice(0, MAX_ROWS).map(parseRow).filter(Boolean);
+    if (Array.isArray(rows)) {
+      liveModels = rows.slice(0, MAX_ROWS)
+        .map(parseRow)
+        .filter(Boolean)
+        .map((model) => enrichModelFromSeed(model, seeds.get(model.id)));
+    }
   } catch (error) {
     if (options.signal && options.signal.aborted) throw error;
     warnings.push('NVIDIA featured catalog refresh failed; using the bundled provider catalog.');

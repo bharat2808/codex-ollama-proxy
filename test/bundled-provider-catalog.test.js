@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const {
   buildProviderCatalog,
+  enrichModelFromSeed,
   loadBundledProviderCatalog,
   openRouterIdFor,
 } = require('../src/model-discovery/provider-catalog');
@@ -19,6 +20,10 @@ const metadataFields = [
   'outputModalities',
   'reasoning',
   'reasoningLevels',
+  'defaultReasoningLevel',
+  'reasoningDefaultEnabled',
+  'reasoningSupportsMaxTokens',
+  'reasoningMandatory',
   'toolCalling',
 ];
 
@@ -32,6 +37,10 @@ function model(id, overrides = {}) {
     outputModalities: null,
     reasoning: null,
     reasoningLevels: null,
+    defaultReasoningLevel: null,
+    reasoningDefaultEnabled: null,
+    reasoningSupportsMaxTokens: null,
+    reasoningMandatory: null,
     toolCalling: null,
     metadataSources: Object.fromEntries(metadataFields.map((field) => [field, null])),
     source: 'provider-catalog',
@@ -135,6 +144,83 @@ test('OpenRouter enrichment uses provider-aware exact ids only', () => {
   assert.equal(openRouterIdFor('ollama-cloud', 'unknown:cloud'), null);
 });
 
+test('OpenRouter enrichment copies exact reasoning capabilities and tolerates absent optional fields', () => {
+  const native = model('deepseek-v4-pro', { reasoning: true });
+  const openrouter = model('deepseek/deepseek-v4-pro', {
+    reasoning: true,
+    reasoningLevels: ['low', 'medium', 'high'],
+    defaultReasoningLevel: 'medium',
+    reasoningDefaultEnabled: true,
+    reasoningSupportsMaxTokens: false,
+    reasoningMandatory: false,
+  });
+  delete openrouter.reasoningSupportsMaxTokens;
+
+  const catalog = buildProviderCatalog('deepseek', [native], [openrouter]);
+  const enriched = catalog.models[0];
+
+  assert.deepEqual(enriched.reasoningLevels, ['low', 'medium', 'high']);
+  assert.equal(enriched.defaultReasoningLevel, 'medium');
+  assert.equal(enriched.reasoningDefaultEnabled, true);
+  assert.equal(enriched.reasoningSupportsMaxTokens, null);
+  assert.equal(enriched.reasoningMandatory, false);
+  assert.equal(enriched.metadataSources.reasoningLevels, 'openrouter-catalog');
+  assert.equal(enriched.metadataSources.defaultReasoningLevel, 'openrouter-catalog');
+});
+
+test('live provider rows retain exact bundled reasoning metadata without overriding live fields', () => {
+  const live = model('provider-model', {
+    contextWindow: 999,
+    reasoning: true,
+    metadataSources: {
+      ...model('unused').metadataSources,
+      contextWindow: 'provider-catalog',
+      reasoning: 'provider-catalog',
+    },
+  });
+  const seed = model('provider-model', {
+    contextWindow: 123,
+    reasoning: true,
+    reasoningLevels: ['low', 'high'],
+    defaultReasoningLevel: 'high',
+    reasoningDefaultEnabled: true,
+    reasoningMandatory: true,
+    metadataSources: {
+      ...model('unused').metadataSources,
+      contextWindow: 'openrouter-catalog',
+      reasoning: 'openrouter-catalog',
+      reasoningLevels: 'openrouter-catalog',
+      defaultReasoningLevel: 'openrouter-catalog',
+      reasoningDefaultEnabled: 'openrouter-catalog',
+      reasoningMandatory: 'openrouter-catalog',
+    },
+  });
+
+  const enriched = enrichModelFromSeed(live, seed);
+
+  assert.equal(enriched.contextWindow, 999);
+  assert.deepEqual(enriched.reasoningLevels, ['low', 'high']);
+  assert.equal(enriched.defaultReasoningLevel, 'high');
+  assert.equal(enriched.reasoningDefaultEnabled, true);
+  assert.equal(enriched.reasoningMandatory, true);
+  assert.equal(enriched.metadataSources.reasoningLevels, 'openrouter-catalog');
+});
+
+test('OpenRouter enrichment prefers the newest cached duplicate supplied first', () => {
+  const native = model('gemini-3.6-flash', { reasoning: true });
+  const newest = model('google/gemini-3.6-flash', {
+    reasoning: true,
+    reasoningLevels: ['minimal', 'low', 'medium', 'high'],
+    defaultReasoningLevel: 'medium',
+  });
+  const older = model('google/gemini-3.6-flash', { reasoning: true });
+
+  const catalog = buildProviderCatalog('google', [native], [newest, older]);
+
+  assert.deepEqual(catalog.models[0].reasoningLevels, ['minimal', 'low', 'medium', 'high']);
+  assert.equal(catalog.models[0].defaultReasoningLevel, 'medium');
+});
+
 test('packaged provider catalogs are normalized, enriched, and contain no OpenClaw provenance', () => {
   for (const provider of ['cohere', 'deepseek', 'google', 'moonshot', 'nvidia', 'ollama-cloud', 'openrouter', 'xai']) {
     const result = loadBundledProviderCatalog(provider);
@@ -151,9 +237,59 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
 
   const xai = loadBundledProviderCatalog('xai');
   const grok45 = xai.models.find((entry) => entry.id === 'grok-4.5');
+  const grok43 = xai.models.find((entry) => entry.id === 'grok-4.3');
+  const grokBuild = xai.models.find((entry) => entry.id === 'grok-build-0.1');
+  const grok420 = xai.models.find((entry) => entry.id === 'grok-4.20-0309-reasoning');
   assert.deepEqual(grok45.reasoningLevels, ['low', 'medium', 'high']);
   assert.equal(grok45.defaultReasoningLevel, 'high');
   assert.equal(grok45.metadataSources.defaultReasoningLevel, 'provider-catalog');
+  assert.deepEqual(grok43.reasoningLevels, ['none', 'low', 'medium', 'high']);
+  assert.equal(grok43.defaultReasoningLevel, 'low');
+  assert.equal(grok43.metadataSources.reasoningLevels, 'openrouter-catalog');
+  assert.equal(grokBuild.reasoning, true);
+  assert.equal(grokBuild.reasoningMandatory, true);
+  assert.equal(grokBuild.reasoningLevels, null);
+  assert.equal(grok420.reasoning, true);
+  assert.equal(grok420.reasoningMandatory, true);
+  assert.equal(grok420.reasoningLevels, null);
+
+  const openrouter = loadBundledProviderCatalog('openrouter');
+  const gpt54 = openrouter.models.find((entry) => entry.id === 'openai/gpt-5.4');
+  assert.deepEqual(gpt54.reasoningLevels, ['none', 'low', 'medium', 'high', 'xhigh']);
+  assert.equal(gpt54.defaultReasoningLevel, 'medium');
+  assert.equal(gpt54.reasoningDefaultEnabled, false);
+  assert.equal(gpt54.reasoningMandatory, false);
+
+  const google = loadBundledProviderCatalog('google');
+  const gemini36 = google.models.find((entry) => entry.id === 'gemini-3.6-flash');
+  const gemini25Flash = google.models.find((entry) => entry.id === 'gemini-2.5-flash');
+  const gemini3Pro = google.models.find((entry) => entry.id === 'gemini-3-pro-preview');
+  assert.deepEqual(gemini36.reasoningLevels, ['minimal', 'low', 'medium', 'high']);
+  assert.equal(gemini36.defaultReasoningLevel, 'medium');
+  assert.equal(gemini36.metadataSources.reasoningLevels, 'openrouter-catalog');
+  assert.deepEqual(gemini25Flash.reasoningLevels, ['none', 'minimal', 'low', 'medium', 'high']);
+  assert.equal(gemini25Flash.defaultReasoningLevel, null);
+  assert.equal(gemini25Flash.metadataSources.reasoningLevels, 'provider-catalog');
+  assert.deepEqual(gemini3Pro.reasoningLevels, ['low', 'high']);
+  assert.equal(gemini3Pro.defaultReasoningLevel, 'high');
+
+  const nvidia = loadBundledProviderCatalog('nvidia');
+  const nemotronSuper = nvidia.models.find(
+    (entry) => entry.id === 'nvidia/nemotron-3-super-120b-a12b',
+  );
+  const deepseekV4 = nvidia.models.find(
+    (entry) => entry.id === 'deepseek-ai/deepseek-v4-pro',
+  );
+  assert.deepEqual(nemotronSuper.reasoningLevels, ['low', 'medium']);
+  assert.equal(nemotronSuper.defaultReasoningLevel, 'medium');
+  assert.deepEqual(deepseekV4.reasoningLevels, ['none', 'high', 'max']);
+  assert.equal(deepseekV4.defaultReasoningLevel, 'high');
+
+  const ollamaCloud = loadBundledProviderCatalog('ollama-cloud');
+  for (const entry of ollamaCloud.models) {
+    assert.deepEqual(entry.reasoningLevels, ['none', 'low', 'medium', 'high', 'max']);
+    assert.equal(entry.metadataSources.reasoningLevels, 'provider-catalog');
+  }
 
   const expectedModalities = {
     cohere: {
@@ -187,6 +323,12 @@ test('packaged provider catalogs are normalized, enriched, and contain no OpenCl
     for (const entry of catalog.models) {
       assert.ok(entry.inputModalities, `${provider}/${entry.id} must declare input modalities`);
       assert.ok(entry.outputModalities, `${provider}/${entry.id} must declare output modalities`);
+      if (entry.defaultReasoningLevel !== null && entry.defaultReasoningLevel !== undefined) {
+        assert.ok(
+          entry.reasoningLevels.includes(entry.defaultReasoningLevel),
+          `${provider}/${entry.id} default reasoning level must be supported`,
+        );
+      }
     }
   }
 

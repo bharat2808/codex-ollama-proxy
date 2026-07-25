@@ -220,11 +220,20 @@ test('Google adaptor prefers an explicit Vertex token over ADC', async () => {
 
 test('Google adaptor maps reasoning effort to Gemini 2.5 thinking budgets', () => {
   const adaptor = require('../adaptor/google-api-adaptor');
-  const request = adaptor.buildGenerateContentRequest({
-    input: 'Think.',
-    reasoning: { effort: 'medium' },
-  }, 'gemini-2.5-flash');
-  assert.deepEqual(request.generationConfig.thinkingConfig, { thinkingBudget: 8192 });
+  const expected = {
+    none: 0,
+    minimal: 1024,
+    low: 1024,
+    medium: 8192,
+    high: 24576,
+  };
+  for (const [effort, thinkingBudget] of Object.entries(expected)) {
+    const request = adaptor.buildGenerateContentRequest({
+      input: 'Think.',
+      reasoning: { effort },
+    }, 'gemini-2.5-flash');
+    assert.deepEqual(request.generationConfig.thinkingConfig, { thinkingBudget });
+  }
 });
 
 test('Google adaptor clamps extended Codex reasoning levels to Gemini levels', () => {

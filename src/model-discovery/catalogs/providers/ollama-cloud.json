@@ -14,18 +14,32 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-inspection",
         "maxOutputTokens": "openrouter-catalog",
         "inputModalities": "provider-inspection",
         "outputModalities": "provider-inspection",
-        "reasoning": "provider-inspection",
-        "reasoningLevels": null,
-        "toolCalling": "provider-inspection"
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "provider-inspection",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "kimi-k2.7-code:cloud",
@@ -40,18 +54,71 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-inspection",
         "maxOutputTokens": "openrouter-catalog",
         "inputModalities": "provider-inspection",
         "outputModalities": "provider-inspection",
-        "reasoning": "provider-inspection",
-        "reasoningLevels": null,
-        "toolCalling": "provider-inspection"
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "provider-inspection",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
+    },
+    {
+      "id": "minimax-m2.7:cloud",
+      "displayName": "minimax-m2.7:cloud",
+      "contextWindow": 196608,
+      "maxOutputTokens": 131072,
+      "inputModalities": [
+        "text"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-inspection",
+        "maxOutputTokens": "openrouter-catalog",
+        "inputModalities": "provider-inspection",
+        "outputModalities": "provider-inspection",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "provider-inspection",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
+      },
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "nemotron-3-ultra:cloud",
@@ -65,18 +132,32 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-inspection",
         "maxOutputTokens": null,
         "inputModalities": "provider-inspection",
         "outputModalities": "provider-inspection",
-        "reasoning": "provider-inspection",
-        "reasoningLevels": null,
-        "toolCalling": "provider-inspection"
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "provider-inspection",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     }
   ]
 }

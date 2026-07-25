@@ -24,9 +24,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "deep-research-max-preview-04-2026",
@@ -50,9 +58,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "deep-research-preview-04-2026",
@@ -76,9 +92,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "deep-research-pro-preview-12-2025",
@@ -102,9 +126,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-2.0-flash",
@@ -131,9 +163,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-2.0-flash-001",
@@ -160,9 +200,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-2.0-flash-lite",
@@ -189,9 +237,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-2.0-flash-lite-001",
@@ -218,9 +274,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-2.5-computer-use-preview-10-2025",
@@ -247,9 +311,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-2.5-flash",
@@ -267,18 +339,32 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
     },
     {
       "id": "gemini-2.5-flash-image",
@@ -306,9 +392,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-2.5-flash-lite",
@@ -326,18 +420,32 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "none",
+      "reasoningDefaultEnabled": false,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": false
     },
     {
       "id": "gemini-2.5-pro",
@@ -355,18 +463,31 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": true,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-3-flash-preview",
@@ -384,7 +505,12 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -392,10 +518,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "gemini-3-pro-image",
@@ -423,9 +557,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-3-pro-image-preview",
@@ -453,9 +595,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-3-pro-preview",
@@ -473,18 +623,29 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "low",
+        "high"
+      ],
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
-        "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": null
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "toolCalling": null,
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": "provider-catalog",
+        "reasoningMandatory": "provider-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": false,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-3.1-flash-image",
@@ -503,7 +664,10 @@
         "image"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "high"
+      ],
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -511,10 +675,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": null
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": null,
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "minimal",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "gemini-3.1-flash-image-preview",
@@ -533,7 +705,10 @@
         "image"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "high"
+      ],
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -541,10 +716,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": null
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": null,
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "minimal",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "gemini-3.1-flash-lite",
@@ -562,7 +745,12 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -570,10 +758,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "minimal",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "gemini-3.1-flash-lite-image",
@@ -592,7 +788,10 @@
         "image"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "high"
+      ],
       "toolCalling": null,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -600,10 +799,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": null
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": null,
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "minimal",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "gemini-3.1-flash-lite-preview",
@@ -621,7 +828,12 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -629,10 +841,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "minimal",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "gemini-3.1-pro-preview",
@@ -650,7 +870,11 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -658,10 +882,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-3.1-pro-preview-customtools",
@@ -679,7 +911,11 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -687,10 +923,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-3.5-flash",
@@ -708,7 +952,12 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -716,10 +965,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-3.5-flash-lite",
@@ -737,7 +994,12 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -745,10 +1007,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "minimal",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-3.6-flash",
@@ -766,7 +1036,12 @@
         "text"
       ],
       "reasoning": true,
-      "reasoningLevels": null,
+      "reasoningLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -774,10 +1049,18 @@
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": null,
-        "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "reasoningLevels": "openrouter-catalog",
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": "openrouter-catalog",
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": true
     },
     {
       "id": "gemini-flash-latest",
@@ -804,9 +1087,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-flash-lite-latest",
@@ -833,9 +1124,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-omni-flash-preview",
@@ -862,9 +1161,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-pro-latest",
@@ -891,9 +1198,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-robotics-er-1.5-preview",
@@ -920,9 +1235,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemini-robotics-er-1.6-preview",
@@ -949,9 +1272,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "gemma-4-26b-a4b-it",
@@ -975,9 +1306,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": false,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "gemma-4-31b-it",
@@ -1001,9 +1340,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": "openrouter-catalog"
+        "toolCalling": "openrouter-catalog",
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": "openrouter-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "openrouter-catalog"
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": false,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false
     },
     {
       "id": "lyria-3-clip-preview",
@@ -1027,9 +1374,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "lyria-3-pro-preview",
@@ -1053,9 +1408,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     },
     {
       "id": "nano-banana-pro-preview",
@@ -1079,9 +1442,17 @@
         "outputModalities": "provider-catalog",
         "reasoning": null,
         "reasoningLevels": null,
-        "toolCalling": null
+        "toolCalling": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null
       },
-      "source": "bundled-provider-catalog"
+      "source": "bundled-provider-catalog",
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null
     }
   ]
 }
