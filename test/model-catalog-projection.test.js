@@ -152,7 +152,7 @@ test('discovered reasoning levels do not inherit an unrelated template default',
   assert.equal(models[0].default_reasoning_level, null);
 });
 
-test('fixed reasoning models do not inherit configurable effort selectors from the template', () => {
+test('reasoning models without documented levels receive a selectable fallback', () => {
   const result = projectCodexCatalog({
     existingModels: [{
       slug: 'template',
@@ -167,6 +167,7 @@ test('fixed reasoning models do not inherit configurable effort selectors from t
         id: 'fixed-reasoning',
         reasoning: true,
         reasoningLevels: null,
+        reasoningMandatory: true,
         source: 'provider-catalog',
       }],
     },
@@ -174,8 +175,41 @@ test('fixed reasoning models do not inherit configurable effort selectors from t
   });
 
   assert.equal(result.models[0].slug, 'fixed-reasoning');
-  assert.deepEqual(result.models[0].supported_reasoning_levels, []);
-  assert.equal(result.models[0].default_reasoning_level, null);
+  assert.deepEqual(
+    result.models[0].supported_reasoning_levels.map((level) => level.effort),
+    ['low', 'medium', 'high'],
+  );
+  assert.equal(result.models[0].default_reasoning_level, 'high');
+});
+
+test('optional reasoning fallbacks include none and explicit non-reasoning models stay disabled', () => {
+  const models = [
+    { slug: 'optional-reasoning' },
+    { slug: 'no-reasoning' },
+  ];
+
+  applyDiscoveredMetadata(models, [
+    {
+      id: 'optional-reasoning',
+      reasoning: true,
+      reasoningLevels: null,
+      reasoningMandatory: false,
+      reasoningDefaultEnabled: false,
+    },
+    {
+      id: 'no-reasoning',
+      reasoning: false,
+      reasoningLevels: null,
+    },
+  ]);
+
+  assert.deepEqual(
+    models[0].supported_reasoning_levels.map((level) => level.effort),
+    ['none', 'low', 'medium', 'high'],
+  );
+  assert.equal(models[0].default_reasoning_level, 'none');
+  assert.deepEqual(models[1].supported_reasoning_levels, []);
+  assert.equal(models[1].default_reasoning_level, null);
 });
 
 test('Codex projection excludes unsupported-only outputs and filters mixed modalities', () => {

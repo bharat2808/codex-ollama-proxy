@@ -38,6 +38,18 @@ function codexReasoningEffortPresets(levels) {
   }));
 }
 
+function fallbackReasoningLevels(metadata) {
+  return metadata.reasoningMandatory === true
+    ? ['low', 'medium', 'high']
+    : ['none', 'low', 'medium', 'high'];
+}
+
+function fallbackReasoningDefault(metadata, levels) {
+  if (metadata.reasoningMandatory === true) return 'high';
+  if (metadata.reasoningDefaultEnabled === false) return 'none';
+  return levels.includes('medium') ? 'medium' : levels[0];
+}
+
 function isCodexRepresentable(model) {
   if (!model) return true;
   for (const key of ['inputModalities', 'outputModalities']) {
@@ -76,7 +88,11 @@ function applyDiscoveredMetadata(catalogModels, discoveredModels) {
       } else {
         entry.default_reasoning_level = null;
       }
-    } else if (typeof metadata.reasoning === 'boolean') {
+    } else if (metadata.reasoning === true) {
+      const levels = fallbackReasoningLevels(metadata);
+      entry.supported_reasoning_levels = codexReasoningEffortPresets(levels);
+      entry.default_reasoning_level = fallbackReasoningDefault(metadata, levels);
+    } else if (metadata.reasoning === false) {
       entry.supported_reasoning_levels = [];
       entry.default_reasoning_level = null;
     }
