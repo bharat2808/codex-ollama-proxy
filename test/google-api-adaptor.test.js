@@ -368,6 +368,78 @@ test('Google adaptor restores the preceding user turn for tool continuations', a
   }
 });
 
+test('Google adaptor restores a cached thought signature in replayed full history', async () => {
+  const received = [];
+  const upstream = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (received.length === 1) {
+        res.end(JSON.stringify({
+          candidates: [{
+            content: {
+              role: 'model',
+              parts: [{
+                functionCall: { name: 'default_api:exec_command', args: { cmd: 'pwd' } },
+                thoughtSignature: 'opaque-exec-signature',
+              }],
+            },
+          }],
+        }));
+      } else {
+        res.end(JSON.stringify({
+          candidates: [{ content: { role: 'model', parts: [{ text: 'complete' }] } }],
+        }));
+      }
+    });
+  });
+  const upstreamPort = await listen(upstream);
+  const adaptor = require('../adaptor/google-api-adaptor');
+  const server = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${upstreamPort}/v1beta/openai`,
+    defaultModel: 'gemini-test',
+  });
+  await new Promise((resolve) => server.once('listening', resolve));
+
+  try {
+    const first = await postJson(server.address().port, {
+      input: 'Inspect the workspace.',
+      tools: [{
+        type: 'function',
+        name: 'default_api:exec_command',
+        parameters: { type: 'object', properties: { cmd: { type: 'string' } } },
+      }],
+    });
+    const call = first.body.output.find((item) => item.type === 'function_call');
+    delete call.thought_signature;
+
+    const second = await postJson(server.address().port, {
+      input: [
+        { type: 'message', role: 'user', content: 'Inspect the workspace.' },
+        call,
+        { type: 'function_call_output', call_id: call.call_id, output: '/workspace' },
+      ],
+      tools: [{
+        type: 'function',
+        name: 'default_api:exec_command',
+        parameters: { type: 'object', properties: { cmd: { type: 'string' } } },
+      }],
+    });
+
+    assert.equal(second.statusCode, 200);
+    const replayedCall = received[1].contents
+      .flatMap((content) => content.parts)
+      .find((part) => part.functionCall);
+    assert.equal(replayedCall.thoughtSignature, 'opaque-exec-signature');
+  } finally {
+    await close(server);
+    await close(upstream);
+  }
+});
+
 test('Google adaptor maps native Gemini text, tool calls, and inline images to Responses output', async () => {
   let received;
   const upstream = http.createServer((req, res) => {

@@ -320,8 +320,42 @@ function continuationFor(body, continuations) {
   return alreadyHasUserHistory ? null : entry;
 }
 
+function restoreThoughtSignatures(request, body, continuations) {
+  if (!request || !Array.isArray(request.contents)
+    || !body || !Array.isArray(body.input) || !continuations) return;
+  pruneContinuations(continuations);
+  const requestCalls = request.contents.flatMap((content) =>
+    Array.isArray(content.parts)
+      ? content.parts.filter((part) => part && part.functionCall)
+      : []);
+  let requestCallIndex = 0;
+
+  for (const item of body.input) {
+    if (!item || item.type !== 'function_call') continue;
+    const name = item.name || 'unknown_tool';
+    while (requestCallIndex < requestCalls.length
+      && requestCalls[requestCallIndex].functionCall.name !== name) {
+      requestCallIndex += 1;
+    }
+    if (requestCallIndex >= requestCalls.length) break;
+    const requestPart = requestCalls[requestCallIndex++];
+    if (requestPart.thoughtSignature || item.thought_signature) continue;
+
+    const entry = continuations.get(item.call_id || item.id);
+    if (!entry || !Array.isArray(entry.contents)) continue;
+    const cachedPart = entry.contents
+      .flatMap((content) => Array.isArray(content.parts) ? content.parts : [])
+      .find((part) => part && part.functionCall
+        && part.functionCall.name === name
+        && typeof part.thoughtSignature === 'string'
+        && part.thoughtSignature);
+    if (cachedPart) requestPart.thoughtSignature = cachedPart.thoughtSignature;
+  }
+}
+
 function buildGoogleRequest(body, model, continuations) {
   const request = buildGenerateContentRequest(body, model);
+  restoreThoughtSignatures(request, body, continuations);
   const continuation = continuationFor(body, continuations);
   if (!continuation) return request;
   const suffix = request.contents.filter((content) =>
