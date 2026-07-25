@@ -4,6 +4,8 @@
 
 - Added Linux systemd user-service and Windows Task Scheduler support for the `install`, `restart`, and `uninstall` commands while preserving the existing macOS launchd integration.
 - Made listener discovery and log tailing portable across macOS, Linux, and Windows.
+- Preserved custom `CODEX_HOME` values in every background launcher, used the native OS home
+  directory safely on Windows, and honored `XDG_CONFIG_HOME` for Linux systemd user units.
 
 ## 0.4.0
 

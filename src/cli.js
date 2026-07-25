@@ -3,17 +3,17 @@
 
 const fs = require('fs');
 const http = require('http');
-const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const presets = require('./presets');
 const imagineConfig = require('./imagine-config');
 const launcherState = require('./launcher-state');
+const runtimePaths = require('./runtime-paths');
 const { requireVerifiedProxyListeners } = require('./process-lifecycle');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
-const HOME_DIR = process.env.HOME || process.env.USERPROFILE || os.homedir();
-const CODEX_DIR = process.env.CODEX_HOME || path.join(HOME_DIR, '.codex');
+const HOME_DIR = runtimePaths.homeDir();
+const CODEX_DIR = runtimePaths.codexDir();
 const RUNTIME_DIR = path.join(CODEX_DIR, 'ollama-shape-proxy');
 const ROUTE_CONFIG = path.join(RUNTIME_DIR, 'proxy-models.toml');
 const IMAGINE_CONFIG = path.join(RUNTIME_DIR, 'imagine.toml');
@@ -26,7 +26,7 @@ const PLIST = path.join(HOME_DIR, 'Library', 'LaunchAgents', 'com.user.codex-oll
 const LABEL = 'com.user.codex-ollama-shape-proxy';
 const PROXY_PORT = process.env.PROXY_PORT || String(launcherState.DEFAULT_PROXY_PORT);
 const SERVICE_PLATFORM = process.env.CODEX_PROXY_PLATFORM || process.platform;
-const SYSTEMD_UNIT = path.join(HOME_DIR, '.config', 'systemd', 'user', 'codex-ollama-proxy.service');
+const SYSTEMD_UNIT = path.join(runtimePaths.systemdUserDir(), 'codex-ollama-proxy.service');
 const WINDOWS_COMMAND = path.join(RUNTIME_DIR, 'start-proxy.cmd');
 const WINDOWS_TASK = 'Codex Ollama Proxy';
 
@@ -597,6 +597,7 @@ function renderPlist() {
       path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'),
     ))
     .replaceAll('__LOG__', path.join(RUNTIME_DIR, 'proxy.log'))
+    .replaceAll('__CODEX_HOME__', launcherState.escapeXml(CODEX_DIR))
     .replaceAll('__PORT__', String(state.proxy_port));
 }
 
@@ -630,7 +631,7 @@ function install() {
   if (SERVICE_PLATFORM === 'linux') {
     fs.mkdirSync(path.dirname(SYSTEMD_UNIT), { recursive: true });
     fs.writeFileSync(SYSTEMD_UNIT, launcherState.renderSystemdUnit(state, process.execPath,
-      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log')), 'utf8');
+      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log'), CODEX_DIR), 'utf8');
     run('systemctl', ['--user', 'daemon-reload']);
     run('systemctl', ['--user', 'enable', '--now', 'codex-ollama-proxy.service']);
     console.log(`installed=${SYSTEMD_UNIT}`);
@@ -638,7 +639,7 @@ function install() {
   }
   if (SERVICE_PLATFORM === 'win32') {
     fs.writeFileSync(WINDOWS_COMMAND, launcherState.renderWindowsCommand(state, process.execPath,
-      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log')), 'utf8');
+      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log'), CODEX_DIR), 'utf8');
     stopPlatformService();
     const taskCommand = `cmd.exe /d /c ""${WINDOWS_COMMAND}""`;
     run('schtasks.exe', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', taskCommand, '/F']);
@@ -686,7 +687,8 @@ async function restart() {
   }
 
   install();
-  const probe = await waitForProxyResponse(proxyPort);
+  const startupTimeout = Number(process.env.CODEX_PROXY_START_TIMEOUT_MS || 6000);
+  const probe = await waitForProxyResponse(proxyPort, startupTimeout);
   if (!isHealthyProxyModelsResponse(probe)) {
     die(`Error: replacement proxy did not become healthy on 127.0.0.1:${proxyPort}. Check logs: codex-ollama-proxy logs --tail 100`);
   }

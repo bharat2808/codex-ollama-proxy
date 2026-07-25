@@ -33,6 +33,10 @@ The `restart`, `uninstall`, and `logs` commands use the same cross-platform setu
 the user systemd session must be available. To run without installing a background service,
 use `codex-ollama-proxy serve` in a terminal.
 
+If `CODEX_HOME` is set during installation, the generated background service preserves that
+directory for future starts. Linux installations also honor `XDG_CONFIG_HOME` when locating
+the systemd user-unit directory.
+
 The local proxy listens on:
 
 ```text
