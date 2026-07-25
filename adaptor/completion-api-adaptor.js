@@ -305,6 +305,7 @@ async function streamResponse(res, body, options) {
   let textOutputIndex = null;
   let text = '';
   const toolStates = new Map();
+  const imageStates = new Map();
   const output = [];
 
   res.writeHead(200, {
@@ -365,24 +366,25 @@ async function streamResponse(res, body, options) {
         }
       }
 
-      for (const image of delta.images || []) {
-        const itemId = id('ig');
-        const item = imageItem(image, itemId);
-        if (!item) continue;
-        const imageOutputIndex = outputIndex++;
-        sse(res, 'response.output_item.added', {
-          type: 'response.output_item.added',
-          output_index: imageOutputIndex,
-          sequence_number: sequence++,
-          item: { id: itemId, type: 'image_generation_call', status: 'in_progress' },
-        });
-        sse(res, 'response.output_item.done', {
-          type: 'response.output_item.done',
-          output_index: imageOutputIndex,
-          sequence_number: sequence++,
-          item,
-        });
-        output.push(item);
+      for (const [imageIndex, image] of (delta.images || []).entries()) {
+        const result = imageUrl(image);
+        if (!result) continue;
+        const key = image && typeof image === 'object' && image.id != null
+          ? `id:${image.id}`
+          : image && typeof image === 'object' && image.index != null
+            ? `index:${image.index}`
+            : `position:${imageIndex}`;
+        const existing = imageStates.get(key);
+        if (existing) {
+          existing.result = result;
+        } else {
+          imageStates.set(key, {
+            id: id('ig'),
+            type: 'image_generation_call',
+            status: 'completed',
+            result,
+          });
+        }
       }
 
       if (delta.content) {
@@ -421,6 +423,23 @@ async function streamResponse(res, body, options) {
     const item = { id: state.id, type: 'function_call', status: 'completed', call_id: state.callId, name: state.name || 'unknown_tool', arguments: state.arguments || '{}' };
     sse(res, 'response.function_call_arguments.done', { type: 'response.function_call_arguments.done', item_id: state.id, output_index: state.outputIndex, sequence_number: sequence++, arguments: item.arguments });
     sse(res, 'response.output_item.done', { type: 'response.output_item.done', output_index: state.outputIndex, sequence_number: sequence++, item });
+    output.push(item);
+  }
+
+  for (const item of imageStates.values()) {
+    const imageOutputIndex = outputIndex++;
+    sse(res, 'response.output_item.added', {
+      type: 'response.output_item.added',
+      output_index: imageOutputIndex,
+      sequence_number: sequence++,
+      item: { id: item.id, type: 'image_generation_call', status: 'in_progress' },
+    });
+    sse(res, 'response.output_item.done', {
+      type: 'response.output_item.done',
+      output_index: imageOutputIndex,
+      sequence_number: sequence++,
+      item,
+    });
     output.push(item);
   }
 

@@ -293,6 +293,55 @@ test('completion API adaptor maps streamed chat images into image generation cal
   }
 });
 
+test('completion API adaptor deduplicates repeated streamed image positions and keeps distinct images', async () => {
+  const firstVersion = 'data:image/png;base64,Zmlyc3QtdmVyc2lvbg==';
+  const finalVersion = 'data:image/png;base64,ZmluYWwtdmVyc2lvbg==';
+  const secondImage = 'data:image/png;base64,c2Vjb25kLWltYWdl';
+  const chatServer = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    for (const images of [
+      [{ type: 'image_url', image_url: { url: firstVersion } }],
+      [
+        { type: 'image_url', image_url: { url: finalVersion } },
+        { type: 'image_url', image_url: { url: secondImage } },
+      ],
+    ]) {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { images } }] })}\n\n`);
+    }
+    res.end('data: [DONE]\n\n');
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'image-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+
+  try {
+    const response = await postJsonText(adaptorServer.address().port, '/v1/responses', {
+      model: 'image-model',
+      input: 'draw two images',
+      modalities: ['image', 'text'],
+      stream: true,
+    });
+    const completed = response.body
+      .split('\n')
+      .filter((line) => line.startsWith('data: '))
+      .map((line) => JSON.parse(line.slice(6)))
+      .find((event) => event.type === 'response.completed');
+    const images = completed.response.output.filter((item) => item.type === 'image_generation_call');
+
+    assert.equal(images.length, 2);
+    assert.deepEqual(images.map((item) => item.result), [finalVersion, secondImage]);
+    assert.doesNotMatch(response.body, new RegExp(firstVersion));
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
 test('completion API adaptor streams upstream errors without crashing', async () => {
   const chatServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') {
