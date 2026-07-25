@@ -88,6 +88,88 @@ test('native image-output requests do not forward or inject function tools', () 
   assert.equal(body.tool_choice, undefined);
 });
 
+test('image generation tools are removed when Imagine is disabled', () => {
+  withRouteConfig([
+    'default_model = "text-model"',
+    'imagine_enabled = false',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'text-model',
+      input: 'draw a giraffe',
+      tools: [
+        {
+          type: 'namespace',
+          name: 'image_gen',
+          tools: [{
+            name: 'imagegen',
+            description: 'Generate an image.',
+            parameters: { type: 'object', properties: {} },
+          }],
+        },
+        {
+          type: 'function',
+          name: 'generate_image',
+          parameters: { type: 'object', properties: {} },
+        },
+        {
+          type: 'image_generation',
+        },
+      ],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.tools.some((tool) =>
+      tool && (tool.name === 'generate_image'
+        || tool.name === 'imagegen'
+        || tool.name === 'image_gen__imagegen'
+        || tool.name === 'image_gen'
+        || tool.type === 'image_generation')
+    ), false);
+  });
+});
+
+test('Imagine replaces client image tools with only the proxy generate_image tool', () => {
+  withRouteConfig([
+    'default_model = "text-model"',
+    'imagine_enabled = true',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'text-model',
+      input: 'draw a giraffe',
+      tools: [
+        {
+          type: 'namespace',
+          name: 'image_gen',
+          tools: [{
+            name: 'imagegen',
+            parameters: { type: 'object', properties: {} },
+          }],
+        },
+        {
+          type: 'function',
+          name: 'generate_image',
+          description: 'Untrusted client definition.',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+    };
+
+    translateRequestBody(body);
+
+    const imageTools = body.tools.filter((tool) =>
+      tool && (tool.name === 'generate_image'
+        || tool.name === 'imagegen'
+        || tool.name === 'image_gen__imagegen'
+        || tool.name === 'image_gen'
+        || tool.type === 'image_generation')
+    );
+    assert.equal(imageTools.length, 1);
+    assert.equal(imageTools[0].name, 'generate_image');
+    assert.notEqual(imageTools[0].description, 'Untrusted client definition.');
+  });
+});
+
 test('models explicitly catalogued without tool support do not receive injected tools', () => {
   withRouteConfig([
     'default_model = "no-tools-model"',

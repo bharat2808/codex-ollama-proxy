@@ -341,6 +341,16 @@ function flattenDiscoveredTools(tools) {
   return out;
 }
 
+function isImageGenerationTool(tool) {
+  if (!tool || typeof tool !== 'object') return false;
+  if (tool.type === 'image_generation') return true;
+  if (tool.type === 'namespace' && tool.name === 'image_gen') return true;
+  if (tool.type !== 'function') return false;
+  return tool.name === imagine.GENERATE_IMAGE
+    || tool.name === 'imagegen'
+    || tool.name === 'image_gen__imagegen';
+}
+
 // Ollama-compatible providers require unique function names. Walk backward so
 // turn-local additional_tools definitions, which are appended during lifting,
 // override stale definitions already present in the top-level tools array.
@@ -879,6 +889,11 @@ function translateRequestBody(body) {
       let toolsChanged = false;
       const mapped = [];
       for (const t of (Array.isArray(body.tools) ? body.tools : [])) {
+        if (isImageGenerationTool(t)) {
+          debugLog('removed client image-generation tool: ' + JSON.stringify(summarizeToolShape(t)));
+          toolsChanged = true;
+          continue;
+        }
         if (t && t.type === WEB_SEARCH) {
           debugLog('native web_search tool shape: ' + JSON.stringify(summarizeToolShape(t)) + ' -> function tool');
           toolsChanged = true;
@@ -918,6 +933,10 @@ function translateRequestBody(body) {
         mapped.push(t);
       }
       for (const t of deferredTools) {
+        if (isImageGenerationTool(t)) {
+          toolsChanged = true;
+          continue;
+        }
         if (!mapped.some((existing) => existing && existing.type === 'function' && existing.name === t.name)) {
           mapped.push(t);
           toolsChanged = true;
