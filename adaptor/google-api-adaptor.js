@@ -5,11 +5,10 @@ const crypto = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
 const { createAccessTokenProvider } = require('../src/google-adc');
+const conversationHistory = require('./google-conversation-history');
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
-const CONTINUATION_TTL_MS = 10 * 60_000;
-const MAX_CONTINUATIONS = 256;
 
 function id(prefix) {
   return prefix + '_' + crypto.randomBytes(12).toString('hex');
@@ -290,73 +289,11 @@ function buildGenerateContentRequest(body, model = '') {
   return request;
 }
 
-function pruneContinuations(continuations, currentTime = Date.now()) {
-  for (const [callId, entry] of continuations) {
-    if (entry.expiresAt <= currentTime) continuations.delete(callId);
-  }
-  while (continuations.size > MAX_CONTINUATIONS) {
-    continuations.delete(continuations.keys().next().value);
-  }
-}
-
-function continuationFor(body, continuations) {
-  if (!continuations || !Array.isArray(body.input)) return null;
-  pruneContinuations(continuations);
-  let matchingIndex = -1;
-  let entry = null;
-  for (let index = 0; index < body.input.length; index += 1) {
-    const item = body.input[index];
-    if (!item || !['function_call', 'function_call_output'].includes(item.type)) continue;
-    const found = continuations.get(item.call_id || item.id);
-    if (found) {
-      matchingIndex = index;
-      entry = found;
-      break;
-    }
-  }
-  if (!entry) return null;
-  const alreadyHasUserHistory = body.input.slice(0, matchingIndex).some((item) =>
-    item && (item.role === 'user' || item.role === 'system' || item.role === 'developer'));
-  return alreadyHasUserHistory ? null : entry;
-}
-
-function restoreThoughtSignatures(request, body, continuations) {
-  if (!request || !Array.isArray(request.contents)
-    || !body || !Array.isArray(body.input) || !continuations) return;
-  pruneContinuations(continuations);
-  const requestCalls = request.contents.flatMap((content) =>
-    Array.isArray(content.parts)
-      ? content.parts.filter((part) => part && part.functionCall)
-      : []);
-  let requestCallIndex = 0;
-
-  for (const item of body.input) {
-    if (!item || item.type !== 'function_call') continue;
-    const name = item.name || 'unknown_tool';
-    while (requestCallIndex < requestCalls.length
-      && requestCalls[requestCallIndex].functionCall.name !== name) {
-      requestCallIndex += 1;
-    }
-    if (requestCallIndex >= requestCalls.length) break;
-    const requestPart = requestCalls[requestCallIndex++];
-    if (requestPart.thoughtSignature || item.thought_signature) continue;
-
-    const entry = continuations.get(item.call_id || item.id);
-    if (!entry || !Array.isArray(entry.contents)) continue;
-    const cachedPart = entry.contents
-      .flatMap((content) => Array.isArray(content.parts) ? content.parts : [])
-      .find((part) => part && part.functionCall
-        && part.functionCall.name === name
-        && typeof part.thoughtSignature === 'string'
-        && part.thoughtSignature);
-    if (cachedPart) requestPart.thoughtSignature = cachedPart.thoughtSignature;
-  }
-}
-
 function buildGoogleRequest(body, model, continuations) {
-  const request = buildGenerateContentRequest(body, model);
-  restoreThoughtSignatures(request, body, continuations);
-  const continuation = continuationFor(body, continuations);
+  const preparedBody = conversationHistory.prepareBody(body, model, continuations);
+  const request = buildGenerateContentRequest(preparedBody, model);
+  conversationHistory.restoreThoughtSignatures(request, preparedBody, model, continuations);
+  const continuation = conversationHistory.continuationFor(preparedBody, model, continuations);
   if (!continuation) return request;
   const suffix = request.contents.filter((content) =>
     !content.parts.every((part) => part && part.functionCall));
@@ -367,23 +304,8 @@ function buildGoogleRequest(body, model, continuations) {
   return request;
 }
 
-function rememberContinuations(continuations, request, payload, response) {
-  if (!continuations || !request || !response) return;
-  pruneContinuations(continuations);
-  const parts = payload?.candidates?.[0]?.content?.parts;
-  const calls = (response.output || []).filter((item) => item && item.type === 'function_call' && item.call_id);
-  if (!Array.isArray(parts) || calls.length === 0) return;
-  const entry = {
-    contents: [...request.contents, { role: 'model', parts }],
-    systemInstruction: request.systemInstruction,
-    expiresAt: Date.now() + CONTINUATION_TTL_MS,
-  };
-  for (const call of calls) continuations.set(call.call_id, entry);
-  pruneContinuations(continuations);
-}
-
 function normalizedModel(model) {
-  return String(model || '').replace(/^google\//u, '');
+  return conversationHistory.normalizedModel(model);
 }
 
 function googleTarget(options, model, stream) {
@@ -663,8 +585,9 @@ async function streamGoogleResponse(res, body, options, continuations) {
     });
   }
   if (output.length === 0) output.push(messageItem(''));
-  rememberContinuations(
+  conversationHistory.rememberContinuations(
     continuations,
+    model,
     request,
     { candidates: [{ content: { parts: modelParts } }] },
     { output },
@@ -728,7 +651,7 @@ function startServer(options = {}) {
         const upstream = await callGoogle(body, config, false, request);
         const payload = await upstream.json();
         const response = geminiToResponse(payload, model);
-        rememberContinuations(continuations, request, payload, response);
+        conversationHistory.rememberContinuations(continuations, model, request, payload, response);
         return jsonResponse(res, 200, response);
       }
       return jsonResponse(res, 404, { error: 'not found' });
