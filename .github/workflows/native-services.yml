@@ -1,0 +1,71 @@
+name: Native Service Integration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-task-scheduler:
+    name: Windows Task Scheduler
+    runs-on: windows-latest
+    environment: proxy-live-test
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm pack
+      - name: Exercise native service lifecycle
+        env:
+          PROXY_TEST_API_KEY: ${{ secrets.PROXY_TEST_API_KEY }}
+          PROXY_TEST_URL: ${{ vars.PROXY_TEST_URL }}
+          PROXY_TEST_MODEL: ${{ vars.PROXY_TEST_MODEL }}
+          PROXY_TEST_ADAPTOR: ${{ vars.PROXY_TEST_ADAPTOR }}
+        run: node test/e2e/native-service.js
+      - name: Upload diagnostic logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-service-windows-logs
+          path: integration-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  linux-systemd:
+    name: Linux systemd user service
+    runs-on:
+      - self-hosted
+      - linux
+      - codex-proxy-systemd
+    environment: proxy-live-test
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm pack
+      - name: Exercise native service lifecycle
+        env:
+          PROXY_TEST_API_KEY: ${{ secrets.PROXY_TEST_API_KEY }}
+          PROXY_TEST_URL: ${{ vars.PROXY_TEST_URL }}
+          PROXY_TEST_MODEL: ${{ vars.PROXY_TEST_MODEL }}
+          PROXY_TEST_ADAPTOR: ${{ vars.PROXY_TEST_ADAPTOR }}
+        run: node test/e2e/native-service.js
+      - name: Upload diagnostic logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-service-linux-logs
+          path: integration-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

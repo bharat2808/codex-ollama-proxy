@@ -6,6 +6,8 @@
 - Made listener discovery and log tailing portable across macOS, Linux, and Windows.
 - Preserved custom `CODEX_HOME` values in every background launcher, used the native OS home
   directory safely on Windows, and honored `XDG_CONFIG_HOME` for Linux systemd user units.
+- Added secret-free Linux, Windows, and macOS package CI, protected live Codex tool-call tests,
+  and separate opt-in native Task Scheduler and systemd lifecycle workflows.
 
 ## 0.4.0
 
