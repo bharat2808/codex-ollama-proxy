@@ -6,6 +6,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { assertPrivateFileMode } = require('./helpers/file-mode');
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -718,8 +719,7 @@ test('Google presets containing API keys are written with private permissions', 
       defaultModel: 'gemini-2.5-flash',
       apiKey: 'secret',
     }, () => {});
-    const mode = fs.statSync(path.join(runtimeDir, 'presets', 'gemini.toml')).mode & 0o777;
-    assert.equal(mode, 0o600);
+    assertPrivateFileMode(path.join(runtimeDir, 'presets', 'gemini.toml'));
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

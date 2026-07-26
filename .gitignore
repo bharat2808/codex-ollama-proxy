@@ -4,6 +4,7 @@
 *.tgz
 __pycache__/
 node_modules/
+integration-artifacts/
 .DS_Store
 proxy-models.toml
 proxy-models.toml.local

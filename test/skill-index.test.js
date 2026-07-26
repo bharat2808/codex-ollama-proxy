@@ -93,7 +93,18 @@ test('skill index uses Codex app-server effective enabled skills when available'
       };
     }
     if (input.includes('"skills/list"')) {
-      assert.match(input, new RegExp(pluginSkillsRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      const requests = input
+        .trim()
+        .split(/\r?\n/u)
+        .map((line) => JSON.parse(line));
+      const extraRootsRequest = requests.find(
+        (request) => request.method === 'skills/extraRoots/set'
+      );
+      assert.ok(extraRootsRequest);
+      assert.deepEqual(
+        extraRootsRequest.params.extraRoots,
+        [pluginSkillsRoot]
+      );
       return {
         status: 0,
         stdout: Buffer.from(JSON.stringify({ id: 1, result: {} }) + '\n' + JSON.stringify({ id: 2, result: {} }) + '\n' + JSON.stringify(skillsList) + '\n'),

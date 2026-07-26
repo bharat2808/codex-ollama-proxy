@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { assertPrivateDirectoryMode, assertPrivateFileMode } = require('./helpers/file-mode');
 
 const {
   cacheGeneratedImages,
@@ -58,8 +59,8 @@ test('persists generated data URLs in the existing private session cache', async
     const savedPath = response.output[0].saved_path;
     assert.ok(savedPath.startsWith(cacheRoot + path.sep));
     assert.deepEqual(fs.readFileSync(savedPath), PNG_BYTES);
-    assert.equal(fs.statSync(savedPath).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(path.dirname(savedPath)).mode & 0o777, 0o700);
+    assertPrivateFileMode(savedPath);
+    assertPrivateDirectoryMode(path.dirname(savedPath));
   } finally {
     fs.rmSync(cacheRoot, { recursive: true, force: true });
   }

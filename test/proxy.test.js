@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { assertPrivateDirectoryMode, assertPrivateFileMode } = require('./helpers/file-mode');
 const {
   applyOutputModalities,
   imageInputOutputCapabilities,
@@ -1601,8 +1602,8 @@ test('inline image persistence repairs a corrupt existing hash file', () => {
     });
 
     assert.deepEqual(fs.readFileSync(imagePath), inlineImageBytes('image/png', 'repair-me'));
-    assert.equal(fs.statSync(imagePath).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(path.dirname(imagePath)).mode & 0o777, 0o700);
+    assertPrivateFileMode(imagePath);
+    assertPrivateDirectoryMode(path.dirname(imagePath));
   } finally {
     fs.rmSync(cacheRoot, { recursive: true, force: true });
   }
