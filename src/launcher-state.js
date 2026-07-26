@@ -125,6 +125,27 @@ function renderProgramArgumentsXml(input, nodePath, binPath) {
     .join('\n');
 }
 
+function systemdQuote(value) {
+  return `"${String(value).replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`;
+}
+
+function renderSystemdUnit(input, nodePath, binPath, logPath, codexHome) {
+  const state = normalize(input);
+  const command = [nodePath, binPath, ...serveArgs(state)].map(systemdQuote).join(' ');
+  const systemdLogPath = String(logPath).replace(/ /gu, '\\x20');
+  return `[Unit]\nDescription=Codex Ollama Proxy\nAfter=network.target\n\n[Service]\nType=simple\nEnvironment=${systemdQuote(`CODEX_HOME=${codexHome}`)}\nEnvironment=PROXY_PORT=${state.proxy_port}\nExecStart=${command}\nRestart=always\nRestartSec=2\nStandardOutput=append:${systemdLogPath}\nStandardError=append:${systemdLogPath}\n\n[Install]\nWantedBy=default.target\n`;
+}
+
+function cmdQuote(value) {
+  return `"${String(value).replace(/%/gu, '%%').replace(/"/gu, '""')}"`;
+}
+
+function renderWindowsCommand(input, nodePath, binPath, logPath, codexHome) {
+  const state = normalize(input);
+  const command = [nodePath, binPath, ...serveArgs(state)].map(cmdQuote).join(' ');
+  return `@echo off\r\nset "CODEX_HOME=${String(codexHome).replace(/%/gu, '%%')}"\r\nset "PROXY_PORT=${state.proxy_port}"\r\n${command} >> ${cmdQuote(logPath)} 2>&1\r\n`;
+}
+
 function writeWhenListening(file, input, servers) {
   const state = normalize(input);
   return new Promise((resolve, reject) => {
@@ -175,10 +196,13 @@ module.exports = {
   DEFAULT_ADAPTOR_PORT,
   DEFAULT_PROXY_PORT,
   VERSION,
+  escapeXml,
   fromPreset,
   normalize,
   read,
   renderProgramArgumentsXml,
+  renderSystemdUnit,
+  renderWindowsCommand,
   serveArgs,
   write,
   writeWhenListening,

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added Linux systemd user-service and Windows Task Scheduler support for the `install`, `restart`, and `uninstall` commands while preserving the existing macOS launchd integration.
+- Made listener discovery and log tailing portable across macOS, Linux, and Windows.
+- Preserved custom `CODEX_HOME` values in every background launcher, used the native OS home
+  directory safely on Windows, and honored `XDG_CONFIG_HOME` for Linux systemd user units.
+- Added secret-free Linux, Windows, and macOS package CI, protected live Codex tool-call tests,
+  and separate opt-in native Task Scheduler and systemd lifecycle workflows.
+
 ## 0.4.0
 
 Launcher state persistence, session-based inline image caching, schema-driven presets, stable streaming lifecycles, Ollama image generation, and faster nonblocking skill discovery.

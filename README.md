@@ -23,11 +23,44 @@ codex-ollama-proxy init
 codex-ollama-proxy install
 ```
 
+`install` uses the native per-user background service for the current platform:
+
+* macOS: a launchd agent in `~/Library/LaunchAgents`
+* Linux: a systemd user service in `~/.config/systemd/user`
+* Windows: a Task Scheduler task that runs at sign-in
+
+The `restart`, `uninstall`, and `logs` commands use the same cross-platform setup. On Linux,
+the user systemd session must be available. To run without installing a background service,
+use `codex-ollama-proxy serve` in a terminal.
+
+If `CODEX_HOME` is set during installation, the generated background service preserves that
+directory for future starts. Linux installations also honor `XDG_CONFIG_HOME` when locating
+the systemd user-unit directory.
+
 The local proxy listens on:
 
 ```text
 http://127.0.0.1:11436
 ```
+
+## Continuous Integration
+
+Pull requests run static checks, the complete Node test suite, and an `npm pack` installation
+smoke test on Linux, Windows, and macOS. These checks do not receive provider credentials.
+
+The `Codex Proxy Integration` workflow is manual and weekly. It installs the current Codex CLI,
+starts the packed proxy in the foreground, and verifies real shell and `apply_patch` tool calls on
+Linux and Windows. Configure its protected `proxy-live-test` environment with:
+
+* Secret `PROXY_TEST_API_KEY`
+* Variables `PROXY_TEST_URL` and `PROXY_TEST_MODEL`
+* Optional variable `PROXY_TEST_ADAPTOR` for non-Responses providers
+
+Require reviewers on that environment and use a dedicated, budget-limited provider credential.
+The workflow is intentionally not triggered by pull requests and never uses `pull_request_target`.
+Native service lifecycle checks are a separate manual workflow: Windows uses a hosted runner, while
+Linux requires a self-hosted runner labeled `linux` and `codex-proxy-systemd` with a working systemd
+user session.
 
 ## Recommended Workflow: Provider Presets
 
