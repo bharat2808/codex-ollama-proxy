@@ -12,16 +12,14 @@ function executable(name) {
   return process.platform === 'win32' ? `${name}.cmd` : name;
 }
 
-function npmCliPath() {
+function findNpmCliPath() {
   const nodeDirectory = path.dirname(process.execPath);
   const candidates = [
     process.env.npm_execpath,
     path.join(nodeDirectory, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
     path.resolve(nodeDirectory, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
   ];
-  const npmCli = candidates.find((candidate) => candidate && fs.existsSync(candidate));
-  if (!npmCli) throw new Error(`Could not locate npm-cli.js relative to ${process.execPath}.`);
-  return npmCli;
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
 }
 
 function requiresWindowsShell(command, platform = process.platform) {
@@ -51,7 +49,9 @@ function run(command, args, options = {}) {
 }
 
 function runNpm(args, options) {
-  return run(process.execPath, [npmCliPath(), ...args], options);
+  const npmCli = findNpmCliPath();
+  if (npmCli) return run(process.execPath, [npmCli, ...args], options);
+  return run(executable('npm'), args, options);
 }
 
 function requiredEnvironment(names) {
