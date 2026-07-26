@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const { assertPrivateFileMode } = require('./helpers/file-mode');
 
 function listen(server) {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
@@ -124,7 +125,7 @@ test('generated images use content-addressed persistent storage when provided', 
     assert.equal(path.dirname(output.path), outputDirectory);
     assert.match(path.basename(output.path), /^[a-f0-9]{64}\.png$/);
     assert.deepEqual(fs.readFileSync(output.path), generated);
-    assert.equal(fs.statSync(output.path).mode & 0o777, 0o600);
+    assertPrivateFileMode(output.path);
   } finally {
     fs.rmSync(outputDirectory, { recursive: true, force: true });
     await close(server);
