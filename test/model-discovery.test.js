@@ -349,8 +349,12 @@ test('provider cache returns fresh data then the last successful stale data on r
     assert.equal(files.length, 1);
     const cacheText = fs.readFileSync(path.join(cacheDir, 'nvidia', files[0]), 'utf8');
     assert.doesNotMatch(cacheText, /cache-secret|catalog\.example/u);
-    assert.equal(fs.statSync(path.join(cacheDir, 'nvidia')).mode & 0o077, 0);
-    assert.equal(fs.statSync(path.join(cacheDir, 'nvidia', files[0])).mode & 0o077, 0);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(path.join(cacheDir, 'nvidia')).mode & 0o077, 0);
+      assert.equal(fs.statSync(path.join(cacheDir, 'nvidia', files[0])).mode & 0o077, 0);
+    } else {
+      assert.equal(fs.existsSync(path.join(cacheDir, 'nvidia', files[0])), true);
+    }
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });
   }

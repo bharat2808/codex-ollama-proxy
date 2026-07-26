@@ -83,8 +83,10 @@ test('skill index uses Codex app-server effective enabled skills when available'
     },
   };
 
-  childProcess.spawnSync = (_cmd, _args, options) => {
-    const input = String((options && options.env && options.env.CODEX_APP_SERVER_REQUEST) || '');
+  childProcess.spawnSync = (command, args, options) => {
+    assert.equal(command, fakeCodexAppServer);
+    assert.deepEqual(args, ['app-server', '--stdio']);
+    const input = String((options && options.input) || '');
     if (input.includes('"plugin/list"')) {
       return {
         status: 0,

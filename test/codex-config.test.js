@@ -245,7 +245,8 @@ test('CLI preset add can store API key when requested', () => {
     const presetPath = path.join(runtimeDir, 'presets', 'nvidia.toml');
     const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^upstream_api_key\s*=\s*"stored-secret"$/m);
-    assert.equal(fs.statSync(presetPath).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(presetPath).mode & 0o777, 0o600);
+    else assert.equal(fs.existsSync(presetPath), true);
 
     const use = spawnSync(process.execPath, [
       path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
@@ -265,7 +266,8 @@ test('CLI preset add can store API key when requested', () => {
     const routePath = path.join(runtimeDir, 'proxy-models.toml');
     const route = fs.readFileSync(routePath, 'utf8');
     assert.match(route, /^upstream_api_key\s*=\s*"stored-secret"$/m);
-    assert.equal(fs.statSync(routePath).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(routePath).mode & 0o777, 0o600);
+    else assert.equal(fs.existsSync(routePath), true);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

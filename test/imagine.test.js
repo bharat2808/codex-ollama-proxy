@@ -124,7 +124,8 @@ test('generated images use content-addressed persistent storage when provided', 
     assert.equal(path.dirname(output.path), outputDirectory);
     assert.match(path.basename(output.path), /^[a-f0-9]{64}\.png$/);
     assert.deepEqual(fs.readFileSync(output.path), generated);
-    assert.equal(fs.statSync(output.path).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(output.path).mode & 0o777, 0o600);
+    else assert.deepEqual(fs.readFileSync(output.path), generated);
   } finally {
     fs.rmSync(outputDirectory, { recursive: true, force: true });
     await close(server);

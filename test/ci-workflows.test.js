@@ -8,7 +8,7 @@ const path = require('path');
 const workflows = path.join(__dirname, '..', '.github', 'workflows');
 
 function read(name) {
-  return fs.readFileSync(path.join(workflows, name), 'utf8');
+  return fs.readFileSync(path.join(workflows, name), 'utf8').replace(/\r\n?/gu, '\n');
 }
 
 test('secret-free CI covers Linux, Windows, macOS, tests, and packed-package startup', () => {

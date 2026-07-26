@@ -1601,8 +1601,12 @@ test('inline image persistence repairs a corrupt existing hash file', () => {
     });
 
     assert.deepEqual(fs.readFileSync(imagePath), inlineImageBytes('image/png', 'repair-me'));
-    assert.equal(fs.statSync(imagePath).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(path.dirname(imagePath)).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(imagePath).mode & 0o777, 0o600);
+      assert.equal(fs.statSync(path.dirname(imagePath)).mode & 0o777, 0o700);
+    } else {
+      assert.equal(fs.existsSync(imagePath), true);
+    }
   } finally {
     fs.rmSync(cacheRoot, { recursive: true, force: true });
   }

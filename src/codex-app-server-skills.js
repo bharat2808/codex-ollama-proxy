@@ -71,15 +71,10 @@ function appServerRequestSync(requests) {
   const input = requests.map((request) => JSON.stringify(request)).join('\n') + '\n';
   let res;
   try {
-    res = childProcess.spawnSync('/bin/sh', ['-lc',
-      '{ printf %s "$CODEX_APP_SERVER_REQUEST"; sleep "${CODEX_APP_SERVER_STDIN_HOLD_SECONDS:-3}"; } | "$CODEX_APP_SERVER" app-server --stdio',
-    ], {
+    res = childProcess.spawnSync(CODEX_APP_SERVER, ['app-server', '--stdio'], {
       cwd: getSkillCwds()[0] || process.cwd(),
-      env: {
-        ...process.env,
-        CODEX_APP_SERVER,
-        CODEX_APP_SERVER_REQUEST: input,
-      },
+      env: process.env,
+      input,
       timeout: 20000,
       maxBuffer: 32 * 1024 * 1024,
     });
@@ -212,9 +207,8 @@ function buildEntriesFromAppServer() {
   return entriesFromSkillsList(getResponseResult(messages, listId));
 }
 
-// Query plugin state and skills through one live app-server process. Unlike the
-// legacy synchronous helper, this does not use fixed sleeps and never blocks
-// the proxy event loop while Codex builds its effective skill inventory.
+// Query plugin state and skills through one live app-server process. This never
+// blocks the proxy event loop while Codex builds its effective skill inventory.
 function buildEntriesFromAppServerAsync(options = {}) {
   if (!CODEX_APP_SERVER || !fs.existsSync(CODEX_APP_SERVER)) return Promise.resolve([]);
   const configuredTimeout = Number(options.timeoutMs || process.env.CODEX_APP_SERVER_SKILLS_TIMEOUT_MS);

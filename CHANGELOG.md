@@ -8,6 +8,8 @@
   directory safely on Windows, and honored `XDG_CONFIG_HOME` for Linux systemd user units.
 - Added secret-free Linux, Windows, and macOS package CI, protected live Codex tool-call tests,
   and separate opt-in native Task Scheduler and systemd lifecycle workflows.
+- Removed the synchronous Codex skill-discovery dependency on `/bin/sh`, and made workflow,
+  launcher, and file-privacy tests reflect native Windows line endings, processes, and ACL semantics.
 
 ## 0.4.0
 

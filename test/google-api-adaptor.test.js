@@ -718,8 +718,9 @@ test('Google presets containing API keys are written with private permissions', 
       defaultModel: 'gemini-2.5-flash',
       apiKey: 'secret',
     }, () => {});
-    const mode = fs.statSync(path.join(runtimeDir, 'presets', 'gemini.toml')).mode & 0o777;
-    assert.equal(mode, 0o600);
+    const presetPath = path.join(runtimeDir, 'presets', 'gemini.toml');
+    if (process.platform !== 'win32') assert.equal(fs.statSync(presetPath).mode & 0o777, 0o600);
+    else assert.match(fs.readFileSync(presetPath, 'utf8'), /^upstream_api_key\s*=\s*"secret"$/mu);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

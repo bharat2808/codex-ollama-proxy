@@ -60,7 +60,8 @@ test('writes launcher state atomically with private permissions and reads it bac
       adaptor_port: 8787,
       completion_model: 'override-model',
     });
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    else assert.equal(fs.existsSync(file), true);
     assert.deepEqual(fs.readdirSync(dir), ['launcher-state.json']);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

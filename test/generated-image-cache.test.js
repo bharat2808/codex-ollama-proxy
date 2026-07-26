@@ -58,8 +58,12 @@ test('persists generated data URLs in the existing private session cache', async
     const savedPath = response.output[0].saved_path;
     assert.ok(savedPath.startsWith(cacheRoot + path.sep));
     assert.deepEqual(fs.readFileSync(savedPath), PNG_BYTES);
-    assert.equal(fs.statSync(savedPath).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(path.dirname(savedPath)).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(savedPath).mode & 0o777, 0o600);
+      assert.equal(fs.statSync(path.dirname(savedPath)).mode & 0o777, 0o700);
+    } else {
+      assert.equal(fs.existsSync(savedPath), true);
+    }
   } finally {
     fs.rmSync(cacheRoot, { recursive: true, force: true });
   }
