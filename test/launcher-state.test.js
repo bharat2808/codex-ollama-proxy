@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const { assertPrivateFileMode } = require('./helpers/file-mode');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
@@ -60,7 +61,7 @@ test('writes launcher state atomically with private permissions and reads it bac
       adaptor_port: 8787,
       completion_model: 'override-model',
     });
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assertPrivateFileMode(file);
     assert.deepEqual(fs.readdirSync(dir), ['launcher-state.json']);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

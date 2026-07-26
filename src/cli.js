@@ -131,7 +131,7 @@ function stopPlatformService() {
     return run('systemctl', ['--user', 'stop', 'codex-ollama-proxy.service'], { check: false, stdio: 'pipe' }).status === 0;
   }
   if (SERVICE_PLATFORM === 'win32') {
-    return run('schtasks.exe', ['/End', '/TN', WINDOWS_TASK], { check: false, stdio: 'pipe' }).status === 0;
+    return run('schtasks', ['/End', '/TN', WINDOWS_TASK], { check: false, stdio: 'pipe' }).status === 0;
   }
   return false;
 }
@@ -455,7 +455,7 @@ function probeJson(port, requestPath, timeoutMs = 750) {
 
 function listeningPids(port) {
   if (SERVICE_PLATFORM === 'win32') {
-    const result = spawnSync('netstat.exe', ['-ano', '-p', 'TCP'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const result = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     return [...new Set(String(result.stdout || '').split(/\r?\n/u).flatMap((line) => {
       const fields = line.trim().split(/\s+/u);
       return fields.length >= 5 && fields[1].endsWith(`:${port}`) && fields[3] === 'LISTENING' ? [fields[4]] : [];
@@ -475,7 +475,7 @@ function listeningPids(port) {
 
 function describePortOwner(port) {
   if (SERVICE_PLATFORM === 'win32') {
-    const result = spawnSync('netstat.exe', ['-ano', '-p', 'TCP'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const result = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     return String(result.stdout || '').split(/\r?\n/u)
       .filter((line) => line.trim().split(/\s+/u)[1]?.endsWith(`:${port}`)).join('\n').trim();
   }
@@ -489,7 +489,7 @@ function describePortOwner(port) {
 function processCommand(pid) {
   if (SERVICE_PLATFORM === 'win32') {
     const script = `(Get-CimInstance Win32_Process -Filter "ProcessId = ${Number(pid)}").CommandLine`;
-    const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], {
+    const result = spawnSync('powershell', ['-NoProfile', '-Command', script], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     });
     return result.status === 0 && result.stdout ? result.stdout.trim() : '';
@@ -642,8 +642,8 @@ function install() {
       path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log'), CODEX_DIR), 'utf8');
     stopPlatformService();
     const taskCommand = `cmd.exe /d /c ""${WINDOWS_COMMAND}""`;
-    run('schtasks.exe', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', taskCommand, '/F']);
-    run('schtasks.exe', ['/Run', '/TN', WINDOWS_TASK]);
+    run('schtasks', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', taskCommand, '/F']);
+    run('schtasks', ['/Run', '/TN', WINDOWS_TASK]);
     console.log(`installed=${WINDOWS_COMMAND}`);
     return;
   }
@@ -657,7 +657,7 @@ function uninstall() {
     run('systemctl', ['--user', 'disable', 'codex-ollama-proxy.service'], { check: false });
     serviceFile = SYSTEMD_UNIT;
   } else if (SERVICE_PLATFORM === 'win32') {
-    run('schtasks.exe', ['/Delete', '/TN', WINDOWS_TASK, '/F'], { check: false });
+    run('schtasks', ['/Delete', '/TN', WINDOWS_TASK, '/F'], { check: false });
     serviceFile = WINDOWS_COMMAND;
   }
   if (fs.existsSync(serviceFile)) fs.unlinkSync(serviceFile);

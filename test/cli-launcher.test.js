@@ -51,8 +51,13 @@ function platformFixture(platform, options = {}) {
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.mkdirSync(stubBin, { recursive: true });
   fs.writeFileSync(preload, `require('os').homedir = () => process.env.TEST_HOME;\n`, 'utf8');
-  for (const command of ['systemctl', 'schtasks.exe', 'netstat.exe', 'powershell.exe']) {
-    fs.writeFileSync(path.join(stubBin, command), '#!/bin/sh\nprintf "%s" "$(basename "$0")" >> "$COMMAND_LOG"\nprintf " <%s>" "$@" >> "$COMMAND_LOG"\nprintf "\\n" >> "$COMMAND_LOG"\nexit 0\n', { mode: 0o755 });
+  for (const command of ['systemctl', 'schtasks', 'netstat', 'powershell']) {
+    if (process.platform === 'win32') {
+      const batch = '@echo off\r\nsetlocal EnableDelayedExpansion\r\nset "line=%~n0"\r\n:args\r\nif "%~1"=="" goto done\r\nset "line=!line! ^<%~1^>"\r\nshift\r\ngoto args\r\n:done\r\necho(!line!>>"%COMMAND_LOG%"\r\n';
+      fs.writeFileSync(path.join(stubBin, `${command}.cmd`), batch, 'utf8');
+    } else {
+      fs.writeFileSync(path.join(stubBin, command), '#!/bin/sh\nprintf "%s" "$(basename "$0")" >> "$COMMAND_LOG"\nprintf " <%s>" "$@" >> "$COMMAND_LOG"\nprintf "\\n" >> "$COMMAND_LOG"\nexit 0\n', { mode: 0o755 });
+    }
   }
   const env = Object.assign({}, process.env, {
     CODEX_HOME: codexHome,
@@ -83,7 +88,9 @@ function platformFixture(platform, options = {}) {
   };
 }
 
-test('CLI install creates default launcher state and renders its proxy port', () => {
+test('CLI install creates default launcher state and renders its proxy port', {
+  skip: process.platform !== 'darwin',
+}, () => {
   const installed = installWithState(null);
   try {
     assert.equal(installed.result.status, 0, installed.result.stderr || installed.result.stdout);
@@ -96,7 +103,9 @@ test('CLI install creates default launcher state and renders its proxy port', ()
   }
 });
 
-test('CLI install renders saved custom port and dedupe overrides', () => {
+test('CLI install renders saved custom port and dedupe overrides', {
+  skip: process.platform !== 'darwin',
+}, () => {
   const installed = installWithState({
     version: 1,
     adaptor: 'none',
@@ -115,7 +124,9 @@ test('CLI install renders saved custom port and dedupe overrides', () => {
   }
 });
 
-test('Linux install and uninstall honor XDG_CONFIG_HOME and persist a custom CODEX_HOME with spaces', () => {
+test('Linux install and uninstall honor XDG_CONFIG_HOME and persist a custom CODEX_HOME with spaces', {
+  skip: process.platform !== 'linux',
+}, () => {
   const fixture = platformFixture('linux', {
     customCodexHome: true,
     xdgConfigHome: true,
@@ -146,7 +157,9 @@ test('Linux install and uninstall honor XDG_CONFIG_HOME and persist a custom COD
   }
 });
 
-test('Windows install and uninstall work without HOME and persist USERPROFILE-based CODEX_HOME paths', () => {
+test('Windows install and uninstall work without HOME and persist USERPROFILE-based CODEX_HOME paths', {
+  skip: process.platform !== 'win32',
+}, () => {
   const fixture = platformFixture('win32');
   try {
     delete fixture.env.CODEX_HOME;
@@ -156,16 +169,16 @@ test('Windows install and uninstall work without HOME and persist USERPROFILE-ba
     assert.equal(fs.existsSync(commandFile), true);
     const command = fs.readFileSync(commandFile, 'utf8');
     assert.match(command, new RegExp(`set "CODEX_HOME=${path.join(fixture.home, '.codex').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'u'));
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks\.exe <\/Create> <\/TN> <Codex Ollama Proxy> <\/SC> <ONLOGON> <\/TR> <cmd\.exe \/d \/c/u);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks <\/Create> <\/TN> <Codex Ollama Proxy> <\/SC> <ONLOGON> <\/TR> <cmd\.exe \/d \/c/u);
 
     const restarted = fixture.runCommand('restart');
     assert.equal(restarted.status, 1, 'stubbed Task Scheduler does not start a proxy, so the health check should fail');
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /netstat\.exe <-ano> <-p> <TCP>.*schtasks\.exe <\/Create>.*schtasks\.exe <\/Run> <\/TN> <Codex Ollama Proxy>/su);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /netstat <-ano> <-p> <TCP>.*schtasks <\/Create>.*schtasks <\/Run> <\/TN> <Codex Ollama Proxy>/su);
 
     const uninstalled = fixture.runCommand('uninstall');
     assert.equal(uninstalled.status, 0, uninstalled.stderr || uninstalled.stdout);
     assert.equal(fs.existsSync(commandFile), false);
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks\.exe <\/End> <\/TN> <Codex Ollama Proxy>.*schtasks\.exe <\/Delete> <\/TN> <Codex Ollama Proxy> <\/F>/su);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks <\/End> <\/TN> <Codex Ollama Proxy>.*schtasks <\/Delete> <\/TN> <Codex Ollama Proxy> <\/F>/su);
   } finally {
     fixture.cleanup();
   }

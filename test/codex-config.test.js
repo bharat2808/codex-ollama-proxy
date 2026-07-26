@@ -6,6 +6,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { assertPrivateFileMode } = require('./helpers/file-mode');
 
 test('inline image persistence is enabled by default in schema and packaged config', () => {
   const schema = require('../src/route-config-schema');
@@ -245,7 +246,7 @@ test('CLI preset add can store API key when requested', () => {
     const presetPath = path.join(runtimeDir, 'presets', 'nvidia.toml');
     const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^upstream_api_key\s*=\s*"stored-secret"$/m);
-    assert.equal(fs.statSync(presetPath).mode & 0o777, 0o600);
+    assertPrivateFileMode(presetPath);
 
     const use = spawnSync(process.execPath, [
       path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
@@ -265,7 +266,7 @@ test('CLI preset add can store API key when requested', () => {
     const routePath = path.join(runtimeDir, 'proxy-models.toml');
     const route = fs.readFileSync(routePath, 'utf8');
     assert.match(route, /^upstream_api_key\s*=\s*"stored-secret"$/m);
-    assert.equal(fs.statSync(routePath).mode & 0o777, 0o600);
+    assertPrivateFileMode(routePath);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
