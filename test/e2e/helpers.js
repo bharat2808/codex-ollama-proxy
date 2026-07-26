@@ -24,12 +24,17 @@ function npmCliPath() {
   return npmCli;
 }
 
-function requiresWindowsShell(command) {
-  return process.platform === 'win32' && /\.(?:bat|cmd)$/iu.test(command);
+function requiresWindowsShell(command, platform = process.platform) {
+  return platform === 'win32' && /\.(?:bat|cmd)$/iu.test(command);
+}
+
+function commandForSpawn(command, platform = process.platform) {
+  if (requiresWindowsShell(command, platform) && /\s/u.test(command)) return `"${command}"`;
+  return command;
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const result = spawnSync(commandForSpawn(command), args, {
     cwd: options.cwd || REPO_ROOT,
     encoding: 'utf8',
     env: options.env || process.env,
@@ -106,7 +111,7 @@ function waitForModels(port, timeoutMs = 30_000) {
 function startCaptured(command, args, options) {
   fs.mkdirSync(path.dirname(options.logFile), { recursive: true });
   const output = fs.openSync(options.logFile, 'a');
-  const child = spawn(command, args, {
+  const child = spawn(commandForSpawn(command), args, {
     cwd: options.cwd || REPO_ROOT,
     env: options.env,
     shell: requiresWindowsShell(command),
@@ -178,6 +183,7 @@ module.exports = {
   installTarball,
   installedProxyCommand,
   newestTarball,
+  commandForSpawn,
   redact,
   requiredEnvironment,
   run,
