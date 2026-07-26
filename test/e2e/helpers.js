@@ -16,15 +16,23 @@ function requiresWindowsShell(command) {
   return process.platform === 'win32' && /\.(?:bat|cmd)$/iu.test(command);
 }
 
+function windowsShellCommand(command, args) {
+  return [command, ...args]
+    .map((value) => `"${String(value).replace(/"/gu, '""')}"`)
+    .join(' ');
+}
+
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const spawnOptions = {
     cwd: options.cwd || REPO_ROOT,
     encoding: 'utf8',
     env: options.env || process.env,
     maxBuffer: 20 * 1024 * 1024,
-    shell: requiresWindowsShell(command),
     stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
-  });
+  };
+  const result = requiresWindowsShell(command)
+    ? spawnSync(windowsShellCommand(command, args), { ...spawnOptions, shell: true })
+    : spawnSync(command, args, spawnOptions);
   if (result.error) throw result.error;
   if (result.status !== 0 && !options.allowFailure) {
     const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
@@ -90,13 +98,15 @@ function waitForModels(port, timeoutMs = 30_000) {
 function startCaptured(command, args, options) {
   fs.mkdirSync(path.dirname(options.logFile), { recursive: true });
   const output = fs.openSync(options.logFile, 'a');
-  const child = spawn(command, args, {
+  const spawnOptions = {
     cwd: options.cwd || REPO_ROOT,
     env: options.env,
-    shell: requiresWindowsShell(command),
     stdio: ['ignore', output, output],
     windowsHide: true,
-  });
+  };
+  const child = requiresWindowsShell(command)
+    ? spawn(windowsShellCommand(command, args), { ...spawnOptions, shell: true })
+    : spawn(command, args, spawnOptions);
   child.once('exit', () => {
     try { fs.closeSync(output); } catch {}
   });
