@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { codexDir } = require('./runtime-paths');
 const { discoverModels } = require('./model-discovery');
 const { projectCodexCatalog } = require('./model-catalog/project-codex-catalog');
 const {
@@ -11,7 +12,7 @@ const {
 } = require('./model-catalog/resolve-model-inventory');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
-const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
+const CODEX_DIR = codexDir();
 const CONFIG = path.join(CODEX_DIR, 'config.toml');
 const OLLAMA_REFERENCE = path.join(CODEX_DIR, 'config.toml.ollama-working');
 const MODEL_CATALOG = path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json');
