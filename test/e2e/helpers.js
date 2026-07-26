@@ -12,12 +12,17 @@ function executable(name) {
   return process.platform === 'win32' ? `${name}.cmd` : name;
 }
 
+function requiresWindowsShell(command) {
+  return process.platform === 'win32' && /\.(?:bat|cmd)$/iu.test(command);
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd || REPO_ROOT,
     encoding: 'utf8',
     env: options.env || process.env,
     maxBuffer: 20 * 1024 * 1024,
+    shell: requiresWindowsShell(command),
     stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
   });
   if (result.error) throw result.error;
@@ -88,6 +93,7 @@ function startCaptured(command, args, options) {
   const child = spawn(command, args, {
     cwd: options.cwd || REPO_ROOT,
     env: options.env,
+    shell: requiresWindowsShell(command),
     stdio: ['ignore', output, output],
     windowsHide: true,
   });
