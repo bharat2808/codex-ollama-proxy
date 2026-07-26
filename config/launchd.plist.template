@@ -10,6 +10,8 @@ __PROGRAM_ARGUMENTS__
   </array>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>CODEX_HOME</key>
+    <string>__CODEX_HOME__</string>
     <key>PROXY_PORT</key>
     <string>__PORT__</string>
   </dict>

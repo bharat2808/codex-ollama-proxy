@@ -19,9 +19,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { codexDir } = require('./runtime-paths');
 const codexAppServerSkills = require('./codex-app-server-skills');
 
-const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
+const CODEX_DIR = codexDir();
 const SKILLS_DIR = path.join(CODEX_DIR, 'skills');
 const SYSTEM_SKILLS_DIR = path.join(SKILLS_DIR, '.system');
 const AGENTS_SKILLS_DIR = process.env.CODEX_AGENTS_SKILLS_DIR ||
