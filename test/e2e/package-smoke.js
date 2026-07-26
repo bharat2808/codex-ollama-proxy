@@ -6,17 +6,17 @@ const fs = require('fs');
 const path = require('path');
 const {
   REPO_ROOT,
-  executable,
   freshDirectory,
   installTarball,
   installedProxyCommand,
   run,
+  runNpm,
 } = require('./helpers');
 
 const temporary = freshDirectory('codex-proxy-package-');
 let tarball = null;
 try {
-  const packed = run(executable('npm'), ['pack', '--json']);
+  const packed = runNpm(['pack', '--json']);
   const metadata = JSON.parse(packed.stdout);
   if (!Array.isArray(metadata) || !metadata[0]?.filename) throw new Error('npm pack did not report a package filename.');
   tarball = path.resolve(REPO_ROOT, metadata[0].filename);

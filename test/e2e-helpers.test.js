@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { collectDiagnostics, redact } = require('./e2e/helpers');
+const { collectDiagnostics, commandForSpawn, redact } = require('./e2e/helpers');
 
 test('live-test diagnostics redact credentials from captured proxy and Codex logs', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-diagnostics-'));
@@ -29,4 +29,11 @@ test('live-test diagnostics redact credentials from captured proxy and Codex log
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('windows shell command wrapper quotes .cmd paths containing spaces', () => {
+  const command = 'C:\\Users\\runner\\Temp\\Install Prefix\\codex-ollama-proxy.cmd';
+  assert.equal(commandForSpawn(command, 'win32'), `"${command}"`);
+  assert.equal(commandForSpawn('C:\\Tools\\codex-ollama-proxy.cmd', 'win32'), 'C:\\Tools\\codex-ollama-proxy.cmd');
+  assert.equal(commandForSpawn(command, 'linux'), command);
 });

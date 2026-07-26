@@ -12,12 +12,34 @@ function executable(name) {
   return process.platform === 'win32' ? `${name}.cmd` : name;
 }
 
+function npmCliPath() {
+  const nodeDirectory = path.dirname(process.execPath);
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(nodeDirectory, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    path.resolve(nodeDirectory, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  const npmCli = candidates.find((candidate) => candidate && fs.existsSync(candidate));
+  if (!npmCli) throw new Error(`Could not locate npm-cli.js relative to ${process.execPath}.`);
+  return npmCli;
+}
+
+function requiresWindowsShell(command, platform = process.platform) {
+  return platform === 'win32' && /\.(?:bat|cmd)$/iu.test(command);
+}
+
+function commandForSpawn(command, platform = process.platform) {
+  if (requiresWindowsShell(command, platform) && /\s/u.test(command)) return `"${command}"`;
+  return command;
+}
+
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const result = spawnSync(commandForSpawn(command), args, {
     cwd: options.cwd || REPO_ROOT,
     encoding: 'utf8',
     env: options.env || process.env,
     maxBuffer: 20 * 1024 * 1024,
+    shell: requiresWindowsShell(command),
     stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
   });
   if (result.error) throw result.error;
@@ -26,6 +48,10 @@ function run(command, args, options = {}) {
     throw new Error(`${path.basename(command)} failed with exit code ${result.status}${output ? `:\n${output}` : ''}`);
   }
   return result;
+}
+
+function runNpm(args, options) {
+  return run(process.execPath, [npmCliPath(), ...args], options);
 }
 
 function requiredEnvironment(names) {
@@ -52,7 +78,7 @@ function installTarball(tarball, options = {}) {
   if (options.global) args.push('--global');
   if (options.prefix) args.push('--prefix', options.prefix);
   args.push(tarball);
-  run(executable('npm'), args);
+  runNpm(args);
 }
 
 function installedProxyCommand(prefix) {
@@ -85,9 +111,10 @@ function waitForModels(port, timeoutMs = 30_000) {
 function startCaptured(command, args, options) {
   fs.mkdirSync(path.dirname(options.logFile), { recursive: true });
   const output = fs.openSync(options.logFile, 'a');
-  const child = spawn(command, args, {
+  const child = spawn(commandForSpawn(command), args, {
     cwd: options.cwd || REPO_ROOT,
     env: options.env,
+    shell: requiresWindowsShell(command),
     stdio: ['ignore', output, output],
     windowsHide: true,
   });
@@ -156,9 +183,11 @@ module.exports = {
   installTarball,
   installedProxyCommand,
   newestTarball,
+  commandForSpawn,
   redact,
   requiredEnvironment,
   run,
+  runNpm,
   startCaptured,
   stopChild,
   waitForModels,

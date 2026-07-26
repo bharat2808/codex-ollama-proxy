@@ -50,7 +50,23 @@ function platformFixture(platform, options = {}) {
   const preload = path.join(root, 'preload.js');
   fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
   fs.mkdirSync(stubBin, { recursive: true });
-  fs.writeFileSync(preload, `require('os').homedir = () => process.env.TEST_HOME;\n`, 'utf8');
+  const preloadLines = [`require('os').homedir = () => process.env.TEST_HOME;`];
+  if (process.platform === 'win32') {
+    preloadLines.push(`
+const childProcess = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const originalSpawnSync = childProcess.spawnSync;
+const stubbedCommands = new Set(['schtasks', 'netstat', 'powershell']);
+childProcess.spawnSync = (command, args = [], options) => {
+  const commandName = path.basename(command).replace(/\\.(?:cmd|exe)$/iu, '');
+  if (!stubbedCommands.has(commandName)) return originalSpawnSync(command, args, options);
+  fs.appendFileSync(process.env.COMMAND_LOG,
+    commandName + args.map((arg) => \` <\${arg}>\`).join('') + '\\n');
+  return { error: undefined, status: 0, signal: null, stdout: '', stderr: '' };
+};`);
+  }
+  fs.writeFileSync(preload, `${preloadLines.join('\n')}\n`, 'utf8');
   for (const command of ['systemctl', 'schtasks', 'netstat', 'powershell']) {
     if (process.platform === 'win32') {
       const batch = '@echo off\r\nsetlocal EnableDelayedExpansion\r\nset "line=%~n0"\r\n:args\r\nif "%~1"=="" goto done\r\nset "line=!line! ^<%~1^>"\r\nshift\r\ngoto args\r\n:done\r\necho(!line!>>"%COMMAND_LOG%"\r\n';
