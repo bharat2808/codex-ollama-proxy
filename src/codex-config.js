@@ -293,7 +293,7 @@ function ensureOllamaProviderTable(text) {
   if (!exists(OLLAMA_REFERENCE)) {
     const blocks = tableBlocks(text);
     if (Object.prototype.hasOwnProperty.call(blocks, OLLAMA_PROVIDER_HEADER)) return text;
-    return `${text.replace(/\s+$/u, '')}\n\n${OLLAMA_PROVIDER_HEADER}\nname = "Ollama"\nbase_url = "http://127.0.0.1:11434/v1/"\nwire_api = "responses"\nrequires_openai_auth = true\n`;
+    return `${text.replace(/\s+$/u, '')}\n\n${OLLAMA_PROVIDER_HEADER}\nname = "Ollama"\nbase_url = "http://127.0.0.1:11436/v1/"\nwire_api = "responses"\nrequires_openai_auth = true\n`;
   }
   const referenceText = readText(OLLAMA_REFERENCE);
   const { providerHeaders } = referenceHeaders(referenceText);
