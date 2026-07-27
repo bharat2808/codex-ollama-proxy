@@ -1,0 +1,110 @@
+model_auto_compact_token_limit = 900000
+model_context_window = 1000000
+model_reasoning_effort = "none"
+service_tier = 'flex'
+
+
+
+notify = ["/Users/home/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
+developer_instructions = "You have oh-my-codex installed. AGENTS.md is your orchestration brain and the main orchestration surface. Use skill/keyword routing like $name plus spawned role-specialized subagents for specialized work. Codex native subagents are available via .codex/agents and may be used for independent parallel subtasks within a single session or team pane. Skills are loaded from installed SKILL.md files under .codex/skills, not from native agent TOMLs. Use workflow skills via $name when explicitly invoked or clearly routed by AGENTS.md. Treat installed prompts as narrower internal execution surfaces under AGENTS.md authority, even when user-facing docs prefer $name keywords."
+model = "glm-5.2:cloud"
+model_provider = "ollama-launch-codex-app"
+model_catalog_json = "/Users/home/.codex/ollama-launch-models.json"
+
+[plugins."storefront-builder@personal"]
+enabled = true
+
+[plugins."storefront-builder@personal".mcp_servers.storefront-builder.tools.collect_storefront_intake]
+approval_mode = "approve"
+
+[plugins."storefront-builder@personal".mcp_servers.storefront-builder.tools.select_storefront_theme]
+approval_mode = "approve"
+
+[plugins."storefront-builder@personal".mcp_servers.storefront-builder.tools.groceryio_bridge_manage]
+approval_mode = "approve"
+
+[plugins."storefront-builder@personal".mcp_servers.storefront-builder.tools.preview_storefront_html_prototype]
+approval_mode = "approve"
+
+
+
+[model_providers.ollama-launch-codex-app]
+name = "Ollama"
+base_url = "http://127.0.0.1:11436/v1/"
+wire_api = "responses"
+requires_openai_auth = true
+
+[features]
+enable_mcp_apps = true
+tool_search = true
+tool_search_always_defer_mcp_tools = true
+image_detail_original = true
+js_repl = true
+
+[marketplaces]
+
+[marketplaces.openai-bundled]
+last_updated = "2026-06-21T18:36:32Z"
+source_type = "local"
+source = "/Users/home/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+[mcp_servers]
+
+[mcp_servers.MCP_DOCKER]
+command = 'docker'
+args = ['mcp', 'gateway', 'run', '--profile', 'default']
+
+[mcp_servers.node_repl]
+args = []
+command = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node_repl"
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
+NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules"
+NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
+NODE_REPL_TRUSTED_CODE_PATHS = "/Users/home/.codex"
+CODEX_HOME = "/Users/home/.codex"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "2c20141b13bec5a64cd2874d8e2df011430d5b1a70e4f5425aa10d01743311a8"
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
+BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
+BROWSER_USE_CODEX_APP_VERSION = "26.616.51431"
+CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
+
+[model_providers]
+
+[notice]
+
+[notice.model_migrations]
+'gpt-5.3-codex' = 'gpt-5.4'
+'gpt-5.4' = 'gpt-5.5'
+
+[plugins]
+
+[plugins.'browser@openai-bundled']
+enabled = true
+
+[plugins.'chrome@openai-bundled']
+enabled = true
+
+[plugins.'computer-use@openai-bundled']
+enabled = true
+
+
+[projects]
+
+[projects.'/Users/home/Documents/storefront']
+trust_level = 'trusted'
+
+[projects.'/Users/home/plugins/storefront-builder']
+trust_level = 'trusted'
+
+[projects."/Users/home"]
+trust_level = "trusted"
+
+[tui]
+
+[tui.model_availability_nux]
+"gpt-5.5" = 2
