@@ -92,6 +92,88 @@ test('model_config ollama escapes Windows model catalog paths in TOML', {
   }
 });
 
+test('model_config ollama creates a proxy reference config when missing', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-reference-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
+  fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
+    'default_model = "glm-5.2:cloud"',
+    'image_model = "kimi-k3:cloud"',
+    'auto_route_image = true',
+    '',
+  ].join('\n'), 'utf8');
+
+  try {
+    const result = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'model_config.js'),
+      'ollama',
+      '--no-refresh',
+      '--no-backup',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /reference_created=/);
+    const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+    const reference = fs.readFileSync(path.join(codexHome, 'config.toml.ollama-working'), 'utf8');
+    assert.match(config, /^base_url = "http:\/\/127\.0\.0\.1:11436\/v1\/"$/m);
+    assert.match(reference, /^base_url = "http:\/\/127\.0\.0\.1:11436\/v1\/"$/m);
+    assert.match(reference, /^model_catalog_json = /m);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('model_config ollama overrides stale reference provider URL with configured proxy port', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-reference-port-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
+  fs.writeFileSync(path.join(codexHome, 'config.toml.ollama-working'), [
+    '[model_providers.ollama-launch-codex-app]',
+    'name = "Ollama"',
+    'base_url = "http://127.0.0.1:11434/v1/"',
+    'wire_api = "responses"',
+    '',
+  ].join('\n'), 'utf8');
+  fs.writeFileSync(path.join(runtimeDir, 'launcher-state.json'), JSON.stringify({
+    version: 1,
+    adaptor: 'none',
+    proxy_port: 61234,
+  }), 'utf8');
+  fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
+    'default_model = "glm-5.2:cloud"',
+    'image_model = "kimi-k3:cloud"',
+    'auto_route_image = true',
+    '',
+  ].join('\n'), 'utf8');
+
+  try {
+    const result = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'model_config.js'),
+      'ollama',
+      '--no-refresh',
+      '--no-backup',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+    assert.match(config, /^base_url = "http:\/\/127\.0\.0\.1:61234\/v1\/"$/m);
+    assert.doesNotMatch(config, /11434\/v1/);
+    assert.match(config, /^requires_openai_auth = true$/m);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test('CLI switch ollama resets chat-completion upstream config to local Ollama route', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-switch-ollama-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
