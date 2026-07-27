@@ -57,6 +57,41 @@ test('model_config ollama uses catalog reasoning defaults instead of a global ef
   }
 });
 
+test('model_config ollama escapes Windows model catalog paths in TOML', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-windows-path-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
+  fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
+    'default_model = "glm-5.2:cloud"',
+    'image_model = "kimi-k3:cloud"',
+    'auto_route_image = true',
+    '',
+  ].join('\n'), 'utf8');
+
+  try {
+    const result = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'model_config.js'),
+      'ollama',
+      '--no-refresh',
+      '--no-backup',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+    assert.match(config, /^model_catalog_json = ".*\\\\ollama-launch-models-ollama-working\.json"$/m);
+    assert.doesNotMatch(config, /^model_catalog_json = ".*[^\\]\\[Uu]/m);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test('CLI switch ollama resets chat-completion upstream config to local Ollama route', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-switch-ollama-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');

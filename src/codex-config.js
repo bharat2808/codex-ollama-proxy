@@ -69,6 +69,10 @@ function writeText(file, text) {
   fs.writeFileSync(file, text, 'utf8');
 }
 
+function tomlString(value) {
+  return JSON.stringify(String(value));
+}
+
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
@@ -306,15 +310,15 @@ function normalizeOllama(text, model) {
   const instructionLine = referenceTopLevelLine('developer_instructions');
   if (instructionLine) lines.push(instructionLine);
   if (model) {
-    lines = replaceOrInsert(lines, 'model', `"${model}"`);
+    lines = replaceOrInsert(lines, 'model', tomlString(model));
   } else {
     lines = removeKey(lines, 'model');
   }
   lines = replaceOrInsert(lines, 'model_reasoning_summary', '"auto"');
   lines = replaceOrInsert(lines, 'model_context_window', DEFAULT_CONTEXT_WINDOW);
   lines = replaceOrInsert(lines, 'model_auto_compact_token_limit', DEFAULT_AUTO_COMPACT);
-  lines = replaceOrInsert(lines, 'model_provider', `"${PROVIDER_NAME}"`);
-  lines = replaceOrInsert(lines, 'model_catalog_json', `"${MODEL_CATALOG}"`);
+  lines = replaceOrInsert(lines, 'model_provider', tomlString(PROVIDER_NAME));
+  lines = replaceOrInsert(lines, 'model_catalog_json', tomlString(MODEL_CATALOG));
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');
   normalized = ensureStorefrontPluginTables(normalized);
   normalized = ensureTableKey(normalized, '[features]', 'enable_mcp_apps', 'true');
