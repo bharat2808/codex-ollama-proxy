@@ -56,18 +56,35 @@ function platformFixture(platform, options = {}) {
 const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const events = require('events');
 const originalSpawnSync = childProcess.spawnSync;
-const stubbedCommands = new Set(['schtasks', 'netstat', 'powershell']);
+const originalSpawn = childProcess.spawn;
+const stubbedCommands = new Set(['cmd', 'reg', 'schtasks', 'netstat', 'powershell']);
 childProcess.spawnSync = (command, args = [], options) => {
   const commandName = path.basename(command).replace(/\\.(?:cmd|exe)$/iu, '');
   if (!stubbedCommands.has(commandName)) return originalSpawnSync(command, args, options);
   fs.appendFileSync(process.env.COMMAND_LOG,
     commandName + args.map((arg) => \` <\${arg}>\`).join('') + '\\n');
+  if (process.env.FAIL_SCHTASKS_CREATE === '1'
+      && commandName === 'schtasks'
+      && args.includes('/Create')) {
+    return { error: undefined, status: 1, signal: null, stdout: '', stderr: 'ERROR: Access is denied.\\r\\n' };
+  }
   return { error: undefined, status: 0, signal: null, stdout: '', stderr: '' };
+};
+childProcess.spawn = (command, args = [], options) => {
+  const commandName = path.basename(command).replace(/\\.(?:cmd|exe)$/iu, '');
+  if (!stubbedCommands.has(commandName)) return originalSpawn(command, args, options);
+  fs.appendFileSync(process.env.COMMAND_LOG,
+    commandName + args.map((arg) => \` <\${arg}>\`).join('') + '\\n');
+  const child = new events.EventEmitter();
+  child.pid = 12345;
+  child.unref = () => {};
+  return child;
 };`);
   }
   fs.writeFileSync(preload, `${preloadLines.join('\n')}\n`, 'utf8');
-  for (const command of ['systemctl', 'schtasks', 'netstat', 'powershell']) {
+  for (const command of ['systemctl', 'cmd', 'reg', 'schtasks', 'netstat', 'powershell']) {
     if (process.platform === 'win32') {
       const batch = '@echo off\r\nsetlocal EnableDelayedExpansion\r\nset "line=%~n0"\r\n:args\r\nif "%~1"=="" goto done\r\nset "line=!line! ^<%~1^>"\r\nshift\r\ngoto args\r\n:done\r\necho(!line!>>"%COMMAND_LOG%"\r\n';
       fs.writeFileSync(path.join(stubBin, `${command}.cmd`), batch, 'utf8');
@@ -87,6 +104,7 @@ childProcess.spawnSync = (command, args = [], options) => {
   });
   delete env.HOME;
   if (options.xdgConfigHome) env.XDG_CONFIG_HOME = path.join(root, 'xdg config');
+  if (options.failSchtasksCreate) env.FAIL_SCHTASKS_CREATE = '1';
 
   function runCommand(command) {
     return spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'), command], {
@@ -195,6 +213,34 @@ test('Windows install and uninstall work without HOME and persist USERPROFILE-ba
     assert.equal(uninstalled.status, 0, uninstalled.stderr || uninstalled.stdout);
     assert.equal(fs.existsSync(commandFile), false);
     assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks <\/End> <\/TN> <Codex Ollama Proxy>.*schtasks <\/Delete> <\/TN> <Codex Ollama Proxy> <\/F>/su);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('Windows install falls back to HKCU Run when Task Scheduler creation is denied', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const fixture = platformFixture('win32', { failSchtasksCreate: true });
+  try {
+    const installed = fixture.runCommand('install');
+    assert.equal(installed.status, 0, installed.stderr || installed.stdout);
+    assert.match(installed.stderr, /Task Scheduler registration failed: Access is denied\./u);
+    assert.match(installed.stdout, /startup=hkcu_run/u);
+    const commandFile = path.join(fixture.codexHome, 'ollama-shape-proxy', 'start-proxy.cmd');
+    assert.equal(fs.existsSync(commandFile), true);
+    assert.match(
+      fs.readFileSync(fixture.commandLog, 'utf8'),
+      /schtasks <\/Create>.*reg <ADD> <HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run>.*cmd <\/d> <\/c>/su
+    );
+
+    const uninstalled = fixture.runCommand('uninstall');
+    assert.equal(uninstalled.status, 0, uninstalled.stderr || uninstalled.stdout);
+    assert.equal(fs.existsSync(commandFile), false);
+    assert.match(
+      fs.readFileSync(fixture.commandLog, 'utf8'),
+      /reg <DELETE> <HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run> <\/v> <Codex Ollama Proxy> <\/f>/u
+    );
   } finally {
     fixture.cleanup();
   }
