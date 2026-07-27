@@ -29,6 +29,7 @@ const SERVICE_PLATFORM = process.env.CODEX_PROXY_PLATFORM || process.platform;
 const SYSTEMD_UNIT = path.join(runtimePaths.systemdUserDir(), 'codex-ollama-proxy.service');
 const WINDOWS_COMMAND = path.join(RUNTIME_DIR, 'start-proxy.cmd');
 const WINDOWS_TASK = 'Codex Ollama Proxy';
+const WINDOWS_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 
 function usage() {
   console.log(`Usage:
@@ -134,6 +135,38 @@ function stopPlatformService() {
     return run('schtasks', ['/End', '/TN', WINDOWS_TASK], { check: false, stdio: 'pipe' }).status === 0;
   }
   return false;
+}
+
+function windowsTaskAccessDenied(result) {
+  const output = `${result?.stdout || ''}\n${result?.stderr || ''}`;
+  return /access is denied/iu.test(output);
+}
+
+function windowsStartupCommand() {
+  return `cmd.exe /d /c "${WINDOWS_COMMAND}"`;
+}
+
+function installWindowsRunFallback() {
+  run('reg', ['ADD', WINDOWS_RUN_KEY, '/v', WINDOWS_TASK, '/t', 'REG_SZ', '/d', windowsStartupCommand(), '/f']);
+}
+
+function removeWindowsRunFallback() {
+  run('reg', ['DELETE', WINDOWS_RUN_KEY, '/v', WINDOWS_TASK, '/f'], { check: false });
+}
+
+function startWindowsCommand() {
+  const child = spawn('cmd.exe', ['/d', '/c', WINDOWS_COMMAND], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
+
+function exitWithResult(result) {
+  if (result?.stdout) process.stdout.write(result.stdout);
+  if (result?.stderr) process.stderr.write(result.stderr);
+  process.exit(result?.status ?? 1);
 }
 
 function parseFlags(argv) {
@@ -642,7 +675,16 @@ function install() {
       path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log'), CODEX_DIR), 'utf8');
     stopPlatformService();
     const taskCommand = `cmd.exe /d /c ""${WINDOWS_COMMAND}""`;
-    run('schtasks', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', taskCommand, '/F']);
+    const created = run('schtasks', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', taskCommand, '/F'], { check: false, stdio: 'pipe' });
+    if (created.status !== 0) {
+      if (!windowsTaskAccessDenied(created)) exitWithResult(created);
+      console.error('Task Scheduler registration failed: Access is denied.');
+      installWindowsRunFallback();
+      startWindowsCommand();
+      console.log(`installed=${WINDOWS_COMMAND}`);
+      console.log('startup=hkcu_run');
+      return;
+    }
     run('schtasks', ['/Run', '/TN', WINDOWS_TASK]);
     console.log(`installed=${WINDOWS_COMMAND}`);
     return;
@@ -658,6 +700,7 @@ function uninstall() {
     serviceFile = SYSTEMD_UNIT;
   } else if (SERVICE_PLATFORM === 'win32') {
     run('schtasks', ['/Delete', '/TN', WINDOWS_TASK, '/F'], { check: false });
+    removeWindowsRunFallback();
     serviceFile = WINDOWS_COMMAND;
   }
   if (fs.existsSync(serviceFile)) fs.unlinkSync(serviceFile);
