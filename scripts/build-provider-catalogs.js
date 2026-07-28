@@ -11,6 +11,9 @@ const {
 const {
   normalizeOpenAiModelCache,
 } = require('../src/model-discovery/openai-model-cache');
+const {
+  filterCodexUsableModels,
+} = require('../src/model-discovery/openai-codex-models');
 
 const cacheDirectory = path.resolve(process.argv[2] || path.join(__dirname, '..', 'model-discovery-cache'));
 const outputDirectory = path.resolve(process.argv[3] || CATALOG_DIRECTORY);
@@ -54,9 +57,9 @@ function cachedModels(provider) {
 }
 
 const openrouter = cachedModels('openrouter');
-const openaiModels = fs.existsSync(openaiModelCachePath)
+const openaiModels = filterCodexUsableModels(fs.existsSync(openaiModelCachePath)
   ? normalizeOpenAiModelCache(JSON.parse(fs.readFileSync(openaiModelCachePath, 'utf8')))
-  : cachedModels('openai');
+  : cachedModels('openai'));
 fs.mkdirSync(outputDirectory, { recursive: true });
 for (const provider of providerNames) {
   const catalogProvider = provider === 'ollama' ? 'ollama-cloud' : provider;

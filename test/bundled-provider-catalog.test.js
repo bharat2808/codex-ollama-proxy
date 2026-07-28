@@ -262,8 +262,8 @@ test('catalog build script emits Anthropic discovery and OpenAI Codex-cache bund
     fs.writeFileSync(openaiModelCache, JSON.stringify({
       models: [
         {
-          slug: 'gpt-cache-example',
-          display_name: 'GPT Cache Example',
+          slug: 'gpt-5.4',
+          display_name: 'GPT-5.4',
           visibility: 'list',
           supported_in_api: true,
           context_window: 272000,
@@ -274,8 +274,8 @@ test('catalog build script emits Anthropic discovery and OpenAI Codex-cache bund
           supports_parallel_tool_calls: true,
         },
         {
-          slug: 'codex-hidden-example',
-          display_name: 'Codex Hidden Example',
+          slug: 'gpt-4.1-mini',
+          display_name: 'GPT-4.1 Mini',
           visibility: 'hide',
           supported_in_api: false,
           context_window: 128000,
@@ -295,12 +295,18 @@ test('catalog build script emits Anthropic discovery and OpenAI Codex-cache bund
     const openai = JSON.parse(fs.readFileSync(path.join(output, 'openai.json'), 'utf8'));
     assert.deepEqual(anthropic.models.map((entry) => entry.id), ['claude-example']);
     assert.deepEqual(openai.models.map((entry) => entry.id), [
-      'codex-hidden-example',
-      'gpt-cache-example',
+      'gpt-4.1-mini',
+      'gpt-5.4',
     ]);
     assert.equal(openai.models[0].providerMetadata.supportedInApi, false);
     assert.equal(openai.models[1].contextWindow, 272000);
-    assert.deepEqual(openai.models[1].reasoningLevels, ['medium', 'high']);
+    assert.deepEqual(openai.models[1].reasoningLevels, [
+      'none',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -1004,18 +1004,23 @@ test('OpenAI catalog normalization applies the live-tested reasoning effort matr
   assert.equal(models[3].metadataSources.reasoning, 'provider-catalog');
 });
 
-test('OpenAI discovery excludes embedding and Whisper models while retaining every other purpose in provider order', async () => {
+test('OpenAI discovery excludes proven-incompatible models while retaining newly introduced models', async () => {
   const ids = [
-    'gpt-example',
+    'gpt-4.1-mini',
+    'gpt-5.6-sol',
     'text-embedding-example',
     'ft:text-embedding-example:organization:suffix:id',
     'vendor/embeddings-v2',
     'whisper-1',
-    'gpt-image-example',
-    'tts-example',
-    'omni-moderation-example',
-    'ft:gpt-example:organization:suffix:id',
-    'embedded-knowledge-gpt-example',
+    'gpt-image-2',
+    'tts-1',
+    'omni-moderation-latest',
+    'gpt-realtime-2.1',
+    'gpt-audio',
+    'gpt-5-chat-latest',
+    'ft:gpt-4.1-mini:organization:suffix:id',
+    'future-openai-model',
+    'ft:future-openai-model:organization:suffix:id',
   ];
   const calls = [];
   const result = await openai.discover({
@@ -1027,7 +1032,7 @@ test('OpenAI discovery excludes embedding and Whisper models while retaining eve
       });
       return new Response(JSON.stringify({
         object: 'list',
-        data: ids.concat('gpt-example').map((id) => ({
+        data: ids.concat('gpt-4.1-mini').map((id) => ({
           id,
           object: 'model',
           created: 1785196800,
@@ -1038,12 +1043,11 @@ test('OpenAI discovery excludes embedding and Whisper models while retaining eve
   });
 
   assert.deepEqual(result.models.map((model) => model.id), [
-    'gpt-example',
-    'gpt-image-example',
-    'tts-example',
-    'omni-moderation-example',
-    'ft:gpt-example:organization:suffix:id',
-    'embedded-knowledge-gpt-example',
+    'gpt-4.1-mini',
+    'gpt-5.6-sol',
+    'ft:gpt-4.1-mini:organization:suffix:id',
+    'future-openai-model',
+    'ft:future-openai-model:organization:suffix:id',
   ]);
   assert.equal(result.origin, 'live');
   assert.equal(result.complete, true);
@@ -1064,11 +1068,17 @@ test('OpenAI discovery falls back to its bundled Codex model-cache catalog', asy
   assert.equal(result.origin, 'bundled');
   assert.equal(result.complete, false);
   assert.equal(result.fallback.state, 'bundled');
-  assert.ok(result.models.some((model) => model.id === 'gpt-5.6-sol'));
-  assert.ok(result.models.every((model) => !model.id.includes('embedding')));
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.5',
+    'gpt-5.6-luna',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+  ]);
 });
 
-test('public OpenAI discovery filters embedding rows from an existing fresh cache', async (t) => {
+test('public OpenAI discovery filters non-Codex rows from an existing fresh cache', async (t) => {
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openai-model-cache-'));
   t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
   const cacheOptions = {
@@ -1081,9 +1091,11 @@ test('public OpenAI discovery filters embedding rows from an existing fresh cach
     cacheOptions,
     cacheIdentity(cacheOptions),
     [
-      openai.parseRow({ id: 'gpt-example' }),
+      openai.parseRow({ id: 'gpt-4.1-mini' }),
       openai.parseRow({ id: 'text-embedding-example' }),
       openai.parseRow({ id: 'whisper-1' }),
+      openai.parseRow({ id: 'gpt-audio' }),
+      openai.parseRow({ id: 'gpt-image-2' }),
     ],
     1000,
     { origin: 'live', complete: true },
@@ -1101,7 +1113,7 @@ test('public OpenAI discovery filters embedding rows from an existing fresh cach
   });
 
   assert.equal(result.cache.state, 'fresh');
-  assert.deepEqual(result.models.map((model) => model.id), ['gpt-example']);
+  assert.deepEqual(result.models.map((model) => model.id), ['gpt-4.1-mini']);
 });
 
 test('Anthropic and OpenAI treat empty successful inventories as bundled fallbacks', async () => {

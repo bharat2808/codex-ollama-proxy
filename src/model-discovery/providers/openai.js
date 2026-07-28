@@ -4,6 +4,10 @@ const { adapterResult } = require('../adapter-result');
 const { fetchJson } = require('../live-catalog');
 const { loadBundledProviderCatalog } = require('../provider-catalog');
 const { applyDocumentedModalities } = require('../provider-catalog-overrides');
+const {
+  filterCodexUsableModels,
+  isCodexUsableModelId,
+} = require('../openai-codex-models');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
 const BASE_URL = 'https://api.openai.com/v1';
@@ -49,12 +53,11 @@ function isEmbeddingModelId(id) {
 }
 
 function isExcludedModelId(id) {
-  return isEmbeddingModelId(id) || id === 'whisper-1';
+  return !isCodexUsableModelId(id);
 }
 
 function filterModels(models) {
-  return (Array.isArray(models) ? models : [])
-    .filter((model) => model && !isExcludedModelId(model.id));
+  return filterCodexUsableModels(models);
 }
 
 function normalizeModels(models) {
@@ -115,7 +118,7 @@ async function discover(options = {}) {
     const bundled = loadBundledProviderCatalog('openai');
     const warnings = ['OpenAI live catalog refresh failed; using the bundled provider catalog.'];
     return adapterResult({
-      models: normalizeModels(bundled.models),
+    models: normalizeModels(filterModels(bundled.models)),
       warnings,
       origin: 'bundled',
       complete: false,
