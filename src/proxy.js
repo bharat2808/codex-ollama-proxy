@@ -13,6 +13,7 @@ const nativeImageGeneration = require('./native-image-generation');
 const { createOllamaCloudPuller } = require('./ollama-cloud-pull');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
+const { normalizeOpenAiReasoningRequest } = require('./model-catalog/reasoning-request-normalization');
 
 // proxy-models.toml drives per-request model auto-routing.
 // Loaded once at startup; editable without restart by re-running apply script.
@@ -87,6 +88,7 @@ let visionCapableModels = null;
 let imageOutputCapableModels = null;
 let imageInputOutputCapableModels = null;
 let toolUnsupportedModels = null;
+let reasoningCatalogModels = null;
 let ollamaCloudPuller = null;
 let ollamaCloudPullerBase = '';
 const XAI_FIXED_REASONING_MODELS = new Set([
@@ -737,6 +739,19 @@ function loadToolUnsupportedCapabilities() {
   return toolUnsupportedModels;
 }
 
+function loadReasoningCatalogModels() {
+  if (reasoningCatalogModels) return reasoningCatalogModels;
+  reasoningCatalogModels = [];
+  for (const catalogPath of MODEL_CATALOG_PATHS) {
+    try {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+      reasoningCatalogModels = Array.isArray(catalog.models) ? catalog.models : catalog;
+      if (reasoningCatalogModels.length > 0) break;
+    } catch {}
+  }
+  return reasoningCatalogModels;
+}
+
 function applyOutputModalities(body, capable = loadImageOutputCapabilities()) {
   if (!body || typeof body !== 'object' || !capable.has(body.model) || body.modalities !== undefined) return body;
   body.modalities = ['image', 'text'];
@@ -837,6 +852,7 @@ function translateRequestBody(body) {
   if (Array.isArray(body.tools)) ingestNamespaces(body.tools);
   const activeImageTurn = activeTurnHasImage(body);
   applyModelRouting(body);
+  normalizeOpenAiReasoningRequest(body, getUpstream().baseUrl, loadReasoningCatalogModels());
   removeUnsupportedReasoningEffort(body);
   normalizeXaiReasoningInput(body);
   applyOutputModalities(body);
