@@ -35,7 +35,7 @@ function usage() {
   console.log(`Usage:
   codex-ollama-proxy init [--force]
   codex-ollama-proxy serve [--adaptor chat-completion|google] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
-  codex-ollama-proxy serve --preset NAME [--api-key KEY] [--replace]
+  codex-ollama-proxy serve --preset NAME [--api-key KEY] [--model-override MODEL] [--replace]
   codex-ollama-proxy serve --adaptor chat-completion|google [--completion-model MODEL] [--adaptor-port PORT]
   codex-ollama-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
   codex-ollama-proxy preset add NAME --provider vertexai --project PROJECT --location LOCATION --models MODEL[,MODEL...] [--vertex-token TOKEN]
@@ -45,11 +45,11 @@ function usage() {
     [--enable-find-skill|--no-enable-find-skill] [--stream-loop|--no-stream-loop]
   codex-ollama-proxy preset list
   codex-ollama-proxy preset show NAME
-  codex-ollama-proxy preset use NAME [--api-key KEY] [--default-model MODEL] [--no-start]
-  codex-ollama-proxy run NAME [--api-key KEY] [--default-model MODEL] [--adaptor-port PORT] [--replace] [--foreground]
+  codex-ollama-proxy preset use NAME [--api-key KEY] [--default-model MODEL] [--model-override MODEL] [--no-start]
+  codex-ollama-proxy run NAME [--api-key KEY] [--default-model MODEL] [--model-override MODEL] [--adaptor-port PORT] [--replace] [--foreground]
   codex-ollama-proxy status
   codex-ollama-proxy switch openai
-  codex-ollama-proxy switch ollama [--model MODEL] [--no-start]
+  codex-ollama-proxy switch ollama [--model MODEL] [--model-override MODEL] [--no-start]
   codex-ollama-proxy route --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--auto-image|--no-auto-image]
                            [--persist-images|--no-persist-images] [--image-retention-days DAYS]
   codex-ollama-proxy upstream [--url URL] [--api-key KEY] [--status]
@@ -187,6 +187,12 @@ function parseFlags(argv) {
   return { flags, rest };
 }
 
+function modelOverrideValue(flags = {}) {
+  if (!Object.prototype.hasOwnProperty.call(flags, 'modelOverride')) return null;
+  if (!flags.modelOverride) die('Error: --model-override was passed but empty.');
+  return flags.modelOverride;
+}
+
 function writePrivateText(file, text) {
   fs.writeFileSync(file, text, { encoding: 'utf8', mode: 0o600 });
   fs.chmodSync(file, 0o600);
@@ -299,11 +305,13 @@ function applyPreset(name, flags = {}) {
   // Normalize Codex into proxy mode without refreshing yet. The preset route
   // must be written first so model discovery queries the preset provider
   // instead of the temporary local-Ollama defaults installed by switchMode.
-  switchMode('ollama', {
+  const switchFlags = {
     noRefresh: true,
     noBackup: flags.noBackup,
     noStart: true,
-  });
+  };
+  if (Object.prototype.hasOwnProperty.call(flags, 'modelOverride')) switchFlags.modelOverride = flags.modelOverride;
+  switchMode('ollama', switchFlags);
   let text = readRouteConfig();
   for (const def of presets.PRESET_KEY_DEFS) {
     if (def.key in values) text = writeRouteValue(text, def.key, values[def.key]);
@@ -420,7 +428,8 @@ function switchMode(mode, flags) {
   init();
   resetRouteForOllama(flags);
   const args = ['ollama'];
-  if (flags.model) args.push('--model', flags.model);
+  const configModel = modelOverrideValue(flags) || flags.model;
+  if (configModel) args.push('--model', configModel);
   if (flags.noRefresh) args.push('--no-refresh');
   if (flags.noBackup) args.push('--no-backup');
   codexConfig(args);

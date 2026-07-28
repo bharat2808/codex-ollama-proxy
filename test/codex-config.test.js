@@ -720,6 +720,68 @@ test('CLI preset add --model sets both text and image model, and preset use --mo
   }
 });
 
+test('CLI preset use --model-override writes Codex top-level model without changing proxy route', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-preset-model-override-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), [
+    'model = "old-global-model"',
+    'sandbox_mode = "danger-full-access"',
+    '',
+  ].join('\n'), 'utf8');
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'add',
+      'single',
+      '--url',
+      'https://provider.example.com/v1',
+      '--text-model',
+      'single-model',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+
+    const use = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      'preset',
+      'use',
+      'single',
+      '--model-override',
+      'forced-global-model',
+      '--no-refresh',
+      '--no-backup',
+      '--no-start',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+    assert.equal(use.status, 0, use.stderr || use.stdout);
+
+    const route = fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8');
+    assert.match(route, /^default_model\s*=\s*"single-model"$/m);
+    assert.match(route, /^image_model\s*=\s*"single-model"$/m);
+    assert.doesNotMatch(route, /forced-global-model/u);
+
+    const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+    assert.match(config, /^model\s*=\s*"forced-global-model"$/m);
+    assert.match(config, /^model_provider\s*=\s*"ollama-launch-codex-app"$/m);
+    assert.doesNotMatch(config, /old-global-model/u);
+
+    const preset = fs.readFileSync(path.join(runtimeDir, 'presets', 'single.toml'), 'utf8');
+    assert.match(preset, /^default_model\s*=\s*"single-model"$/m);
+    assert.doesNotMatch(preset, /forced-global-model/u);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test('CLI preset add stores any config toggle and preset use applies it (dynamic schema, no per-toggle surgery)', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-preset-toggles-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
