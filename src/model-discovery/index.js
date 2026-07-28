@@ -2,6 +2,7 @@
 
 const os = require('node:os');
 const path = require('node:path');
+const branding = require('../branding');
 const { withProviderCache } = require('./file-cache');
 const {
   mergeDiscoveredWithSupplied,
@@ -27,7 +28,7 @@ const ADAPTERS = Object.fromEntries(
 
 function defaultCacheDir() {
   const codexDir = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
-  return path.join(codexDir, 'ollama-shape-proxy', 'model-discovery-cache');
+  return path.join(branding.resolveRuntimeDirectory(codexDir), 'model-discovery-cache');
 }
 
 function providerTraits(provider, baseUrl) {

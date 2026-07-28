@@ -5,7 +5,7 @@ PORT="${PROXY_PORT:-11436}"
 MODEL="${MODEL:-$(node - <<'NODE'
 const fs = require('fs');
 const path = require('path');
-const file = path.join(process.env.CODEX_HOME || path.join(process.env.HOME, '.codex'), 'ollama-shape-proxy', 'proxy-models.toml');
+const file = path.join(process.env.CODEX_HOME || path.join(process.env.HOME, '.codex'), 'codex-universal-proxy', 'proxy-models.toml');
 try {
   const text = fs.readFileSync(file, 'utf8');
   const match = text.match(/^\s*text_model\s*=\s*"([^"]+)"/m);

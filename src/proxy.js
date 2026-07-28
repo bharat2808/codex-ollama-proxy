@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { codexDir } = require('./runtime-paths');
+const branding = require('./branding');
 const webSearch = require('./web-search');
 const skillFind = require('./skill-find');
 const imagine = require('./imagine');
@@ -18,10 +19,10 @@ const { normalizeOpenAiReasoningRequest } = require('./model-catalog/reasoning-r
 // proxy-models.toml drives per-request model auto-routing.
 // Loaded once at startup; editable without restart by re-running apply script.
 const CODEX_DIR = codexDir();
-const RUNTIME_DIR = path.join(CODEX_DIR, 'ollama-shape-proxy');
+const RUNTIME_DIR = branding.resolveRuntimeDirectory(CODEX_DIR);
 const PROXY_MODELS_PATH = path.join(RUNTIME_DIR, 'proxy-models.toml');
 const UPSTREAM_BODY_LOG = path.join(RUNTIME_DIR, 'upstream-bodies.jsonl');
-const INLINE_IMAGE_CACHE_DIR = path.join(CODEX_DIR, 'attachments', 'ollama-shape-proxy-inline-images');
+const INLINE_IMAGE_CACHE_DIR = path.join(CODEX_DIR, 'attachments', branding.ATTACHMENT_DIRNAME);
 // dedupe_large_input defaults to false: stripping repeated developer context
 // mid-turn can break provider implicit caching. Opt in via proxy-models.toml
 // (dedupe_large_input = true) or the CLI flag --dedupe-large-input / env
@@ -77,8 +78,9 @@ function generatedImageOutputDirectory(body) {
 
 // Catalog paths (resolved from the proxy dir's parent: ~/.codex).
 const MODEL_CATALOG_PATHS = [
-  path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json'),
-  path.join(CODEX_DIR, 'ollama-launch-models.json'),
+  path.join(CODEX_DIR, branding.MODEL_CATALOG_WORKING_FILENAME),
+  path.join(CODEX_DIR, branding.MODEL_CATALOG_FILENAME),
+  ...branding.LEGACY_MODEL_CATALOG_FILENAMES.map((name) => path.join(CODEX_DIR, name)),
 ];
 const VISION_CACHE_PATH = path.join(CODEX_DIR, 'cache', 'vision_capable_models.json');
 

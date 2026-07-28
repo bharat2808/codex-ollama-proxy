@@ -32,7 +32,7 @@ async function main() {
   fs.mkdirSync(codexHome, { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'config.toml'), '', 'utf8');
   installTarball(newestTarball(), { global: true });
-  proxyCommand = executable('codex-ollama-proxy');
+  proxyCommand = executable('codex-universal-proxy');
   env = { ...process.env, CODEX_HOME: codexHome, PROXY_PORT: String(PORT) };
 
   run(proxyCommand, ['init'], { env });
@@ -48,9 +48,9 @@ async function main() {
   run(proxyCommand, ['install'], { env });
 
   if (process.platform === 'win32') {
-    run('schtasks.exe', ['/Query', '/TN', 'Codex Ollama Proxy'], { env });
+    run('schtasks.exe', ['/Query', '/TN', 'Codex Universal Proxy'], { env });
   } else {
-    run('systemctl', ['--user', 'status', 'codex-ollama-proxy.service', '--no-pager'], { env });
+    run('systemctl', ['--user', 'status', 'codex-universal-proxy.service', '--no-pager'], { env });
   }
   await waitForModels(PORT);
   run(proxyCommand, ['restart'], { env });

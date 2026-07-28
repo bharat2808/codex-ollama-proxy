@@ -710,7 +710,7 @@ test('Google adaptor is a supported preset and launcher adaptor', () => {
 test('Google presets containing API keys are written with private permissions', () => {
   const presets = require('../src/presets');
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'google-preset-permissions-'));
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   try {
     presets.addPreset(runtimeDir, 'gemini', {
       adaptor: 'google',

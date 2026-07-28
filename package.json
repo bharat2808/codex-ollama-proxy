@@ -1,7 +1,7 @@
 {
-  "name": "codex-ollama-proxy",
+  "name": "codex-universal-proxy",
   "version": "0.4.0",
-  "description": "Compatibility proxy for using Ollama, OpenRouter and custom Responses API providers with Codex plugins, MCP tools, tool_search and apply_patch.",
+  "description": "Universal compatibility proxy for using OpenAI-compatible model providers with Codex plugins, MCP tools, tool_search and apply_patch.",
   "keywords": [
     "openai-codex",
     "codex",
@@ -23,15 +23,16 @@
   ],
   "author": "bharat2808",
   "license": "MIT",
-  "homepage": "https://github.com/bharat2808/codex-ollama-proxy#readme",
+  "homepage": "https://github.com/bharat2808/codex-universal-proxy#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bharat2808/codex-ollama-proxy.git"
+    "url": "git+https://github.com/bharat2808/codex-universal-proxy.git"
   },
   "bugs": {
-    "url": "https://github.com/bharat2808/codex-ollama-proxy/issues"
+    "url": "https://github.com/bharat2808/codex-universal-proxy/issues"
   },
   "bin": {
+    "codex-universal-proxy": "bin/codex-universal-proxy",
     "codex-ollama-proxy": "bin/codex-ollama-proxy"
   },
   "files": [

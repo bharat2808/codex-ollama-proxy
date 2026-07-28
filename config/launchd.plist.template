@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.user.codex-ollama-shape-proxy</string>
+  <string>com.user.codex-universal-proxy</string>
   <key>ProgramArguments</key>
   <array>
 __PROGRAM_ARGUMENTS__

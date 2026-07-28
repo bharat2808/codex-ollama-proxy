@@ -54,7 +54,7 @@ function initializeRequest(id) {
     method: 'initialize',
     params: {
       clientInfo: {
-        name: 'ollama-shape-proxy',
+        name: 'codex-universal-proxy',
         title: null,
         version: '0.1.0',
       },

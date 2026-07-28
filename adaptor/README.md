@@ -20,19 +20,19 @@ POST /v1/responses
 Configure the provider exactly like a normal upstream:
 
 ```bash
-codex-ollama-proxy switch ollama --model "provider/model"
+codex-universal-proxy switch ollama --model "provider/model"
 
-codex-ollama-proxy upstream \
+codex-universal-proxy upstream \
   --url "https://provider.example/v1" \
   --api-key "$PROVIDER_API_KEY"
 
-codex-ollama-proxy serve --adaptor chat-completion
+codex-universal-proxy serve --adaptor chat-completion
 ```
 
 Or save the provider route as a preset:
 
 ```bash
-codex-ollama-proxy preset add nvidia \
+codex-universal-proxy preset add nvidia \
   --adaptor chat-completion \
   --url "https://integrate.api.nvidia.com/v1" \
   --text-model "z-ai/glm-5.2" \
@@ -40,21 +40,21 @@ codex-ollama-proxy preset add nvidia \
   --auto-image \
   --api-key "$NVIDIA_API_KEY"
 
-codex-ollama-proxy run nvidia
+codex-universal-proxy run nvidia
 ```
 
 Image generation is configured independently from presets with
-`codex-ollama-proxy imagine`; it is stored in
-`~/.codex/ollama-shape-proxy/imagine.toml` and composed into the active route.
+`codex-universal-proxy imagine`; it is stored in
+`~/.codex/codex-universal-proxy/imagine.toml` and composed into the active route.
 
 `preset use` and `run` start or restart the proxy and adaptor in the background
-and return your terminal. Use `codex-ollama-proxy logs --tail 100` to inspect
+and return your terminal. Use `codex-universal-proxy logs --tail 100` to inspect
 it, or pass `--foreground` to `run` for live logs.
 
 The proxy will start both local servers:
 
 ```text
-Codex -> codex-ollama-proxy -> completion-api-adaptor -> provider /chat/completions
+Codex -> codex-universal-proxy -> completion-api-adaptor -> provider /chat/completions
 ```
 
 Optional variables for running the adaptor file directly without the proxy:
@@ -81,18 +81,18 @@ NVIDIA's hosted API is Chat Completions-compatible, so run:
 ```bash
 export NVIDIA_API_KEY="nvapi-..."
 
-codex-ollama-proxy switch ollama --model "z-ai/glm-5.2"
+codex-universal-proxy switch ollama --model "z-ai/glm-5.2"
 
-codex-ollama-proxy upstream \
+codex-universal-proxy upstream \
   --url "https://integrate.api.nvidia.com/v1" \
   --api-key "$NVIDIA_API_KEY"
 
-codex-ollama-proxy route \
+codex-universal-proxy route \
   --text-model "z-ai/glm-5.2" \
   --image-model "thinkingmachines/inkling" \
   --auto-image
 
-codex-ollama-proxy serve --adaptor chat-completion
+codex-universal-proxy serve --adaptor chat-completion
 ```
 
 The adaptor receives the API key from the existing proxy upstream config. Do not
@@ -107,7 +107,7 @@ reasoning controls, streaming output, and generated images.
 Gemini Developer API preset:
 
 ```bash
-codex-ollama-proxy preset add gemini \
+codex-universal-proxy preset add gemini \
   --provider aistudio \
   --models "gemini-2.5-flash,gemini-3.1-flash-image" \
   --default-model "gemini-2.5-flash" \
@@ -117,7 +117,7 @@ codex-ollama-proxy preset add gemini \
 Vertex AI preset:
 
 ```bash
-codex-ollama-proxy preset add vertex-gemini \
+codex-universal-proxy preset add vertex-gemini \
   --provider vertexai \
   --project "$PROJECT_ID" \
   --location global \

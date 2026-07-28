@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Rebranded the package, primary executable, runtime paths, provider identity,
+  catalogs, and native services as `codex-universal-proxy`. The legacy
+  `codex-ollama-proxy` executable and `ollama-launch-codex-app` provider remain
+  compatible, while existing runtime data migrates automatically without
+  moving historical attachment files.
 - Added dedicated authenticated model-discovery adapters and bundled fallback catalogs for Anthropic and OpenAI. Anthropic discovery follows paginated model inventories, maps published token limits, image input, thinking, and effort, and enriches 11 exact documented model IDs with text output, OpenAI-compatible tool calling, and default effort metadata; OpenAI discovery excludes embedding model IDs, preserves every other returned model and its native ownership metadata, and falls back to a rich catalog snapshot normalized from Codex's model cache.
 - Added `anthropic`/`claude` provider presets through Anthropic's OpenAI-compatible Chat Completions API and an `openai` provider preset using direct Responses passthrough.
 - Added Linux systemd user-service and Windows Task Scheduler support for the `install`, `restart`, and `uninstall` commands while preserving the existing macOS launchd integration.

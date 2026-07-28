@@ -762,7 +762,7 @@ const PROXY_STATUS_FN = {
   type: 'function',
   name: PROXY_STATUS,
   description: 'Check the current configuration and available commands of ' +
-    'the ollama-shape-proxy. Returns all current settings (text model, image ' +
+    'the codex-universal-proxy. Returns all current settings (text model, image ' +
     'model, auto-routing, find_skill, streaming, image generation config) ' +
     'and all available CLI commands (init, serve, status, switch, route, ' +
     'logs, install, uninstall, restart, imagine). Call this when the user ' +
@@ -832,26 +832,26 @@ function fulfillProxyStatus(call, config, log, ctx) {
       imagine_aspect_ratio: config.imagine_aspect_ratio || '1:1',
     },
     available_commands: {
-      init: 'codex-ollama-proxy init [--force]',
-      serve: 'codex-ollama-proxy serve',
-      status: 'codex-ollama-proxy status',
-      switch_openai: 'codex-ollama-proxy switch openai',
-      switch_ollama: 'codex-ollama-proxy switch ollama [--model MODEL]',
-      route: 'codex-ollama-proxy route --text-model MODEL --image-model MODEL [--auto-image|--no-auto-image]',
-      logs: 'codex-ollama-proxy logs [--tail N]',
-      install: 'codex-ollama-proxy install',
-      uninstall: 'codex-ollama-proxy uninstall',
-      restart: 'codex-ollama-proxy restart',
-      imagine_enable: 'codex-ollama-proxy imagine --enable --service gemini|openai|ollama --model MODEL [--base-url URL] [--api-key "KEY"]',
-      imagine_disable: 'codex-ollama-proxy imagine --disable',
-      imagine_quality: 'codex-ollama-proxy imagine --quality fast|balanced|quality',
-      imagine_enhance: 'codex-ollama-proxy imagine --enhance',
-      imagine_no_enhance: 'codex-ollama-proxy imagine --no-enhance',
-      imagine_aspect_ratio: 'codex-ollama-proxy imagine --aspect-ratio 1:1|16:9|9:16|4:3|3:4',
-      imagine_status: 'codex-ollama-proxy imagine --status',
-      imagine_doctor: 'codex-ollama-proxy imagine --doctor',
+      init: 'codex-universal-proxy init [--force]',
+      serve: 'codex-universal-proxy serve',
+      status: 'codex-universal-proxy status',
+      switch_openai: 'codex-universal-proxy switch openai',
+      switch_ollama: 'codex-universal-proxy switch ollama [--model MODEL]',
+      route: 'codex-universal-proxy route --text-model MODEL --image-model MODEL [--auto-image|--no-auto-image]',
+      logs: 'codex-universal-proxy logs [--tail N]',
+      install: 'codex-universal-proxy install',
+      uninstall: 'codex-universal-proxy uninstall',
+      restart: 'codex-universal-proxy restart',
+      imagine_enable: 'codex-universal-proxy imagine --enable --service gemini|openai|ollama --model MODEL [--base-url URL] [--api-key "KEY"]',
+      imagine_disable: 'codex-universal-proxy imagine --disable',
+      imagine_quality: 'codex-universal-proxy imagine --quality fast|balanced|quality',
+      imagine_enhance: 'codex-universal-proxy imagine --enhance',
+      imagine_no_enhance: 'codex-universal-proxy imagine --no-enhance',
+      imagine_aspect_ratio: 'codex-universal-proxy imagine --aspect-ratio 1:1|16:9|9:16|4:3|3:4',
+      imagine_status: 'codex-universal-proxy imagine --status',
+      imagine_doctor: 'codex-universal-proxy imagine --doctor',
     },
-    hint: 'Changes to proxy-models.toml require a proxy restart to take effect: codex-ollama-proxy restart. After switching providers (switch openai/ollama), tell the user to restart Codex or open a fresh thread so provider discovery reloads.',
+    hint: 'Changes to proxy-models.toml require a proxy restart to take effect: codex-universal-proxy restart. After switching providers (switch openai/ollama), tell the user to restart Codex or open a fresh thread so provider discovery reloads.',
   };
 
   log('ollama_proxy_status: returning full proxy config + commands');

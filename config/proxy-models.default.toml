@@ -5,9 +5,9 @@
 # default_model: model Codex preselects for a new thread.
 # image_model : model the proxy rewrites the request to when a message contains
 #               an input_image content block. Must be vision-capable in the catalog
-#               (ollama-launch-models.json input_modalities includes "image").
+#               (codex-universal-models.json input_modalities includes "image").
 #
-# Both slugs must exist in ollama-launch-models.json and be available on the
+# Both slugs must exist in codex-universal-models.json and be available on the
 # upstream Responses API server.
 
 models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]
@@ -39,7 +39,7 @@ dedupe_large_input = false
 duplicate_input_min_chars = 512
 
 # When true and auto_route_image is enabled, supported inline images up to 20 MiB
-# are saved below the proxy-owned ~/.codex/attachments/ollama-shape-proxy-inline-images
+# are saved below the proxy-owned ~/.codex/attachments/codex-universal-proxy-inline-images
 # directory. Historical images are replaced with path references, while active
 # image-model turns keep their current pixels. This applies only to loopback
 # upstreams; remote upstreams keep images inline and never receive local paths.
