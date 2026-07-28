@@ -8,6 +8,8 @@ const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 const BASE_URL = 'https://api.openai.com/v1';
 const ENDPOINT = `${BASE_URL}/models`;
 const CACHE_TTL_MS = 60000;
+const EMBEDDING_MODEL_ID_PATTERN =
+  /(?:^|[/_:.-])embed(?:ding)?s?(?:$|[/_:.-])/iu;
 
 function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -41,6 +43,15 @@ function parseRow(row) {
   };
 }
 
+function isEmbeddingModelId(id) {
+  return typeof id === 'string' && EMBEDDING_MODEL_ID_PATTERN.test(id);
+}
+
+function filterModels(models) {
+  return (Array.isArray(models) ? models : [])
+    .filter((model) => model && !isEmbeddingModelId(model.id));
+}
+
 function resolveBaseUrl(value) {
   const url = new URL(value || BASE_URL);
   const normalized = url.origin + (url.pathname.replace(/\/+$/u, '') || '');
@@ -71,7 +82,9 @@ async function discoverLive(options = {}) {
   const unique = new Map();
   for (const row of payload.data) {
     const model = parseRow(row);
-    if (model && !unique.has(model.id)) unique.set(model.id, model);
+    if (model && !isEmbeddingModelId(model.id) && !unique.has(model.id)) {
+      unique.set(model.id, model);
+    }
   }
   if (unique.size === 0) {
     throw new TypeError('OpenAI model catalog contained no valid models.');
@@ -108,6 +121,8 @@ module.exports = {
   discover,
   discoverLive,
   endpointFor,
+  filterModels,
+  isEmbeddingModelId,
   parseRow,
   resolveBaseUrl,
 };

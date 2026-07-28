@@ -8,6 +8,10 @@ const {
   normalizeSuppliedModels,
 } = require('./normalize');
 const { createDiscoveryResult } = require('./discovery-result');
+
+function adapterModels(adapter, models) {
+  return typeof adapter.filterModels === 'function' ? adapter.filterModels(models) : models;
+}
 const { resolveProvider } = require('./provider-resolution');
 const ollama = require('./providers/ollama');
 const { cacheEndpointFor, PROVIDERS } = require('./provider-registry');
@@ -94,7 +98,7 @@ async function discoverModels(options = {}) {
       dataOrigin: result.origin,
       state: 'none',
       discoverySkipped: true,
-      models: mergeDiscoveredWithSupplied(result.models, supplied),
+      models: mergeDiscoveredWithSupplied(adapterModels(adapter, result.models), supplied),
       warnings: result.warnings,
     });
   }
@@ -127,7 +131,7 @@ async function discoverModels(options = {}) {
     dataOrigin: cached.origin,
     state: cached.state,
     discoverySkipped: false,
-    models: mergeDiscoveredWithSupplied(cached.models, supplied),
+    models: mergeDiscoveredWithSupplied(adapterModels(adapter, cached.models), supplied),
     warnings: [...new Set([...cached.warnings, ...adapterWarnings])],
   });
 }

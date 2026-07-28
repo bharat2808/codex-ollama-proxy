@@ -37,7 +37,7 @@ const OLLAMA_CLOUD_OPENROUTER_IDS = Object.freeze({
   'gemma4:31b-cloud': 'google/gemma-4-31b-it',
 });
 const TRUSTED_SOURCE_PATTERN =
-  /^(?:provider-(?:catalog|inspection)|ollama-(?:show|tags)|nvidia-featured|(?:anthropic|cohere|deepseek|google|moonshot|openai|openrouter|xai)-catalog)$/u;
+  /^(?:provider-(?:catalog|inspection)|ollama-(?:show|tags)|nvidia-featured|openai-model-cache|(?:anthropic|cohere|deepseek|google|moonshot|openai|openrouter|xai)-catalog)$/u;
 
 function openRouterIdFor(provider, id) {
   if (typeof id !== 'string' || !id) return null;

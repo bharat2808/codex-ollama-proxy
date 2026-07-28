@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Added dedicated authenticated model-discovery adapters and bundled fallback catalogs for Anthropic and OpenAI. Anthropic discovery maps published token limits, image input, thinking, effort, and explicit tool-use capabilities while following paginated model inventories; OpenAI discovery preserves every returned model ID and its native ownership metadata without filtering non-Codex model purposes.
+- Added dedicated authenticated model-discovery adapters and bundled fallback catalogs for Anthropic and OpenAI. Anthropic discovery maps published token limits, image input, thinking, effort, and explicit tool-use capabilities while following paginated model inventories; OpenAI discovery excludes embedding model IDs, preserves every other returned model and its native ownership metadata, and falls back to a rich catalog snapshot normalized from Codex's model cache.
 - Added `anthropic`/`claude` provider presets through Anthropic's OpenAI-compatible Chat Completions API and an `openai` provider preset using direct Responses passthrough.
 - Added Linux systemd user-service and Windows Task Scheduler support for the `install`, `restart`, and `uninstall` commands while preserving the existing macOS launchd integration.
 - Made listener discovery and log tailing portable across macOS, Linux, and Windows.

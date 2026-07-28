@@ -14,7 +14,11 @@ const {
 } = require('../src/model-discovery/normalize');
 const { resolveProvider } = require('../src/model-discovery/provider-resolution');
 const { fetchJson } = require('../src/model-discovery/live-catalog');
-const { cacheIdentity, withProviderCache } = require('../src/model-discovery/file-cache');
+const {
+  cacheIdentity,
+  withProviderCache,
+  writeCache,
+} = require('../src/model-discovery/file-cache');
 const nvidia = require('../src/model-discovery/providers/nvidia');
 const openrouter = require('../src/model-discovery/providers/openrouter');
 const cohere = require('../src/model-discovery/providers/cohere');
@@ -882,14 +886,17 @@ test('OpenAI discovery preserves provider metadata and leaves unknown capabiliti
   });
 });
 
-test('OpenAI discovery retains every model purpose in exact provider order', async () => {
+test('OpenAI discovery excludes embedding models and retains every other purpose in provider order', async () => {
   const ids = [
     'gpt-example',
     'text-embedding-example',
+    'ft:text-embedding-example:organization:suffix:id',
+    'vendor/embeddings-v2',
     'gpt-image-example',
     'tts-example',
     'omni-moderation-example',
     'ft:gpt-example:organization:suffix:id',
+    'embedded-knowledge-gpt-example',
   ];
   const calls = [];
   const result = await openai.discover({
@@ -911,7 +918,14 @@ test('OpenAI discovery retains every model purpose in exact provider order', asy
     },
   });
 
-  assert.deepEqual(result.models.map((model) => model.id), ids);
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'gpt-example',
+    'gpt-image-example',
+    'tts-example',
+    'omni-moderation-example',
+    'ft:gpt-example:organization:suffix:id',
+    'embedded-knowledge-gpt-example',
+  ]);
   assert.equal(result.origin, 'live');
   assert.equal(result.complete, true);
   assert.deepEqual(calls, [{
@@ -920,7 +934,7 @@ test('OpenAI discovery retains every model purpose in exact provider order', asy
   }]);
 });
 
-test('OpenAI discovery falls back to its bundled complete-purpose catalog', async () => {
+test('OpenAI discovery falls back to its bundled Codex model-cache catalog', async () => {
   const result = await openai.discover({
     apiKey: 'openai-secret',
     fetchImpl: async () => {
@@ -931,8 +945,43 @@ test('OpenAI discovery falls back to its bundled complete-purpose catalog', asyn
   assert.equal(result.origin, 'bundled');
   assert.equal(result.complete, false);
   assert.equal(result.fallback.state, 'bundled');
-  assert.ok(result.models.some((model) => model.id.includes('embedding')));
-  assert.ok(result.models.some((model) => model.id.includes('image')));
+  assert.ok(result.models.some((model) => model.id === 'gpt-5.6-sol'));
+  assert.ok(result.models.every((model) => !model.id.includes('embedding')));
+});
+
+test('public OpenAI discovery filters embedding rows from an existing fresh cache', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openai-model-cache-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  const cacheOptions = {
+    provider: 'openai',
+    endpoint: openai.ENDPOINT,
+    apiKey: 'openai-secret',
+    cacheDir,
+  };
+  writeCache(
+    cacheOptions,
+    cacheIdentity(cacheOptions),
+    [
+      openai.parseRow({ id: 'gpt-example' }),
+      openai.parseRow({ id: 'text-embedding-example' }),
+    ],
+    1000,
+    { origin: 'live', complete: true },
+  );
+
+  const result = await discoverModels({
+    provider: 'openai',
+    baseUrl: openai.BASE_URL,
+    apiKey: 'openai-secret',
+    cacheDir,
+    now: () => 1001,
+    fetchImpl: async () => {
+      throw new Error('fresh cache must avoid network access');
+    },
+  });
+
+  assert.equal(result.cache.state, 'fresh');
+  assert.deepEqual(result.models.map((model) => model.id), ['gpt-example']);
 });
 
 test('Anthropic and OpenAI treat empty successful inventories as bundled fallbacks', async () => {

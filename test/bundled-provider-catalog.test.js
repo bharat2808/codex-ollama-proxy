@@ -13,6 +13,9 @@ const {
   loadBundledProviderCatalog,
   openRouterIdFor,
 } = require('../src/model-discovery/provider-catalog');
+const {
+  normalizeOpenAiModelCache,
+} = require('../src/model-discovery/openai-model-cache');
 const google = require('../src/model-discovery/providers/google');
 
 const metadataFields = [
@@ -119,18 +122,104 @@ test('Anthropic and OpenAI catalog generation preserves every provider row witho
   assert.deepEqual(anthropic.models.map((entry) => entry.id), ['claude-example']);
 });
 
-test('catalog build script emits Anthropic and complete-purpose OpenAI bundles from cache', () => {
+test('Codex model cache normalization preserves every row and useful OpenAI metadata', () => {
+  const models = normalizeOpenAiModelCache({
+    models: [
+      {
+        slug: 'gpt-example',
+        display_name: 'GPT Example',
+        description: 'Example cached model.',
+        visibility: 'hide',
+        supported_in_api: false,
+        context_window: 272000,
+        max_context_window: 1000000,
+        input_modalities: ['text', 'image'],
+        default_reasoning_level: 'medium',
+        supported_reasoning_levels: [
+          { effort: 'low', description: 'Fast' },
+          { effort: 'medium', description: 'Balanced' },
+          { effort: 'high', description: 'Deep' },
+        ],
+        supports_parallel_tool_calls: true,
+        additional_speed_tiers: ['fast'],
+        service_tiers: [{ id: 'priority', name: 'Fast' }],
+      },
+      {
+        slug: 'gpt-hidden',
+        display_name: 'GPT Hidden',
+        visibility: 'list',
+        supported_in_api: true,
+        context_window: 128000,
+        input_modalities: ['text'],
+        supported_reasoning_levels: [],
+      },
+      {
+        slug: 'gpt-no-default',
+        display_name: 'GPT No Default',
+        context_window: 128000,
+        input_modalities: ['text'],
+        supported_reasoning_levels: [{ effort: 'high' }],
+      },
+    ],
+  });
+
+  assert.deepEqual(models.map((entry) => entry.id), [
+    'gpt-example',
+    'gpt-hidden',
+    'gpt-no-default',
+  ]);
+  assert.deepEqual(models[0], {
+    id: 'gpt-example',
+    displayName: 'GPT Example',
+    contextWindow: 272000,
+    maxOutputTokens: null,
+    inputModalities: ['text', 'image'],
+    outputModalities: null,
+    reasoning: true,
+    reasoningLevels: ['low', 'medium', 'high'],
+    defaultReasoningLevel: 'medium',
+    reasoningDefaultEnabled: true,
+    reasoningSupportsMaxTokens: null,
+    reasoningMandatory: true,
+    toolCalling: true,
+    metadataSources: {
+      contextWindow: 'provider-catalog',
+      maxOutputTokens: null,
+      inputModalities: 'provider-catalog',
+      outputModalities: null,
+      reasoning: 'provider-catalog',
+      reasoningLevels: 'provider-catalog',
+      defaultReasoningLevel: 'provider-catalog',
+      reasoningDefaultEnabled: 'provider-catalog',
+      reasoningSupportsMaxTokens: null,
+      reasoningMandatory: 'provider-catalog',
+      toolCalling: 'provider-catalog',
+    },
+    providerMetadata: {
+      description: 'Example cached model.',
+      visibility: 'hide',
+      supportedInApi: false,
+      maximumContextWindow: 1000000,
+      additionalSpeedTiers: ['fast'],
+      serviceTiers: [{ id: 'priority', name: 'Fast' }],
+    },
+    source: 'openai-model-cache',
+  });
+  assert.equal(models[1].reasoning, null);
+  assert.equal(models[1].toolCalling, null);
+  assert.equal(models[2].reasoning, true);
+  assert.equal(models[2].defaultReasoningLevel, null);
+  assert.equal(models[2].reasoningDefaultEnabled, null);
+});
+
+test('catalog build script emits Anthropic discovery and OpenAI Codex-cache bundles', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'provider-catalog-build-'));
   const cache = path.join(root, 'cache');
   const output = path.join(root, 'output');
+  const openaiModelCache = path.join(root, 'models_cache.json');
   try {
     for (const [provider, models] of [
       ['anthropic', [model('claude-example', { source: 'anthropic-catalog' })]],
-      ['openai', [
-        model('gpt-example', { source: 'openai-catalog' }),
-        model('text-embedding-example', { source: 'openai-catalog' }),
-        model('gpt-image-example', { source: 'openai-catalog' }),
-      ]],
     ]) {
       const directory = path.join(cache, provider);
       fs.mkdirSync(directory, { recursive: true });
@@ -140,21 +229,48 @@ test('catalog build script emits Anthropic and complete-purpose OpenAI bundles f
         models,
       }));
     }
+    fs.writeFileSync(openaiModelCache, JSON.stringify({
+      models: [
+        {
+          slug: 'gpt-cache-example',
+          display_name: 'GPT Cache Example',
+          visibility: 'list',
+          supported_in_api: true,
+          context_window: 272000,
+          max_context_window: 1000000,
+          input_modalities: ['text', 'image'],
+          default_reasoning_level: 'medium',
+          supported_reasoning_levels: [{ effort: 'medium' }, { effort: 'high' }],
+          supports_parallel_tool_calls: true,
+        },
+        {
+          slug: 'codex-hidden-example',
+          display_name: 'Codex Hidden Example',
+          visibility: 'hide',
+          supported_in_api: false,
+          context_window: 128000,
+          input_modalities: ['text'],
+        },
+      ],
+    }));
 
     childProcess.execFileSync(process.execPath, [
       path.join(__dirname, '..', 'scripts', 'build-provider-catalogs.js'),
       cache,
       output,
+      openaiModelCache,
     ]);
 
     const anthropic = JSON.parse(fs.readFileSync(path.join(output, 'anthropic.json'), 'utf8'));
     const openai = JSON.parse(fs.readFileSync(path.join(output, 'openai.json'), 'utf8'));
     assert.deepEqual(anthropic.models.map((entry) => entry.id), ['claude-example']);
     assert.deepEqual(openai.models.map((entry) => entry.id), [
-      'gpt-example',
-      'gpt-image-example',
-      'text-embedding-example',
+      'codex-hidden-example',
+      'gpt-cache-example',
     ]);
+    assert.equal(openai.models[0].providerMetadata.supportedInApi, false);
+    assert.equal(openai.models[1].contextWindow, 272000);
+    assert.deepEqual(openai.models[1].reasoningLevels, ['medium', 'high']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

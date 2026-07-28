@@ -184,11 +184,12 @@ codex-ollama-proxy preset add openai \
 codex-ollama-proxy run openai
 ```
 
-OpenAI discovery retains every model returned by the authenticated
-`/v1/models` endpoint. This intentionally includes embedding, image, audio,
-moderation, fine-tuned, legacy, and other models that may not accept Codex
-Responses requests. The last successful cache and bundled OpenAI catalog
-provide discovery fallbacks.
+OpenAI discovery retains every non-embedding model returned by the
+authenticated `/v1/models` endpoint. Image, audio, moderation, fine-tuned,
+legacy, and other non-embedding models remain available even when they may
+not accept Codex Responses requests. The last successful discovery cache and
+a bundled snapshot normalized from Codex's `models_cache.json` provide
+fallbacks.
 
 ## Custom Responses API Preset
 
