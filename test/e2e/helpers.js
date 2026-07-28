@@ -66,10 +66,10 @@ function requiredEnvironment(names) {
 
 function newestTarball(directory = REPO_ROOT) {
   const candidates = fs.readdirSync(directory)
-    .filter((name) => /^codex-ollama-proxy-.*\.tgz$/u.test(name))
+    .filter((name) => /^codex-universal-proxy-.*\.tgz$/u.test(name))
     .map((name) => ({ file: path.join(directory, name), modified: fs.statSync(path.join(directory, name)).mtimeMs }))
     .sort((a, b) => b.modified - a.modified);
-  if (!candidates.length) throw new Error(`No codex-ollama-proxy tarball found in ${directory}. Run npm pack first.`);
+  if (!candidates.length) throw new Error(`No codex-universal-proxy tarball found in ${directory}. Run npm pack first.`);
   return candidates[0].file;
 }
 
@@ -81,11 +81,11 @@ function installTarball(tarball, options = {}) {
   runNpm(args);
 }
 
-function installedProxyCommand(prefix) {
-  if (!prefix) return executable('codex-ollama-proxy');
+function installedProxyCommand(prefix, name = 'codex-universal-proxy') {
+  if (!prefix) return executable(name);
   return process.platform === 'win32'
-    ? path.join(prefix, 'codex-ollama-proxy.cmd')
-    : path.join(prefix, 'bin', 'codex-ollama-proxy');
+    ? path.join(prefix, `${name}.cmd`)
+    : path.join(prefix, 'bin', name);
 }
 
 function waitForModels(port, timeoutMs = 30_000) {
@@ -158,7 +158,7 @@ function copySanitizedText(source, destination, secrets) {
 
 function collectDiagnostics({ artifactsDir, codexHome, extraFiles = [], secrets = [] }) {
   fs.mkdirSync(artifactsDir, { recursive: true });
-  const proxyLog = path.join(codexHome, 'ollama-shape-proxy', 'proxy.log');
+  const proxyLog = path.join(codexHome, 'codex-universal-proxy', 'proxy.log');
   copySanitizedText(proxyLog, path.join(artifactsDir, 'proxy.log'), secrets);
   const codexLogDir = path.join(codexHome, 'log');
   if (fs.existsSync(codexLogDir)) {

@@ -38,7 +38,7 @@ function readTomlBool(text, key, fallback = false) {
 
 function render(config) {
   return [
-    '# codex-ollama-proxy image generation config',
+    '# codex-universal-proxy image generation config',
     `imagine_enabled = ${config.imagine_enabled ? 'true' : 'false'}`,
     `imagine_service = "${escapeTomlString(config.imagine_service)}"`,
     `imagine_model = "${escapeTomlString(config.imagine_model)}"`,

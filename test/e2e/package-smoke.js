@@ -25,11 +25,14 @@ try {
   installTarball(tarball, { global: true, prefix });
   const proxy = installedProxyCommand(prefix);
   const help = run(proxy, ['--help']);
-  if (!help.stdout.includes('codex-ollama-proxy init')) throw new Error('Installed CLI did not print the expected help text.');
+  if (!help.stdout.includes('codex-universal-proxy init')) throw new Error('Installed CLI did not print the expected help text.');
+  const legacyProxy = installedProxyCommand(prefix, 'codex-ollama-proxy');
+  const legacyHelp = run(legacyProxy, ['--help']);
+  if (!legacyHelp.stdout.includes('codex-universal-proxy init')) throw new Error('Legacy CLI alias did not invoke the universal proxy.');
 
   const codexHome = path.join(temporary, 'Fresh Codex Home');
   run(proxy, ['init'], { env: { ...process.env, CODEX_HOME: codexHome } });
-  if (!fs.existsSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'))) {
+  if (!fs.existsSync(path.join(codexHome, 'codex-universal-proxy', 'proxy-models.toml'))) {
     throw new Error('Installed CLI did not initialize its route configuration.');
   }
   console.log(`package_smoke=ok platform=${process.platform}`);

@@ -192,7 +192,7 @@ test('models explicitly catalogued without tool support do not receive injected 
     assert.deepEqual(body.tools, []);
     assert.equal(body.tool_choice, undefined);
   }, ({ codexHome }) => {
-    fs.writeFileSync(path.join(codexHome, 'ollama-launch-models.json'), JSON.stringify({
+    fs.writeFileSync(path.join(codexHome, 'codex-universal-models.json'), JSON.stringify({
       models: [{
         slug: 'no-tools-model',
         supports_tools: false,
@@ -301,8 +301,8 @@ async function withProxy(upstreamHandler, run, config = []) {
   const upstream = http.createServer(upstreamHandler);
   const upstreamPort = await listen(upstream);
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-stream-test-'));
-  fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
-  fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
+  fs.mkdirSync(path.join(codexHome, 'codex-universal-proxy'), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'codex-universal-proxy', 'proxy-models.toml'), [
     'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     ...config,
@@ -336,8 +336,8 @@ async function withLocalOllamaProxy(ollamaHandler, run) {
   const ollama = http.createServer(ollamaHandler);
   const ollamaPort = await listen(ollama);
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-ollama-cloud-test-'));
-  fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
-  fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
+  fs.mkdirSync(path.join(codexHome, 'codex-universal-proxy'), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'codex-universal-proxy', 'proxy-models.toml'), [
     'default_model = "local-default"',
     `upstream_url = "http://127.0.0.1:${ollamaPort}/v1"`,
     '',
@@ -368,7 +368,7 @@ async function withLocalOllamaProxy(ollamaHandler, run) {
 
 function withRouteConfig(config, run, setup) {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-routing-test-'));
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [...config, ''].join('\n'));
   if (typeof setup === 'function') setup({ codexHome, runtimeDir });
@@ -388,7 +388,7 @@ function withRouteConfig(config, run, setup) {
 
 function writeReasoningCatalog(codexHome, models) {
   fs.writeFileSync(
-    path.join(codexHome, 'ollama-launch-models.json'),
+    path.join(codexHome, 'codex-universal-models.json'),
     JSON.stringify({ models }),
     'utf8',
   );
@@ -406,7 +406,7 @@ function textItem(id, text, attachments = []) {
 
 test('proxy module loads when image routing snapshots a populated model catalog', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-startup-test-'));
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
     'default_model = "text-model"',
@@ -414,7 +414,7 @@ test('proxy module loads when image routing snapshots a populated model catalog'
     'auto_route_image = true',
     '',
   ].join('\n'));
-  fs.writeFileSync(path.join(codexHome, 'ollama-launch-models-ollama-working.json'), JSON.stringify({
+  fs.writeFileSync(path.join(codexHome, 'codex-universal-models-working.json'), JSON.stringify({
     models: [{ slug: 'vision-model', input_modalities: ['text', 'image'] }],
   }));
 
@@ -1502,7 +1502,7 @@ test('HTTP persistence stays in the proxy-owned cache and preserves active image
     const historicalPath = received[0].input[0].content[0].text.match(/^\[image saved: (.+)]$/)[1];
     const replayPath = received[1].input[0].content[0].text.match(/^\[image saved: (.+)]$/)[1];
     assert.equal(replayPath, historicalPath);
-    assert.equal(path.dirname(path.dirname(historicalPath)), path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images'));
+    assert.equal(path.dirname(path.dirname(historicalPath)), path.join(codexHome, 'attachments', 'codex-universal-proxy-inline-images'));
     assert.equal(fs.existsSync(path.join(unrelatedDir, 'pasted-text.txt')), true);
   }, [
     'default_model = "text-model"',
@@ -1612,7 +1612,7 @@ test('dual-modal image generation turns rehydrate the complete cached image chai
       [inlineImageUrl('image/png', 'one'), inlineImageUrl('image/png', 'two')],
     );
   }, ({ codexHome }) => {
-    fs.writeFileSync(path.join(codexHome, 'ollama-launch-models.json'), JSON.stringify({
+    fs.writeFileSync(path.join(codexHome, 'codex-universal-models.json'), JSON.stringify({
       models: [{
         slug: 'dual-image-model',
         input_modalities: ['text', 'image'],
@@ -1622,7 +1622,7 @@ test('dual-modal image generation turns rehydrate the complete cached image chai
     const cacheDir = path.join(
       codexHome,
       'attachments',
-      'ollama-shape-proxy-inline-images',
+      'codex-universal-proxy-inline-images',
       'generated-image-chain-proxy-test',
     );
     fs.mkdirSync(cacheDir, { recursive: true });
@@ -1875,8 +1875,8 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
   });
   const upstreamPort = await listen(upstream);
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-test-'));
-  fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
-  fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
+  fs.mkdirSync(path.join(codexHome, 'codex-universal-proxy'), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'codex-universal-proxy', 'proxy-models.toml'), [
     'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     'upstream_api_key = "secret-token"',
@@ -1948,7 +1948,7 @@ test('proxy caches non-streaming native image results and returns their saved pa
     assert.equal(response.statusCode, 200);
     const body = JSON.parse(response.body);
     const savedPath = body.output[0].saved_path;
-    assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images') + path.sep));
+    assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'codex-universal-proxy-inline-images') + path.sep));
     assert.deepEqual(fs.readFileSync(savedPath), inlineImageBytes('image/png', 'provider-generated'));
     assert.equal(body.output[1].type, 'message');
     assert.equal(body.output[1].role, 'assistant');
@@ -2011,7 +2011,7 @@ test('proxy caches streamed native image results before the terminal response', 
     const events = parseSse(response.body);
     assertSuccessfulTerminal(events);
     const savedPath = events.at(-1).data.response.output[0].saved_path;
-    assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'ollama-shape-proxy-inline-images') + path.sep));
+    assert.ok(savedPath.startsWith(path.join(codexHome, 'attachments', 'codex-universal-proxy-inline-images') + path.sep));
     assert.deepEqual(fs.readFileSync(savedPath), inlineImageBytes('image/png', 'streamed-provider-generated'));
     const visibleMessage = events
       .filter((event) => event.event === 'response.output_item.done')
@@ -2130,8 +2130,8 @@ test('streaming SSE preserves ordering and translates tool_search_call', async (
   });
   const upstreamPort = await listen(upstream);
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-proxy-test-'));
-  fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
-  fs.writeFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy-models.toml'), [
+  fs.mkdirSync(path.join(codexHome, 'codex-universal-proxy'), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'codex-universal-proxy', 'proxy-models.toml'), [
     'default_model = "test-model"',
     `upstream_url = "http://127.0.0.1:${upstreamPort}/custom"`,
     '',

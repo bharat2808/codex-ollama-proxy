@@ -10,7 +10,7 @@ const { spawnSync } = require('child_process');
 function installWithState(state) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-launchd-home-'));
   const codexHome = path.join(home, '.codex');
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   const stubBin = path.join(home, 'bin');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.mkdirSync(stubBin, { recursive: true });
@@ -21,7 +21,7 @@ function installWithState(state) {
   }
 
   const result = spawnSync(process.execPath, [
-    path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+    path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
     'install',
   ], {
     cwd: path.join(__dirname, '..'),
@@ -36,7 +36,7 @@ function installWithState(state) {
   return {
     cleanup: () => fs.rmSync(home, { recursive: true, force: true }),
     codexHome,
-    plist: path.join(home, 'Library', 'LaunchAgents', 'com.user.codex-ollama-shape-proxy.plist'),
+    plist: path.join(home, 'Library', 'LaunchAgents', 'com.user.codex-universal-proxy.plist'),
     result,
   };
 }
@@ -48,7 +48,7 @@ function platformFixture(platform, options = {}) {
   const stubBin = path.join(root, 'stub bin');
   const commandLog = path.join(root, 'commands.log');
   const preload = path.join(root, 'preload.js');
-  fs.mkdirSync(path.join(codexHome, 'ollama-shape-proxy'), { recursive: true });
+  fs.mkdirSync(path.join(codexHome, 'codex-universal-proxy'), { recursive: true });
   fs.mkdirSync(stubBin, { recursive: true });
   const preloadLines = [`require('os').homedir = () => process.env.TEST_HOME;`];
   if (process.platform === 'win32') {
@@ -107,7 +107,7 @@ childProcess.spawn = (command, args = [], options) => {
   if (options.failSchtasksCreate) env.FAIL_SCHTASKS_CREATE = '1';
 
   function runCommand(command) {
-    return spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'), command], {
+    return spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'codex-universal-proxy'), command], {
       cwd: path.join(__dirname, '..'), encoding: 'utf8', env,
     });
   }
@@ -168,7 +168,7 @@ test('Linux install and uninstall honor XDG_CONFIG_HOME and persist a custom COD
   try {
     const installed = fixture.runCommand('install');
     assert.equal(installed.status, 0, installed.stderr || installed.stdout);
-    const unit = path.join(fixture.root, 'xdg config', 'systemd', 'user', 'codex-ollama-proxy.service');
+    const unit = path.join(fixture.root, 'xdg config', 'systemd', 'user', 'codex-universal-proxy.service');
     assert.equal(fs.existsSync(unit), true);
     const unitText = fs.readFileSync(unit, 'utf8');
     const systemdCodexHome = fixture.codexHome.replace(/\\/gu, '\\\\');
@@ -176,16 +176,16 @@ test('Linux install and uninstall honor XDG_CONFIG_HOME and persist a custom COD
       unitText.includes(`Environment="CODEX_HOME=${systemdCodexHome}"`),
       true
     );
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /systemctl <--user> <daemon-reload>\nsystemctl <--user> <enable> <--now> <codex-ollama-proxy\.service>/u);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /systemctl <--user> <daemon-reload>\nsystemctl <--user> <enable> <--now> <codex-universal-proxy\.service>/u);
 
     const restarted = fixture.runCommand('restart');
     assert.equal(restarted.status, 1, 'stubbed systemd does not start a proxy, so the health check should fail');
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /systemctl <--user> <stop> <codex-ollama-proxy\.service>.*systemctl <--user> <enable> <--now> <codex-ollama-proxy\.service>/su);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /systemctl <--user> <stop> <codex-universal-proxy\.service>.*systemctl <--user> <enable> <--now> <codex-universal-proxy\.service>/su);
 
     const uninstalled = fixture.runCommand('uninstall');
     assert.equal(uninstalled.status, 0, uninstalled.stderr || uninstalled.stdout);
     assert.equal(fs.existsSync(unit), false);
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /systemctl <--user> <stop> <codex-ollama-proxy\.service>.*systemctl <--user> <disable> <codex-ollama-proxy\.service>/su);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /systemctl <--user> <stop> <codex-universal-proxy\.service>.*systemctl <--user> <disable> <codex-universal-proxy\.service>/su);
   } finally {
     fixture.cleanup();
   }
@@ -199,20 +199,20 @@ test('Windows install and uninstall work without HOME and persist USERPROFILE-ba
     delete fixture.env.CODEX_HOME;
     const installed = fixture.runCommand('install');
     assert.equal(installed.status, 0, installed.stderr || installed.stdout);
-    const commandFile = path.join(fixture.home, '.codex', 'ollama-shape-proxy', 'start-proxy.cmd');
+    const commandFile = path.join(fixture.home, '.codex', 'codex-universal-proxy', 'start-proxy.cmd');
     assert.equal(fs.existsSync(commandFile), true);
     const command = fs.readFileSync(commandFile, 'utf8');
     assert.match(command, new RegExp(`set "CODEX_HOME=${path.join(fixture.home, '.codex').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'u'));
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks <\/Create> <\/TN> <Codex Ollama Proxy> <\/SC> <ONLOGON> <\/TR> <cmd\.exe \/d \/c/u);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks <\/Create> <\/TN> <Codex Universal Proxy> <\/SC> <ONLOGON> <\/TR> <cmd\.exe \/d \/c/u);
 
     const restarted = fixture.runCommand('restart');
     assert.equal(restarted.status, 1, 'stubbed Task Scheduler does not start a proxy, so the health check should fail');
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /netstat <-ano> <-p> <TCP>.*schtasks <\/Create>.*schtasks <\/Run> <\/TN> <Codex Ollama Proxy>/su);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /netstat <-ano> <-p> <TCP>.*schtasks <\/Create>.*schtasks <\/Run> <\/TN> <Codex Universal Proxy>/su);
 
     const uninstalled = fixture.runCommand('uninstall');
     assert.equal(uninstalled.status, 0, uninstalled.stderr || uninstalled.stdout);
     assert.equal(fs.existsSync(commandFile), false);
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks <\/End> <\/TN> <Codex Ollama Proxy>.*schtasks <\/Delete> <\/TN> <Codex Ollama Proxy> <\/F>/su);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /schtasks <\/End> <\/TN> <Codex Universal Proxy>.*schtasks <\/Delete> <\/TN> <Codex Universal Proxy> <\/F>/su);
   } finally {
     fixture.cleanup();
   }
@@ -227,7 +227,7 @@ test('Windows install falls back to HKCU Run when Task Scheduler creation is den
     assert.equal(installed.status, 0, installed.stderr || installed.stdout);
     assert.match(installed.stderr, /Task Scheduler registration failed: Access is denied\./u);
     assert.match(installed.stdout, /startup=hkcu_run/u);
-    const commandFile = path.join(fixture.codexHome, 'ollama-shape-proxy', 'start-proxy.cmd');
+    const commandFile = path.join(fixture.codexHome, 'codex-universal-proxy', 'start-proxy.cmd');
     assert.equal(fs.existsSync(commandFile), true);
     assert.match(
       fs.readFileSync(fixture.commandLog, 'utf8'),
@@ -239,7 +239,7 @@ test('Windows install falls back to HKCU Run when Task Scheduler creation is den
     assert.equal(fs.existsSync(commandFile), false);
     assert.match(
       fs.readFileSync(fixture.commandLog, 'utf8'),
-      /reg <DELETE> <HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run> <\/v> <Codex Ollama Proxy> <\/f>/u
+      /reg <DELETE> <HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run> <\/v> <Codex Universal Proxy> <\/f>/u
     );
   } finally {
     fixture.cleanup();

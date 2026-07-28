@@ -452,7 +452,7 @@ test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstre
   const proxyPort = await freePort();
   const adaptorPort = await freePort();
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-completion-adaptor-'));
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
     'default_model = "text-model"',
@@ -465,7 +465,7 @@ test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstre
   ].join('\n'), 'utf8');
 
   const child = spawn(process.execPath, [
-    path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+    path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
     'serve',
     '--adaptor',
     'chat-completion',
@@ -578,7 +578,7 @@ test('CLI run PRESET applies preset and starts proxy plus chat-completion adapto
   fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
 
   const add = spawnSync(process.execPath, [
-    path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+    path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
     'preset',
     'add',
     'fake-provider',
@@ -599,7 +599,7 @@ test('CLI run PRESET applies preset and starts proxy plus chat-completion adapto
   assert.equal(add.status, 0, add.stderr || add.stdout);
 
   const child = spawn(process.execPath, [
-    path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+    path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
     'run',
     'fake-provider',
     '--no-backup',
@@ -639,11 +639,11 @@ test('CLI run PRESET applies preset and starts proxy plus chat-completion adapto
     assert.ok(modelRequests.length >= 1);
     assert.ok(modelRequests.every((request) => request.authorization === 'Bearer preset-secret'));
     const catalog = JSON.parse(fs.readFileSync(
-      path.join(codexHome, 'ollama-launch-models-ollama-working.json'),
+      path.join(codexHome, 'codex-universal-models-working.json'),
       'utf8',
     ));
     assert.deepEqual(catalog.models.map((model) => model.slug), ['preset-model']);
-    const storedPreset = fs.readFileSync(path.join(codexHome, 'ollama-shape-proxy', 'presets', 'fake-provider.toml'), 'utf8');
+    const storedPreset = fs.readFileSync(path.join(codexHome, 'codex-universal-proxy', 'presets', 'fake-provider.toml'), 'utf8');
     assert.match(storedPreset, /^upstream_api_key\s*=\s*"preset-secret"$/m);
   } finally {
     child.kill('SIGTERM');
@@ -694,7 +694,7 @@ test('CLI run PRESET detaches after proxy starts', async () => {
 
   try {
     const add = spawnSync(process.execPath, [
-      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
       'preset',
       'add',
       'fake-provider',
@@ -714,7 +714,7 @@ test('CLI run PRESET detaches after proxy starts', async () => {
     assert.equal(add.status, 0, add.stderr || add.stdout);
 
     const run = spawnSync(process.execPath, [
-      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
       'run',
       'fake-provider',
       '--no-refresh',
@@ -747,7 +747,7 @@ test('CLI run PRESET detaches after proxy starts', async () => {
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.output_text, 'detached run ok');
     assert.equal(received[0].authorization, 'Bearer detached-secret');
-    const log = fs.readFileSync(path.join(codexHome, 'ollama-shape-proxy', 'proxy.log'), 'utf8');
+    const log = fs.readFileSync(path.join(codexHome, 'codex-universal-proxy', 'proxy.log'), 'utf8');
     assert.match(log, /duplicate_input_min_chars=0/);
   } finally {
     killListeningPort(proxyPort);
@@ -779,7 +779,7 @@ test('CLI preset use applies preset and starts proxy stack by default', async ()
 
   try {
     const add = spawnSync(process.execPath, [
-      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
       'preset',
       'add',
       'fake-provider',
@@ -797,7 +797,7 @@ test('CLI preset use applies preset and starts proxy stack by default', async ()
     assert.equal(add.status, 0, add.stderr || add.stdout);
 
     const use = spawnSync(process.execPath, [
-      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
       'preset',
       'use',
       'fake-provider',
@@ -835,7 +835,7 @@ test('CLI serve --adaptor chat-completion reports occupied unhealthy proxy port 
   const proxyPort = await listen(occupied);
   const adaptorPort = await freePort();
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-completion-adaptor-port-'));
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
     'default_model = "test-model"',
@@ -846,7 +846,7 @@ test('CLI serve --adaptor chat-completion reports occupied unhealthy proxy port 
   ].join('\n'), 'utf8');
 
   const child = spawn(process.execPath, [
-    path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+    path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
     'serve',
     '--adaptor',
     'chat-completion',
@@ -902,7 +902,7 @@ test('CLI serve --adaptor chat-completion treats an existing healthy proxy as al
   const proxyPort = await listen(existingProxy);
   const adaptorPort = await freePort();
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-completion-adaptor-existing-'));
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
     'default_model = "test-model"',
@@ -913,7 +913,7 @@ test('CLI serve --adaptor chat-completion treats an existing healthy proxy as al
   ].join('\n'), 'utf8');
 
   const child = spawn(process.execPath, [
-    path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+    path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
     'serve',
     '--adaptor',
     'chat-completion',
@@ -994,7 +994,7 @@ test('CLI preset add with no --adaptor stores a direct (adaptor "none") preset a
   try {
     // No --adaptor: defaults to "none" (direct Responses API).
     const add = spawnSync(process.execPath, [
-      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
       'preset',
       'add',
       'direct-provider',
@@ -1011,14 +1011,14 @@ test('CLI preset add with no --adaptor stores a direct (adaptor "none") preset a
     });
     assert.equal(add.status, 0, add.stderr || add.stdout);
 
-    const presetPath = path.join(codexHome, 'ollama-shape-proxy', 'presets', 'direct-provider.toml');
+    const presetPath = path.join(codexHome, 'codex-universal-proxy', 'presets', 'direct-provider.toml');
     const preset = fs.readFileSync(presetPath, 'utf8');
     assert.match(preset, /^adaptor\s*=\s*"none"$/m);
     assert.match(preset, /^upstream_url\s*=\s*"http:\/\/127\.0\.0\.1:\d+\/v1"$/m);
     assert.match(preset, /^upstream_api_key\s*=\s*"direct-secret"$/m);
 
     const child = spawn(process.execPath, [
-      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
       'run',
       'direct-provider',
       '--no-refresh',
@@ -1074,7 +1074,7 @@ test('CLI preset add rejects an unsupported adaptor value', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-preset-bad-adaptor-'));
   try {
     const result = spawnSync(process.execPath, [
-      path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
       'preset',
       'add',
       'bad',

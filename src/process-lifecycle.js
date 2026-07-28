@@ -3,7 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_PROXY_SCRIPT = path.resolve(__dirname, '..', 'bin', 'codex-ollama-proxy');
+const DEFAULT_PROXY_SCRIPTS = [
+  path.resolve(__dirname, '..', 'bin', 'codex-universal-proxy'),
+  path.resolve(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+];
 
 function commandTokens(command) {
   const tokens = [];
@@ -26,20 +29,21 @@ function canonicalPath(value) {
   }
 }
 
-function isVerifiedProxyCommand(command, expectedProxyScript = DEFAULT_PROXY_SCRIPT) {
+function isVerifiedProxyCommand(command, expectedProxyScript = DEFAULT_PROXY_SCRIPTS) {
   const tokens = commandTokens(command);
   if (tokens.length < 2) return false;
-  const expected = canonicalPath(expectedProxyScript);
+  const expected = (Array.isArray(expectedProxyScript) ? expectedProxyScript : [expectedProxyScript])
+    .map(canonicalPath);
 
-  if (canonicalPath(tokens[0]) === expected && tokens[1] === 'serve') return true;
+  if (expected.includes(canonicalPath(tokens[0])) && tokens[1] === 'serve') return true;
 
   return tokens.length >= 3
     && isNodeExecutable(tokens[0])
-    && canonicalPath(tokens[1]) === expected
+    && expected.includes(canonicalPath(tokens[1]))
     && tokens[2] === 'serve';
 }
 
-function classifyProxyListeners(pids, commandForPid, expectedProxyScript = DEFAULT_PROXY_SCRIPT) {
+function classifyProxyListeners(pids, commandForPid, expectedProxyScript = DEFAULT_PROXY_SCRIPTS) {
   const result = { verified: [], unverified: [] };
   for (const rawPid of pids) {
     const pid = String(rawPid);
@@ -53,7 +57,7 @@ function classifyProxyListeners(pids, commandForPid, expectedProxyScript = DEFAU
   return result;
 }
 
-function requireVerifiedProxyListeners(pids, commandForPid, expectedProxyScript = DEFAULT_PROXY_SCRIPT) {
+function requireVerifiedProxyListeners(pids, commandForPid, expectedProxyScript = DEFAULT_PROXY_SCRIPTS) {
   const listeners = classifyProxyListeners(pids, commandForPid, expectedProxyScript);
   if (listeners.unverified.length > 0) {
     const details = listeners.unverified

@@ -112,11 +112,11 @@ test('renders XML-safe launchd program arguments from launcher state', () => {
     launcherState.renderProgramArgumentsXml(
       { version: 1, adaptor: 'chat-completion', adaptor_port: 9123, completion_model: 'provider&model' },
       '/path/to/node',
-      '/path/to/codex-ollama-proxy',
+      '/path/to/codex-universal-proxy',
     ),
     [
       '    <string>/path/to/node</string>',
-      '    <string>/path/to/codex-ollama-proxy</string>',
+      '    <string>/path/to/codex-universal-proxy</string>',
       '    <string>serve</string>',
       '    <string>--adaptor</string>',
       '    <string>chat-completion</string>',
@@ -134,12 +134,12 @@ test('renders a systemd user unit with restart policy, port, logs, and saved arg
     adaptor: 'chat-completion',
     proxy_port: 61234,
     adaptor_port: 8877,
-  }, '/usr/bin/node', '/opt/codex proxy/bin/codex-ollama-proxy', '/tmp/proxy.log', '/home/me/Codex Files');
+  }, '/usr/bin/node', '/opt/codex proxy/bin/codex-universal-proxy', '/tmp/proxy.log', '/home/me/Codex Files');
 
   assert.match(unit, /^\[Unit\]/u);
   assert.match(unit, /Environment=PROXY_PORT=61234/u);
   assert.match(unit, /Environment="CODEX_HOME=\/home\/me\/Codex Files"/u);
-  assert.match(unit, /ExecStart="\/usr\/bin\/node" "\/opt\/codex proxy\/bin\/codex-ollama-proxy" "serve" "--adaptor" "chat-completion"/u);
+  assert.match(unit, /ExecStart="\/usr\/bin\/node" "\/opt\/codex proxy\/bin\/codex-universal-proxy" "serve" "--adaptor" "chat-completion"/u);
   assert.match(unit, /Restart=always/u);
   assert.match(unit, /StandardOutput=append:\/tmp\/proxy.log/u);
   assert.match(unit, /WantedBy=default.target/u);
@@ -151,12 +151,12 @@ test('renders a Windows startup command with environment, logs, and saved argume
     adaptor: 'none',
     proxy_port: 61234,
     dedupe_large_input: true,
-  }, 'C:\\Program Files\\nodejs\\node.exe', 'C:\\proxy app\\bin\\codex-ollama-proxy', 'C:\\proxy app\\proxy.log', 'C:\\Users\\Me\\Codex Files');
+  }, 'C:\\Program Files\\nodejs\\node.exe', 'C:\\proxy app\\bin\\codex-universal-proxy', 'C:\\proxy app\\proxy.log', 'C:\\Users\\Me\\Codex Files');
 
   assert.match(command, /^@echo off\r\n/u);
   assert.match(command, /set "PROXY_PORT=61234"/u);
   assert.match(command, /set "CODEX_HOME=C:\\Users\\Me\\Codex Files"/u);
-  assert.match(command, /"C:\\Program Files\\nodejs\\node.exe" "C:\\proxy app\\bin\\codex-ollama-proxy" "serve" "--dedupe-large-input"/u);
+  assert.match(command, /"C:\\Program Files\\nodejs\\node.exe" "C:\\proxy app\\bin\\codex-universal-proxy" "serve" "--dedupe-large-input"/u);
   assert.match(command, />> "C:\\proxy app\\proxy.log" 2>&1/u);
 });
 

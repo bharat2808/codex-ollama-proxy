@@ -55,7 +55,7 @@ test('ensureTableKey creates [features] table when absent', () => {
 
 test('normalizeOllama enables apps feature in [features]', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-apps-'));
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'config.toml'), [
     'sandbox_mode = "danger-full-access"',
@@ -100,7 +100,7 @@ test('normalizeOpenAI preserves apps feature in [features]', () => {
     'sandbox_mode = "danger-full-access"',
     'model = "glm-5.2:cloud"',
     'model_reasoning_effort = "none"',
-    'model_provider = "ollama-launch-codex-app"',
+    'model_provider = "codex-universal-proxy"',
     '',
     '[features]',
     'enable_mcp_apps = false',
@@ -133,7 +133,7 @@ test('normalizeOpenAI preserves apps feature in [features]', () => {
 
 test('normalizeOllama sets requires_openai_auth on provider table (no reference)', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-config-provider-auth-'));
-  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(path.join(codexHome, 'config.toml'), [
     'sandbox_mode = "danger-full-access"',

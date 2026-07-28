@@ -1,6 +1,6 @@
-# Codex Ollama Proxy
+# Codex Universal Proxy
 
-[npm package](https://www.npmjs.com/package/codex-ollama-proxy)
+[npm package](https://www.npmjs.com/package/codex-universal-proxy)
 
 Use Ollama, OpenRouter, and other OpenAI-compatible providers with Codex while preserving:
 
@@ -17,11 +17,24 @@ The proxy runs locally, translates Codex-specific tool formats into provider-com
 ## Install
 
 ```bash
-npm install -g codex-ollama-proxy
+npm install -g codex-universal-proxy
 
-codex-ollama-proxy init
-codex-ollama-proxy install
+codex-universal-proxy init
+codex-universal-proxy install
 ```
+
+Upgrading from `codex-ollama-proxy` is automatic. The first universal command
+migrates `~/.codex/ollama-shape-proxy` to
+`~/.codex/codex-universal-proxy`, copies legacy catalog/reference files
+forward, and replaces legacy background-service registrations. If the old
+runtime path is also a source checkout, only runtime-owned configuration,
+presets, and discovery cache data are copied.
+
+The old `codex-ollama-proxy` executable remains an alias for scripts and shell
+history. Existing Codex tasks that name the legacy
+`ollama-launch-codex-app` provider continue to work through a compatibility
+provider entry. Existing attachment files remain at their original paths so
+historical task JSONL references are not broken.
 
 `install` uses the native per-user background service for the current platform:
 
@@ -31,7 +44,7 @@ codex-ollama-proxy install
 
 The `restart`, `uninstall`, and `logs` commands use the same cross-platform setup. On Linux,
 the user systemd session must be available. To run without installing a background service,
-use `codex-ollama-proxy serve` in a terminal.
+use `codex-universal-proxy serve` in a terminal.
 
 If `CODEX_HOME` is set during installation, the generated background service preserves that
 directory for future starts. Linux installations also honor `XDG_CONFIG_HOME` when locating
@@ -75,7 +88,7 @@ A preset saves your:
 Create each provider once, then start it by name:
 
 ```bash
-codex-ollama-proxy run PRESET_NAME
+codex-universal-proxy run PRESET_NAME
 ```
 
 ## Ollama Preset
@@ -83,33 +96,33 @@ codex-ollama-proxy run PRESET_NAME
 Ollama exposes a local Responses-compatible API at `http://127.0.0.1:11434/v1`.
 
 ```bash
-codex-ollama-proxy preset add ollama \
+codex-universal-proxy preset add ollama \
   --url "http://127.0.0.1:11434/v1" \
   --text-model "MODEL"
 
-codex-ollama-proxy run ollama
+codex-universal-proxy run ollama
 ```
 
 Example:
 
 ```bash
-codex-ollama-proxy preset add glm \
+codex-universal-proxy preset add glm \
   --url "http://127.0.0.1:11434/v1" \
   --text-model "z-ai/glm-5.2"
 
-codex-ollama-proxy run glm
+codex-universal-proxy run glm
 ```
 
 GLM with Kimi auto-routing:
 
 ```bash
-codex-ollama-proxy preset add glm-kimi \
+codex-universal-proxy preset add glm-kimi \
   --url "http://127.0.0.1:11434/v1" \
   --text-model "glm-5.2:cloud" \
   --image-model "kimi-k2.7-code:cloud" \
   --auto-image
 
-codex-ollama-proxy run glm-kimi
+codex-universal-proxy run glm-kimi
 ```
 
 ## OpenRouter Preset
@@ -123,7 +136,7 @@ export OPENROUTER_API_KEY="sk-or-..."
 Create the preset:
 
 ```bash
-codex-ollama-proxy preset add openrouter \
+codex-universal-proxy preset add openrouter \
   --provider openrouter \
   --text-model "PROVIDER/MODEL" \
   --api-key "$OPENROUTER_API_KEY"
@@ -132,18 +145,18 @@ codex-ollama-proxy preset add openrouter \
 Run it whenever you want to use OpenRouter:
 
 ```bash
-codex-ollama-proxy run openrouter
+codex-universal-proxy run openrouter
 ```
 
 Example:
 
 ```bash
-codex-ollama-proxy preset add openrouter-glm \
+codex-universal-proxy preset add openrouter-glm \
   --url "https://openrouter.ai/api/v1" \
   --text-model "z-ai/glm-5.2" \
   --api-key "$OPENROUTER_API_KEY"
 
-codex-ollama-proxy run openrouter-glm
+codex-universal-proxy run openrouter-glm
 ```
 
 The selected OpenRouter model must support the required API and tool-calling behavior.
@@ -156,12 +169,12 @@ proxy does not translate requests to the native Messages API.
 ```bash
 export ANTHROPIC_API_KEY="..."
 
-codex-ollama-proxy preset add claude \
+codex-universal-proxy preset add claude \
   --provider anthropic \
   --text-model "claude-sonnet-5" \
   --api-key "$ANTHROPIC_API_KEY"
 
-codex-ollama-proxy run claude
+codex-universal-proxy run claude
 ```
 
 `--provider claude` is an alias for `--provider anthropic`. Authenticated model
@@ -180,12 +193,12 @@ OpenAI uses direct Responses API passthrough:
 ```bash
 export OPENAI_API_KEY="..."
 
-codex-ollama-proxy preset add openai \
+codex-universal-proxy preset add openai \
   --provider openai \
   --text-model "gpt-5.6-sol" \
   --api-key "$OPENAI_API_KEY"
 
-codex-ollama-proxy run openai
+codex-universal-proxy run openai
 ```
 
 OpenAI discovery retains every non-embedding model returned by the
@@ -202,12 +215,12 @@ For any provider that exposes `POST /v1/responses`:
 ```bash
 export PROVIDER_API_KEY="..."
 
-codex-ollama-proxy preset add custom-responses \
+codex-universal-proxy preset add custom-responses \
   --url "https://provider.example/v1" \
   --text-model "MODEL" \
   --api-key "$PROVIDER_API_KEY"
 
-codex-ollama-proxy run custom-responses
+codex-universal-proxy run custom-responses
 ```
 
 ## Chat Completions Provider Preset
@@ -223,13 +236,13 @@ Use the built-in Chat Completions adaptor for these providers:
 ```bash
 export PROVIDER_API_KEY="..."
 
-codex-ollama-proxy preset add custom-chat \
+codex-universal-proxy preset add custom-chat \
   --adaptor chat-completion \
   --url "https://provider.example/v1" \
   --text-model "MODEL" \
   --api-key "$PROVIDER_API_KEY"
 
-codex-ollama-proxy run custom-chat
+codex-universal-proxy run custom-chat
 ```
 
 The adaptor converts Codex Responses API traffic into Chat Completions requests.
@@ -239,14 +252,14 @@ The adaptor converts Codex Responses API traffic into Chat Completions requests.
 ```bash
 export NVIDIA_API_KEY="nvapi-..."
 
-codex-ollama-proxy preset add nvidia \
+codex-universal-proxy preset add nvidia \
   --provider nvidia \
   --text-model "z-ai/glm-5.2" \
   --image-model "thinkingmachines/inkling" \
   --auto-image \
   --api-key "$NVIDIA_API_KEY"
 
-codex-ollama-proxy run nvidia
+codex-universal-proxy run nvidia
 ```
 
 ## Avoid Storing API Keys
@@ -254,7 +267,7 @@ codex-ollama-proxy run nvidia
 To save the provider configuration without storing its key:
 
 ```bash
-codex-ollama-proxy preset add openrouter \
+codex-universal-proxy preset add openrouter \
   --provider openrouter \
   --text-model "PROVIDER/MODEL"
 ```
@@ -262,7 +275,7 @@ codex-ollama-proxy preset add openrouter \
 Supply the key when activating the preset:
 
 ```bash
-codex-ollama-proxy preset use openrouter \
+codex-universal-proxy preset use openrouter \
   --api-key "$OPENROUTER_API_KEY"
 ```
 
@@ -273,19 +286,19 @@ Use `run PRESET_NAME` when the preset already contains its API key.
 Start a preset in the background:
 
 ```bash
-codex-ollama-proxy run openrouter
+codex-universal-proxy run openrouter
 ```
 
 Show live logs in the current terminal:
 
 ```bash
-codex-ollama-proxy run openrouter --foreground
+codex-universal-proxy run openrouter --foreground
 ```
 
 Apply a preset without starting the proxy:
 
 ```bash
-codex-ollama-proxy preset use openrouter --no-start
+codex-universal-proxy preset use openrouter --no-start
 ```
 
 Both `run` and `preset use` configure the selected provider and start or restart the required local proxy processes unless `--no-start` is used.
@@ -299,7 +312,7 @@ catalog. When that happens, activate the preset with a hardcoded Codex model
 override:
 
 ```bash
-codex-ollama-proxy run glm-kimi --model-override "glm-5.2:cloud"
+codex-universal-proxy run glm-kimi --model-override "glm-5.2:cloud"
 ```
 
 `--model-override` writes the top-level `model = "..."` value in
@@ -313,7 +326,7 @@ routing instead.
 A preset can use separate text and image models:
 
 ```bash
-codex-ollama-proxy preset add multimodal \
+codex-universal-proxy preset add multimodal \
   --url "https://provider.example/v1" \
   --text-model "TEXT_MODEL" \
   --image-model "IMAGE_MODEL" \
@@ -324,7 +337,7 @@ codex-ollama-proxy preset add multimodal \
 Run it normally:
 
 ```bash
-codex-ollama-proxy run multimodal
+codex-universal-proxy run multimodal
 ```
 
 With `--auto-image`, images in the current user turn or its tool outputs are routed to the image model.
@@ -332,7 +345,7 @@ With `--auto-image`, images in the current user turn or its tool outputs are rou
 Use the same model for both when the provider has one multimodal model:
 
 ```bash
-codex-ollama-proxy preset add multimodal \
+codex-universal-proxy preset add multimodal \
   --url "https://provider.example/v1" \
   --text-model "MODEL" \
   --image-model "MODEL" \
@@ -351,7 +364,7 @@ unused for 30 days are removed lazily by default. Configure
 The same settings can be changed without editing TOML directly:
 
 ```bash
-codex-ollama-proxy route --persist-images --image-retention-days 30
+codex-universal-proxy route --persist-images --image-retention-days 30
 ```
 
 ## Image Generation
@@ -361,7 +374,7 @@ Image generation is configured separately and applies across provider presets.
 ### Gemini
 
 ```bash
-codex-ollama-proxy imagine \
+codex-universal-proxy imagine \
   --enable \
   --service gemini \
   --model "gemini-2.5-flash-image" \
@@ -371,7 +384,7 @@ codex-ollama-proxy imagine \
 ### OpenAI
 
 ```bash
-codex-ollama-proxy imagine \
+codex-universal-proxy imagine \
   --enable \
   --service openai \
   --model "gpt-image-2" \
@@ -381,7 +394,7 @@ codex-ollama-proxy imagine \
 ### Ollama
 
 ```bash
-codex-ollama-proxy imagine \
+codex-universal-proxy imagine \
   --enable \
   --service ollama \
   --model "x/z-image-turbo" \
@@ -391,7 +404,7 @@ codex-ollama-proxy imagine \
 Check the image-generation configuration:
 
 ```bash
-codex-ollama-proxy imagine --doctor
+codex-universal-proxy imagine --doctor
 ```
 
 The proxy uses Codex's existing `generate_image` tool. It does not inspect ordinary prompts and automatically turn them into image requests.
@@ -401,7 +414,7 @@ The proxy uses Codex's existing `generate_image` tool. It does not inspect ordin
 Presets can also save proxy compatibility options:
 
 ```bash
-codex-ollama-proxy preset add tuned \
+codex-universal-proxy preset add tuned \
   --url "https://provider.example/v1" \
   --text-model "MODEL" \
   --dedupe-large-input \
@@ -482,13 +495,13 @@ Image generation can independently use Gemini, OpenAI, or Ollama.
 ## Useful Commands
 
 ```bash
-codex-ollama-proxy status
-codex-ollama-proxy upstream --status
-codex-ollama-proxy logs --tail 100
-codex-ollama-proxy restart
-codex-ollama-proxy run PRESET_NAME
-codex-ollama-proxy run PRESET_NAME --foreground
-codex-ollama-proxy switch openai
+codex-universal-proxy status
+codex-universal-proxy upstream --status
+codex-universal-proxy logs --tail 100
+codex-universal-proxy restart
+codex-universal-proxy run PRESET_NAME
+codex-universal-proxy run PRESET_NAME --foreground
+codex-universal-proxy switch openai
 ```
 
 ## Codex Skill
@@ -496,13 +509,13 @@ codex-ollama-proxy switch openai
 Give Codex this skill URL:
 
 ```text
-https://raw.githubusercontent.com/bharat2808/codex-ollama-proxy/main/skills/codex-ollama-proxy/SKILL.md
+https://raw.githubusercontent.com/bharat2808/codex-universal-proxy/main/skills/codex-universal-proxy/SKILL.md
 ```
 
 Then ask Codex:
 
 ```text
-Install this skill and use it to set up codex-ollama-proxy.
+Install this skill and use it to set up codex-universal-proxy.
 ```
 
 ## Configuration Files
@@ -510,9 +523,9 @@ Install this skill and use it to set up codex-ollama-proxy.
 Runtime configuration and logs are stored under:
 
 ```text
-~/.codex/ollama-shape-proxy/proxy-models.toml
-~/.codex/ollama-shape-proxy/imagine.toml
-~/.codex/ollama-shape-proxy/proxy.log
+~/.codex/codex-universal-proxy/proxy-models.toml
+~/.codex/codex-universal-proxy/imagine.toml
+~/.codex/codex-universal-proxy/proxy.log
 ```
 
 Debug logging is disabled by default:
@@ -537,13 +550,13 @@ Be careful when enabling request-body logging because it may include prompts, to
 
 ```bash
 npm install -g \
-  https://registry.npmjs.org/codex-ollama-proxy/-/codex-ollama-proxy-0.3.3.tgz
+  https://registry.npmjs.org/codex-universal-proxy/-/codex-universal-proxy-0.3.3.tgz
 ```
 
 ## Uninstall
 
 ```bash
-codex-ollama-proxy switch openai
-codex-ollama-proxy uninstall
-npm uninstall -g codex-ollama-proxy
+codex-universal-proxy switch openai
+codex-universal-proxy uninstall
+npm uninstall -g codex-universal-proxy
 ```

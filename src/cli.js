@@ -9,60 +9,68 @@ const presets = require('./presets');
 const imagineConfig = require('./imagine-config');
 const launcherState = require('./launcher-state');
 const runtimePaths = require('./runtime-paths');
+const branding = require('./branding');
 const { requireVerifiedProxyListeners } = require('./process-lifecycle');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const HOME_DIR = runtimePaths.homeDir();
 const CODEX_DIR = runtimePaths.codexDir();
-const RUNTIME_DIR = path.join(CODEX_DIR, 'ollama-shape-proxy');
+const runtimeMigration = branding.migrateRuntimeDirectory(CODEX_DIR);
+const RUNTIME_DIR = runtimeMigration.runtimeDir;
 const ROUTE_CONFIG = path.join(RUNTIME_DIR, 'proxy-models.toml');
 const IMAGINE_CONFIG = path.join(RUNTIME_DIR, 'imagine.toml');
 const LAUNCHER_STATE = path.join(RUNTIME_DIR, 'launcher-state.json');
 const DEFAULT_ROUTE_CONFIG = path.join(PACKAGE_DIR, 'config', 'proxy-models.default.toml');
-const DEFAULT_MODEL_CATALOG = path.join(PACKAGE_DIR, 'config', 'model-catalogs', 'ollama-launch-models.default.json');
-const MODEL_CATALOG = path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json');
-const MODEL_CATALOG_COPY = path.join(CODEX_DIR, 'ollama-launch-models.json');
-const PLIST = path.join(HOME_DIR, 'Library', 'LaunchAgents', 'com.user.codex-ollama-shape-proxy.plist');
-const LABEL = 'com.user.codex-ollama-shape-proxy';
+const DEFAULT_MODEL_CATALOG = path.join(PACKAGE_DIR, 'config', 'model-catalogs', 'codex-universal-models.default.json');
+const MODEL_CATALOG = path.join(CODEX_DIR, branding.MODEL_CATALOG_WORKING_FILENAME);
+const MODEL_CATALOG_COPY = path.join(CODEX_DIR, branding.MODEL_CATALOG_FILENAME);
+const PLIST = path.join(HOME_DIR, 'Library', 'LaunchAgents', `${branding.LAUNCHD_LABEL}.plist`);
+const LEGACY_PLISTS = branding.LEGACY_LAUNCHD_LABELS.map(
+  (label) => path.join(HOME_DIR, 'Library', 'LaunchAgents', `${label}.plist`),
+);
+const LABEL = branding.LAUNCHD_LABEL;
 const PROXY_PORT = process.env.PROXY_PORT || String(launcherState.DEFAULT_PROXY_PORT);
 const SERVICE_PLATFORM = process.env.CODEX_PROXY_PLATFORM || process.platform;
-const SYSTEMD_UNIT = path.join(runtimePaths.systemdUserDir(), 'codex-ollama-proxy.service');
+const SYSTEMD_UNIT = path.join(runtimePaths.systemdUserDir(), branding.SYSTEMD_SERVICE);
+const LEGACY_SYSTEMD_UNITS = branding.LEGACY_SYSTEMD_SERVICES.map(
+  (service) => path.join(runtimePaths.systemdUserDir(), service),
+);
 const WINDOWS_COMMAND = path.join(RUNTIME_DIR, 'start-proxy.cmd');
-const WINDOWS_TASK = 'Codex Ollama Proxy';
+const WINDOWS_TASK = branding.WINDOWS_TASK;
 const WINDOWS_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 
 function usage() {
   console.log(`Usage:
-  codex-ollama-proxy init [--force]
-  codex-ollama-proxy serve [--adaptor chat-completion|google] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
-  codex-ollama-proxy serve --preset NAME [--api-key KEY] [--model-override MODEL] [--replace]
-  codex-ollama-proxy serve --adaptor chat-completion|google [--completion-model MODEL] [--adaptor-port PORT]
-  codex-ollama-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
-  codex-ollama-proxy preset add NAME --provider vertexai --project PROJECT --location LOCATION --models MODEL[,MODEL...] [--vertex-token TOKEN]
+  codex-universal-proxy init [--force]
+  codex-universal-proxy serve [--adaptor chat-completion|google] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
+  codex-universal-proxy serve --preset NAME [--api-key KEY] [--model-override MODEL] [--replace]
+  codex-universal-proxy serve --adaptor chat-completion|google [--completion-model MODEL] [--adaptor-port PORT]
+  codex-universal-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
+  codex-universal-proxy preset add NAME --provider vertexai --project PROJECT --location LOCATION --models MODEL[,MODEL...] [--vertex-token TOKEN]
     [--auto-image|--no-auto-image] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
     [--persist-images|--no-persist-images] [--image-retention-days DAYS]
     [--verbose-tools|--no-verbose-tools] [--log-upstream-body|--no-log-upstream-body]
     [--enable-find-skill|--no-enable-find-skill] [--stream-loop|--no-stream-loop]
-  codex-ollama-proxy preset list
-  codex-ollama-proxy preset show NAME
-  codex-ollama-proxy preset use NAME [--api-key KEY] [--default-model MODEL] [--model-override MODEL] [--no-start]
-  codex-ollama-proxy run NAME [--api-key KEY] [--default-model MODEL] [--model-override MODEL] [--adaptor-port PORT] [--replace] [--foreground]
-  codex-ollama-proxy status
-  codex-ollama-proxy switch openai
-  codex-ollama-proxy switch ollama [--model MODEL] [--model-override MODEL] [--no-start]
-  codex-ollama-proxy route --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--auto-image|--no-auto-image]
+  codex-universal-proxy preset list
+  codex-universal-proxy preset show NAME
+  codex-universal-proxy preset use NAME [--api-key KEY] [--default-model MODEL] [--model-override MODEL] [--no-start]
+  codex-universal-proxy run NAME [--api-key KEY] [--default-model MODEL] [--model-override MODEL] [--adaptor-port PORT] [--replace] [--foreground]
+  codex-universal-proxy status
+  codex-universal-proxy switch openai
+  codex-universal-proxy switch ollama [--model MODEL] [--model-override MODEL] [--no-start]
+  codex-universal-proxy route --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--auto-image|--no-auto-image]
                            [--persist-images|--no-persist-images] [--image-retention-days DAYS]
-  codex-ollama-proxy upstream [--url URL] [--api-key KEY] [--status]
-  codex-ollama-proxy logs [--tail N]
-  codex-ollama-proxy install
-  codex-ollama-proxy uninstall
-  codex-ollama-proxy restart
-  codex-ollama-proxy imagine [--enable|--disable] [--service gemini|openai|ollama --model MODEL]
-  codex-ollama-proxy imagine [--base-url URL] [--api-key KEY]
-  codex-ollama-proxy imagine [--quality fast|balanced|quality]
-  codex-ollama-proxy imagine [--enhance|--no-enhance] [--aspect-ratio RATIO]
-  codex-ollama-proxy imagine --status
-  codex-ollama-proxy imagine --doctor`);
+  codex-universal-proxy upstream [--url URL] [--api-key KEY] [--status]
+  codex-universal-proxy logs [--tail N]
+  codex-universal-proxy install
+  codex-universal-proxy uninstall
+  codex-universal-proxy restart
+  codex-universal-proxy imagine [--enable|--disable] [--service gemini|openai|ollama --model MODEL]
+  codex-universal-proxy imagine [--base-url URL] [--api-key KEY]
+  codex-universal-proxy imagine [--quality fast|balanced|quality]
+  codex-universal-proxy imagine [--enhance|--no-enhance] [--aspect-ratio RATIO]
+  codex-universal-proxy imagine --status
+  codex-universal-proxy imagine --doctor`);
 }
 
 function die(message) {
@@ -129,12 +137,31 @@ function bootoutLaunchAgent() {
 function stopPlatformService() {
   if (SERVICE_PLATFORM === 'darwin') return bootoutLaunchAgent();
   if (SERVICE_PLATFORM === 'linux') {
-    return run('systemctl', ['--user', 'stop', 'codex-ollama-proxy.service'], { check: false, stdio: 'pipe' }).status === 0;
+    return run('systemctl', ['--user', 'stop', branding.SYSTEMD_SERVICE], { check: false, stdio: 'pipe' }).status === 0;
   }
   if (SERVICE_PLATFORM === 'win32') {
     return run('schtasks', ['/End', '/TN', WINDOWS_TASK], { check: false, stdio: 'pipe' }).status === 0;
   }
   return false;
+}
+
+function stopLegacyPlatformServices() {
+  if (SERVICE_PLATFORM === 'darwin') {
+    for (const label of branding.LEGACY_LAUNCHD_LABELS) {
+      spawnSync('launchctl', ['bootout', `gui/${process.getuid()}/${label}`], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    }
+  } else if (SERVICE_PLATFORM === 'linux') {
+    for (const service of branding.LEGACY_SYSTEMD_SERVICES) {
+      run('systemctl', ['--user', 'stop', service], { check: false, stdio: 'pipe' });
+    }
+  } else if (SERVICE_PLATFORM === 'win32') {
+    for (const task of branding.LEGACY_WINDOWS_TASKS) {
+      run('schtasks', ['/End', '/TN', task], { check: false, stdio: 'pipe' });
+    }
+  }
 }
 
 function windowsTaskAccessDenied(result) {
@@ -150,8 +177,8 @@ function installWindowsRunFallback() {
   run('reg', ['ADD', WINDOWS_RUN_KEY, '/v', WINDOWS_TASK, '/t', 'REG_SZ', '/d', windowsStartupCommand(), '/f']);
 }
 
-function removeWindowsRunFallback() {
-  run('reg', ['DELETE', WINDOWS_RUN_KEY, '/v', WINDOWS_TASK, '/f'], { check: false });
+function removeWindowsRunFallback(taskName = WINDOWS_TASK) {
+  run('reg', ['DELETE', WINDOWS_RUN_KEY, '/v', taskName, '/f'], { check: false });
 }
 
 function startWindowsCommand() {
@@ -200,6 +227,19 @@ function writePrivateText(file, text) {
 
 function init(options = {}) {
   fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+  branding.migrateLegacyFile(
+    CODEX_DIR,
+    branding.MODEL_CATALOG_WORKING_FILENAME,
+    branding.LEGACY_MODEL_CATALOG_FILENAMES,
+  );
+  branding.migrateLegacyFile(
+    CODEX_DIR,
+    branding.MODEL_CATALOG_FILENAME,
+    branding.LEGACY_MODEL_CATALOG_FILENAMES,
+  );
+  if (fs.existsSync(MODEL_CATALOG) && !fs.existsSync(MODEL_CATALOG_COPY)) {
+    fs.copyFileSync(MODEL_CATALOG, MODEL_CATALOG_COPY);
+  }
   imagineConfig.ensure(IMAGINE_CONFIG);
   if (!fs.existsSync(ROUTE_CONFIG) || options.force) {
     fs.copyFileSync(DEFAULT_ROUTE_CONFIG, ROUTE_CONFIG);
@@ -586,7 +626,7 @@ async function ensureProxyCanStart(flags, proxyPort) {
       return true;
     }
     console.log(`already_running=http://127.0.0.1:${proxyPort}`);
-    console.log('Use `codex-ollama-proxy status` to inspect it, or stop the existing process before restarting.');
+    console.log('Use `codex-universal-proxy status` to inspect it, or stop the existing process before restarting.');
     return false;
   }
   const occupiedPids = listeningPids(proxyPort);
@@ -636,7 +676,7 @@ function renderPlist() {
     .replaceAll('__PROGRAM_ARGUMENTS__', launcherState.renderProgramArgumentsXml(
       state,
       process.execPath,
-      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'),
+      path.join(PACKAGE_DIR, 'bin', 'codex-universal-proxy'),
     ))
     .replaceAll('__LOG__', path.join(RUNTIME_DIR, 'proxy.log'))
     .replaceAll('__CODEX_HOME__', launcherState.escapeXml(CODEX_DIR))
@@ -660,10 +700,14 @@ function launcherStateForInstall() {
 
 function install() {
   init();
+  stopLegacyPlatformServices();
   const state = launcherStateForInstall();
   if (SERVICE_PLATFORM === 'darwin') {
     fs.mkdirSync(path.dirname(PLIST), { recursive: true });
     fs.writeFileSync(PLIST, renderPlist(), 'utf8');
+    for (const legacyPlist of LEGACY_PLISTS) {
+      if (fs.existsSync(legacyPlist)) fs.unlinkSync(legacyPlist);
+    }
     bootoutLaunchAgent();
     bootstrapLaunchAgent();
     run('launchctl', ['enable', `gui/${process.getuid()}/${LABEL}`], { check: false });
@@ -673,16 +717,26 @@ function install() {
   if (SERVICE_PLATFORM === 'linux') {
     fs.mkdirSync(path.dirname(SYSTEMD_UNIT), { recursive: true });
     fs.writeFileSync(SYSTEMD_UNIT, launcherState.renderSystemdUnit(state, process.execPath,
-      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log'), CODEX_DIR), 'utf8');
+      path.join(PACKAGE_DIR, 'bin', 'codex-universal-proxy'), path.join(RUNTIME_DIR, 'proxy.log'), CODEX_DIR), 'utf8');
     run('systemctl', ['--user', 'daemon-reload']);
-    run('systemctl', ['--user', 'enable', '--now', 'codex-ollama-proxy.service']);
+    for (const service of branding.LEGACY_SYSTEMD_SERVICES) {
+      run('systemctl', ['--user', 'disable', service], { check: false });
+    }
+    for (const unit of LEGACY_SYSTEMD_UNITS) {
+      if (fs.existsSync(unit)) fs.unlinkSync(unit);
+    }
+    run('systemctl', ['--user', 'enable', '--now', branding.SYSTEMD_SERVICE]);
     console.log(`installed=${SYSTEMD_UNIT}`);
     return;
   }
   if (SERVICE_PLATFORM === 'win32') {
     fs.writeFileSync(WINDOWS_COMMAND, launcherState.renderWindowsCommand(state, process.execPath,
-      path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'), path.join(RUNTIME_DIR, 'proxy.log'), CODEX_DIR), 'utf8');
+      path.join(PACKAGE_DIR, 'bin', 'codex-universal-proxy'), path.join(RUNTIME_DIR, 'proxy.log'), CODEX_DIR), 'utf8');
     stopPlatformService();
+    for (const task of branding.LEGACY_WINDOWS_TASKS) {
+      run('schtasks', ['/Delete', '/TN', task, '/F'], { check: false });
+      removeWindowsRunFallback(task);
+    }
     const taskCommand = `cmd.exe /d /c ""${WINDOWS_COMMAND}""`;
     const created = run('schtasks', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', taskCommand, '/F'], { check: false, stdio: 'pipe' });
     if (created.status !== 0) {
@@ -698,21 +752,32 @@ function install() {
     console.log(`installed=${WINDOWS_COMMAND}`);
     return;
   }
-  die(`Error: background installation is not supported on ${SERVICE_PLATFORM}. Use codex-ollama-proxy serve.`);
+  die(`Error: background installation is not supported on ${SERVICE_PLATFORM}. Use codex-universal-proxy serve.`);
 }
 
 function uninstall() {
   stopPlatformService();
+  stopLegacyPlatformServices();
   let serviceFile = PLIST;
   if (SERVICE_PLATFORM === 'linux') {
-    run('systemctl', ['--user', 'disable', 'codex-ollama-proxy.service'], { check: false });
+    run('systemctl', ['--user', 'disable', branding.SYSTEMD_SERVICE], { check: false });
+    for (const service of branding.LEGACY_SYSTEMD_SERVICES) {
+      run('systemctl', ['--user', 'disable', service], { check: false });
+    }
     serviceFile = SYSTEMD_UNIT;
   } else if (SERVICE_PLATFORM === 'win32') {
     run('schtasks', ['/Delete', '/TN', WINDOWS_TASK, '/F'], { check: false });
+    for (const task of branding.LEGACY_WINDOWS_TASKS) {
+      run('schtasks', ['/Delete', '/TN', task, '/F'], { check: false });
+      removeWindowsRunFallback(task);
+    }
     removeWindowsRunFallback();
     serviceFile = WINDOWS_COMMAND;
   }
   if (fs.existsSync(serviceFile)) fs.unlinkSync(serviceFile);
+  for (const file of [...LEGACY_PLISTS, ...LEGACY_SYSTEMD_UNITS]) {
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  }
   if (SERVICE_PLATFORM === 'linux') run('systemctl', ['--user', 'daemon-reload'], { check: false });
   console.log(`removed=${serviceFile}`);
 }
@@ -742,7 +807,7 @@ async function restart() {
   const startupTimeout = Number(process.env.CODEX_PROXY_START_TIMEOUT_MS || 6000);
   const probe = await waitForProxyResponse(proxyPort, startupTimeout);
   if (!isHealthyProxyModelsResponse(probe)) {
-    die(`Error: replacement proxy did not become healthy on 127.0.0.1:${proxyPort}. Check logs: codex-ollama-proxy logs --tail 100`);
+    die(`Error: replacement proxy did not become healthy on 127.0.0.1:${proxyPort}. Check logs: codex-universal-proxy logs --tail 100`);
   }
   console.log(`restarted=http://127.0.0.1:${proxyPort} status=${probe.statusCode}`);
 }
@@ -798,7 +863,7 @@ async function serveCmd(flags = {}) {
   const providerUrl = readRouteValue(routeConfig, 'upstream_url');
   const providerApiKey = readRouteValue(routeConfig, 'upstream_api_key');
   const providerModel = flags.completionModel || readRouteValue(routeConfig, 'default_model');
-  if (!providerUrl) die('Error: configure the chat-completion provider with: codex-ollama-proxy upstream --url URL [--api-key KEY]');
+  if (!providerUrl) die('Error: configure the chat-completion provider with: codex-universal-proxy upstream --url URL [--api-key KEY]');
 
   const savedLauncherState = {
     version: launcherState.VERSION,
@@ -857,7 +922,7 @@ async function startPresetServer(preset, flags = {}) {
   const out = fs.openSync(logPath, 'a');
   const err = fs.openSync(logPath, 'a');
   const args = [
-    path.join(PACKAGE_DIR, 'bin', 'codex-ollama-proxy'),
+    path.join(PACKAGE_DIR, 'bin', 'codex-universal-proxy'),
     'serve',
   ];
   // Direct presets (adaptor "none") talk straight to the configured
@@ -882,7 +947,7 @@ async function startPresetServer(preset, flags = {}) {
 
   await new Promise((resolve) => setTimeout(resolve, 250));
   if (child.exitCode !== null) {
-    die(`Error: preset server exited during startup. Check logs: codex-ollama-proxy logs --tail 100`);
+    die(`Error: preset server exited during startup. Check logs: codex-universal-proxy logs --tail 100`);
   }
   const probe = await waitForProxyResponse(proxyPort);
   if (probe.statusCode === 0) {
@@ -937,11 +1002,11 @@ async function imagineCmd(flags) {
   // mismatched provider/model combinations (e.g. a Gemini model with OpenAI service).
   if (flags.service && !flags.model) {
     die('Error: --service must be used together with --model.\n'
-      + 'Example: codex-ollama-proxy imagine --service openai --model gpt-image-2 --api-key "KEY"');
+      + 'Example: codex-universal-proxy imagine --service openai --model gpt-image-2 --api-key "KEY"');
   }
   if (flags.model && !flags.service) {
     die('Error: --model must be used together with --service.\n'
-      + 'Example: codex-ollama-proxy imagine --service openai --model gpt-image-2 --api-key "KEY"');
+      + 'Example: codex-universal-proxy imagine --service openai --model gpt-image-2 --api-key "KEY"');
   }
   const updates = {};
   if (flags.enable) updates.imagine_enabled = true;

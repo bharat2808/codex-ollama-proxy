@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { codexDir } = require('./runtime-paths');
+const branding = require('./branding');
 const launcherState = require('./launcher-state');
 const { discoverModels } = require('./model-discovery');
 const { projectCodexCatalog } = require('./model-catalog/project-codex-catalog');
@@ -14,23 +15,44 @@ const {
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const CODEX_DIR = codexDir();
+branding.migrateRuntimeDirectory(CODEX_DIR);
 const CONFIG = path.join(CODEX_DIR, 'config.toml');
-const OLLAMA_REFERENCE = path.join(CODEX_DIR, 'config.toml.ollama-working');
-const MODEL_CATALOG = path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json');
-const MODEL_CATALOG_COPY = path.join(CODEX_DIR, 'ollama-launch-models.json');
-const DEFAULT_MODEL_CATALOG = path.join(PACKAGE_DIR, 'config', 'model-catalogs', 'ollama-launch-models.default.json');
+branding.migrateLegacyFile(
+  CODEX_DIR,
+  branding.REFERENCE_CONFIG_FILENAME,
+  branding.LEGACY_REFERENCE_CONFIG_FILENAMES,
+);
+branding.migrateLegacyFile(
+  CODEX_DIR,
+  branding.MODEL_CATALOG_WORKING_FILENAME,
+  branding.LEGACY_MODEL_CATALOG_FILENAMES,
+);
+branding.migrateLegacyFile(
+  CODEX_DIR,
+  branding.MODEL_CATALOG_FILENAME,
+  branding.LEGACY_MODEL_CATALOG_FILENAMES,
+);
+const OLLAMA_REFERENCE = path.join(CODEX_DIR, branding.REFERENCE_CONFIG_FILENAME);
+const MODEL_CATALOG = path.join(CODEX_DIR, branding.MODEL_CATALOG_WORKING_FILENAME);
+const MODEL_CATALOG_COPY = path.join(CODEX_DIR, branding.MODEL_CATALOG_FILENAME);
+const DEFAULT_MODEL_CATALOG = path.join(PACKAGE_DIR, 'config', 'model-catalogs', 'codex-universal-models.default.json');
 const MODELS_CACHE = path.join(CODEX_DIR, 'models_cache.json');
 const VISION_CACHE = path.join(CODEX_DIR, 'cache', 'vision_capable_models.json');
 const BACKUP_DIR = path.join(CODEX_DIR, 'config-backups');
-const PROXY_MODELS = path.join(CODEX_DIR, 'ollama-shape-proxy', 'proxy-models.toml');
-const LAUNCHER_STATE = path.join(CODEX_DIR, 'ollama-shape-proxy', 'launcher-state.json');
+const RUNTIME_DIR = branding.runtimeDirectory(CODEX_DIR);
+const PROXY_MODELS = path.join(RUNTIME_DIR, 'proxy-models.toml');
+const LAUNCHER_STATE = path.join(RUNTIME_DIR, 'launcher-state.json');
 
 const DEFAULT_OLLAMA_MODEL = 'glm-5.2:cloud';
 const DEFAULT_CONTEXT_WINDOW = '1000000';
 const DEFAULT_AUTO_COMPACT = '900000';
-const PROVIDER_NAME = 'ollama-launch-codex-app';
+const PROVIDER_NAME = branding.PROVIDER_NAME;
 const STOREFRONT_PLUGIN_PREFIX = '[plugins."storefront-builder@personal"';
 const OLLAMA_PROVIDER_HEADER = `[model_providers.${PROVIDER_NAME}]`;
+const LEGACY_PROVIDER_HEADERS = branding.LEGACY_PROVIDER_NAMES.map(
+  (name) => `[model_providers.${name}]`,
+);
+const ALL_PROXY_PROVIDER_HEADERS = [OLLAMA_PROVIDER_HEADER, ...LEGACY_PROVIDER_HEADERS];
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 
 const TOOL_CAPABILITY_FIELDS = [
@@ -296,7 +318,7 @@ function referenceHeaders(referenceText) {
   const headers = Object.keys(tableBlocks(referenceText));
   return {
     storefrontHeaders: headers.filter((header) => header.startsWith(STOREFRONT_PLUGIN_PREFIX)),
-    providerHeaders: headers.filter((header) => header === OLLAMA_PROVIDER_HEADER),
+    providerHeaders: headers.filter((header) => ALL_PROXY_PROVIDER_HEADERS.includes(header)),
   };
 }
 
@@ -308,20 +330,24 @@ function ensureStorefrontPluginTables(text) {
 }
 
 function ensureOllamaProviderTable(text) {
-  if (!exists(OLLAMA_REFERENCE)) {
-    const blocks = tableBlocks(text);
-    if (Object.prototype.hasOwnProperty.call(blocks, OLLAMA_PROVIDER_HEADER)) {
-      let result = text;
-      result = ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'base_url', tomlString(proxyBaseUrl()));
-      return ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'requires_openai_auth', 'true');
-    }
-    return `${text.replace(/\s+$/u, '')}\n\n${OLLAMA_PROVIDER_HEADER}\nname = "Ollama"\nbase_url = ${tomlString(proxyBaseUrl())}\nwire_api = "responses"\nrequires_openai_auth = true\n`;
+  let result = text;
+  if (exists(OLLAMA_REFERENCE)) {
+    const referenceText = readText(OLLAMA_REFERENCE);
+    const { providerHeaders } = referenceHeaders(referenceText);
+    result = ensureReferenceTables(result, referenceText, providerHeaders);
   }
-  const referenceText = readText(OLLAMA_REFERENCE);
-  const { providerHeaders } = referenceHeaders(referenceText);
-  let result = ensureReferenceTables(text, referenceText, providerHeaders);
-  result = ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'base_url', tomlString(proxyBaseUrl()));
-  return ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'requires_openai_auth', 'true');
+  for (const header of ALL_PROXY_PROVIDER_HEADERS) {
+    const blocks = tableBlocks(result);
+    if (!Object.prototype.hasOwnProperty.call(blocks, header)) {
+      const name = header === OLLAMA_PROVIDER_HEADER
+        ? 'Codex Universal Proxy'
+        : 'Codex Universal Proxy (legacy alias)';
+      result = `${result.replace(/\s+$/u, '')}\n\n${header}\nname = ${tomlString(name)}\nwire_api = "responses"\n`;
+    }
+    result = ensureTableKey(result, header, 'base_url', tomlString(proxyBaseUrl()));
+    result = ensureTableKey(result, header, 'requires_openai_auth', 'true');
+  }
+  return result;
 }
 
 function ensureOllamaReference(text) {
@@ -379,7 +405,7 @@ function normalizeOpenAI(text) {
   lines = removeKey(lines, 'model_reasoning_summary');
 
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');
-  normalized = removeTable(normalized, OLLAMA_PROVIDER_HEADER);
+  for (const header of ALL_PROXY_PROVIDER_HEADERS) normalized = removeTable(normalized, header);
   normalized = ensureTableKey(normalized, '[features]', 'enable_mcp_apps', 'true');
   return normalized.replace(/\s+$/u, '') + '\n';
 }
@@ -413,7 +439,9 @@ function currentStatus(text) {
   const provider = activeProvider ? activeProvider[1] : '(built-in/default)';
   const blocks = tableBlocks(text);
   const storefrontTables = Object.keys(blocks).filter((header) => header.startsWith(STOREFRONT_PLUGIN_PREFIX));
-  const hasOllamaProvider = Object.prototype.hasOwnProperty.call(blocks, OLLAMA_PROVIDER_HEADER);
+  const hasOllamaProvider = ALL_PROXY_PROVIDER_HEADERS.some(
+    (header) => Object.prototype.hasOwnProperty.call(blocks, header),
+  );
   const featuresBlock = blocks['[features]'] || '';
   const appsMatch = featuresBlock.match(/^enable_mcp_apps\s*=\s*(true|false)\b/m);
   const appsEnabled = appsMatch ? appsMatch[1] === 'true' : false;
@@ -528,7 +556,7 @@ async function discoverUpstreamModels(routeCfg, suppliedModels) {
       baseUrl: routeCfg.upstream_url || OLLAMA_BASE_URL + '/v1',
       apiKey: routeCfg.upstream_api_key || null,
       suppliedModels: [...suppliedModels],
-      cacheDir: path.join(CODEX_DIR, 'ollama-shape-proxy', 'model-discovery-cache'),
+      cacheDir: path.join(RUNTIME_DIR, 'model-discovery-cache'),
     });
   } catch {
     return null;

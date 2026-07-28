@@ -36,7 +36,7 @@ async function main() {
   fs.writeFileSync(path.join(codexHome, 'config.toml'), '', { flag: 'a' });
 
   installTarball(newestTarball(), { global: true });
-  const proxyCommand = executable('codex-ollama-proxy');
+  const proxyCommand = executable('codex-universal-proxy');
   const codexCommand = executable('codex');
   const env = {
     ...process.env,

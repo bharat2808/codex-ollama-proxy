@@ -133,7 +133,7 @@ function renderSystemdUnit(input, nodePath, binPath, logPath, codexHome) {
   const state = normalize(input);
   const command = [nodePath, binPath, ...serveArgs(state)].map(systemdQuote).join(' ');
   const systemdLogPath = String(logPath).replace(/ /gu, '\\x20');
-  return `[Unit]\nDescription=Codex Ollama Proxy\nAfter=network.target\n\n[Service]\nType=simple\nEnvironment=${systemdQuote(`CODEX_HOME=${codexHome}`)}\nEnvironment=PROXY_PORT=${state.proxy_port}\nExecStart=${command}\nRestart=always\nRestartSec=2\nStandardOutput=append:${systemdLogPath}\nStandardError=append:${systemdLogPath}\n\n[Install]\nWantedBy=default.target\n`;
+  return `[Unit]\nDescription=Codex Universal Proxy\nAfter=network.target\n\n[Service]\nType=simple\nEnvironment=${systemdQuote(`CODEX_HOME=${codexHome}`)}\nEnvironment=PROXY_PORT=${state.proxy_port}\nExecStart=${command}\nRestart=always\nRestartSec=2\nStandardOutput=append:${systemdLogPath}\nStandardError=append:${systemdLogPath}\n\n[Install]\nWantedBy=default.target\n`;
 }
 
 function cmdQuote(value) {

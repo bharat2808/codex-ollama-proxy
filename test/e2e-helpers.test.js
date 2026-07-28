@@ -12,7 +12,7 @@ test('live-test diagnostics redact credentials from captured proxy and Codex log
   const codexHome = path.join(root, 'Fresh Codex Home');
   const artifactsDir = path.join(root, 'artifacts');
   const secret = 'provider-secret-value';
-  const proxyLog = path.join(codexHome, 'ollama-shape-proxy', 'proxy.log');
+  const proxyLog = path.join(codexHome, 'codex-universal-proxy', 'proxy.log');
   const codexLog = path.join(codexHome, 'log', 'codex.log');
   fs.mkdirSync(path.dirname(proxyLog), { recursive: true });
   fs.mkdirSync(path.dirname(codexLog), { recursive: true });
@@ -32,8 +32,8 @@ test('live-test diagnostics redact credentials from captured proxy and Codex log
 });
 
 test('windows shell command wrapper quotes .cmd paths containing spaces', () => {
-  const command = 'C:\\Users\\runner\\Temp\\Install Prefix\\codex-ollama-proxy.cmd';
+  const command = 'C:\\Users\\runner\\Temp\\Install Prefix\\codex-universal-proxy.cmd';
   assert.equal(commandForSpawn(command, 'win32'), `"${command}"`);
-  assert.equal(commandForSpawn('C:\\Tools\\codex-ollama-proxy.cmd', 'win32'), 'C:\\Tools\\codex-ollama-proxy.cmd');
+  assert.equal(commandForSpawn('C:\\Tools\\codex-universal-proxy.cmd', 'win32'), 'C:\\Tools\\codex-universal-proxy.cmd');
   assert.equal(commandForSpawn(command, 'linux'), command);
 });

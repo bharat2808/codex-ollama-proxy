@@ -82,7 +82,7 @@ function renderValue(def, value) {
 // always present; image_model is always present (derived from default_model when
 // not explicitly set), preserving the --model/--text-model shorthand.
 function renderPresetToml(preset) {
-  const lines = ['# codex-ollama-proxy preset', `adaptor = "${escapeTomlString(preset.adaptor)}"`];
+  const lines = ['# codex-universal-proxy preset', `adaptor = "${escapeTomlString(preset.adaptor)}"`];
   for (const def of schema.PRESET_KEY_DEFS) {
     if (def.key in preset.values) {
       lines.push(`${def.key} = ${renderValue(def, preset.values[def.key])}`);
