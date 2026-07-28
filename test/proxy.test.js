@@ -1842,6 +1842,7 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
     assert.equal(received[0].url, '/custom/responses');
     assert.equal(received[0].authorization, 'Bearer secret-token');
     assert.equal(received[0].body.model, 'test-model');
+    assert.equal(received[0].body._originalModel, undefined);
   } finally {
     await close(server);
     await close(upstream);

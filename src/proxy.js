@@ -1909,11 +1909,12 @@ const server = http.createServer((clientReq, clientRes) => {
     let info = { customNames: new Set() };
     let body = null;
     let originalStream = false;
+    let originalModel = null;
     if (isResponses) {
       try {
         body = JSON.parse(bodyBuf.toString('utf8'));
         originalStream = body && body.stream === true;
-        body._originalModel = body.model; // save before routing rewrites it
+        originalModel = body.model;
         // Newer Codex builds may define custom tools only in a turn-local
         // additional_tools input item. Lift those definitions before recording
         // their original types so response translation can restore function
@@ -1993,7 +1994,7 @@ const server = http.createServer((clientReq, clientRes) => {
           debugLog('imagine proxy loop enabled (generate_image + ollama_proxy_status)');
           const result = await imagine.runGenerateImageLoop(upstream, body, ROUTE_CFG, {
             log: (...a) => debugLog(...a),
-            originalModel: body._originalModel,
+            originalModel,
             routedModel: body.model,
             visionCapableModels: visionCapableModels,
             upstreamUrl: upstreamLib.displayUrl(getUpstream()),
