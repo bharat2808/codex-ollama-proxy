@@ -115,7 +115,10 @@ test('projects explicit non-Ollama vision support without guessing unknown capab
       ],
     },
     imageModel: 'remote-image',
-    canonical,
+    canonical: {
+      ...canonical,
+      use_responses_lite: true,
+    },
   });
 
   assert.equal(result.isOllama, false);
@@ -124,6 +127,7 @@ test('projects explicit non-Ollama vision support without guessing unknown capab
   assert.equal(result.models[1].supports_image_detail_original, true);
   assert.deepEqual(result.models[2].input_modalities, ['text', 'image']);
   assert.equal(result.models[0].supports_parallel_tool_calls, true);
+  assert.equal(result.models[0].use_responses_lite, true);
   assert.deepEqual([...result.visionCapable], ['remote-vision', 'remote-image']);
 });
 

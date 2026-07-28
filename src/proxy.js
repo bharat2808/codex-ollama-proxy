@@ -823,16 +823,6 @@ function normalizeXaiReasoningInput(body) {
   return changed;
 }
 
-function normalizeOpenAiReasoningContext(body) {
-  if (!body || !body.reasoning || typeof body.reasoning !== 'object'
-    || body.reasoning.context !== 'all_turns') return false;
-  const upstream = getUpstream();
-  if (!upstream.baseUrl || upstream.baseUrl.hostname !== 'api.openai.com') return false;
-  body.reasoning.context = 'auto';
-  debugLog('OpenAI request: normalized reasoning.context from all_turns to auto');
-  return true;
-}
-
 function translateRequestBody(body) {
   if (!body || typeof body !== 'object') return body;
   if (ROUTE_CFG.dedupe_large_input) {
@@ -847,7 +837,6 @@ function translateRequestBody(body) {
   if (Array.isArray(body.tools)) ingestNamespaces(body.tools);
   const activeImageTurn = activeTurnHasImage(body);
   applyModelRouting(body);
-  normalizeOpenAiReasoningContext(body);
   removeUnsupportedReasoningEffort(body);
   normalizeXaiReasoningInput(body);
   applyOutputModalities(body);

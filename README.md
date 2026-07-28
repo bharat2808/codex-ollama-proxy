@@ -195,11 +195,6 @@ not accept Codex Responses requests. The last successful discovery cache and
 a bundled snapshot normalized from Codex's `models_cache.json` provide
 fallbacks.
 
-OpenAI catalog projection disables Codex Responses Lite so the public API uses
-its normal reasoning-context defaults. As a compatibility safeguard, the proxy
-normalizes residual `reasoning.context = "all_turns"` values to `auto` before
-forwarding requests to `api.openai.com`.
-
 ## Custom Responses API Preset
 
 For any provider that exposes `POST /v1/responses`:

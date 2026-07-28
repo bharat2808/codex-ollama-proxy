@@ -13,6 +13,13 @@ const OLLAMA_GEMMA4_REASONING = Object.freeze({
   reasoningLevels: Object.freeze(['none', 'low', 'medium', 'high', 'max']),
 });
 
+const CODEX_CATALOG_OVERRIDES = Object.freeze({
+  openai: Object.freeze({
+    default_reasoning_summary: 'auto',
+    use_responses_lite: false,
+  }),
+});
+
 const DOCUMENTED_MODALITIES = Object.freeze({
   cohere: Object.freeze({
     'command-a-03-2025': Object.freeze({
@@ -203,4 +210,12 @@ function applyDocumentedModalities(provider, model) {
   return enriched;
 }
 
-module.exports = { applyDocumentedModalities };
+function applyCodexCatalogOverrides(provider, model) {
+  const overrides = CODEX_CATALOG_OVERRIDES[provider];
+  return overrides ? Object.assign(model, overrides) : model;
+}
+
+module.exports = {
+  applyCodexCatalogOverrides,
+  applyDocumentedModalities,
+};
