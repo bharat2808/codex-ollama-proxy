@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { validModel } = require('./file-cache');
 const { METADATA_FIELDS } = require('./normalize');
+const { enrichAnthropicFromDocumentation } = require('./anthropic-documentation');
 const { applyDocumentedModalities } = require('./provider-catalog-overrides');
 
 const CATALOG_DIRECTORY = path.join(__dirname, 'catalogs', 'providers');
@@ -113,6 +114,7 @@ function buildProviderCatalog(provider, providerModels, openRouterModels) {
       model.displayName = openrouterModel.displayName;
     }
     model = applyDocumentedModalities(provider, model);
+    if (provider === 'anthropic') model = enrichAnthropicFromDocumentation(model);
     model.source = 'bundled-provider-catalog';
     models.push(model);
   }

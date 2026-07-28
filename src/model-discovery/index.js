@@ -10,7 +10,12 @@ const {
 const { createDiscoveryResult } = require('./discovery-result');
 
 function adapterModels(adapter, models) {
-  return typeof adapter.filterModels === 'function' ? adapter.filterModels(models) : models;
+  const normalized = typeof adapter.normalizeModels === 'function'
+    ? adapter.normalizeModels(models)
+    : models;
+  return typeof adapter.filterModels === 'function'
+    ? adapter.filterModels(normalized)
+    : normalized;
 }
 const { resolveProvider } = require('./provider-resolution');
 const ollama = require('./providers/ollama');

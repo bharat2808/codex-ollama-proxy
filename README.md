@@ -167,7 +167,11 @@ codex-ollama-proxy run claude
 `--provider claude` is an alias for `--provider anthropic`. Authenticated model
 discovery reads Anthropic's complete `/v1/models` inventory, including its
 published capability and token-limit metadata. If discovery is unavailable,
-the last successful cache or bundled Anthropic catalog is used.
+the last successful cache or bundled Anthropic catalog is used. The bundled
+catalog is generated from an authenticated 11-model inventory and enriches
+exact documented model IDs with text output, OpenAI-compatible tool calling,
+and the documented default `high` effort. Unknown future IDs remain
+unenriched until Anthropic publishes their capabilities.
 
 ## OpenAI Preset
 

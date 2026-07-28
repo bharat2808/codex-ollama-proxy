@@ -122,6 +122,36 @@ test('Anthropic and OpenAI catalog generation preserves every provider row witho
   assert.deepEqual(anthropic.models.map((entry) => entry.id), ['claude-example']);
 });
 
+test('bundled Anthropic catalog contains the complete authenticated inventory with documented metadata', () => {
+  const anthropic = loadBundledProviderCatalog('anthropic');
+
+  assert.deepEqual(anthropic.models.map((entry) => entry.id), [
+    'claude-fable-5',
+    'claude-haiku-4-5-20251001',
+    'claude-opus-4-1-20250805',
+    'claude-opus-4-5-20251101',
+    'claude-opus-4-6',
+    'claude-opus-4-7',
+    'claude-opus-4-8',
+    'claude-opus-5',
+    'claude-sonnet-4-5-20250929',
+    'claude-sonnet-4-6',
+    'claude-sonnet-5',
+  ]);
+  assert.ok(anthropic.models.every((entry) => (
+    entry.inputModalities?.join(',') === 'text,image'
+    && entry.outputModalities?.join(',') === 'text'
+    && entry.toolCalling === true
+  )));
+  const effortModels = anthropic.models.filter((entry) => entry.reasoningLevels !== null);
+  assert.equal(effortModels.length, 8);
+  assert.ok(effortModels.every((entry) => entry.defaultReasoningLevel === 'high'));
+  assert.ok(anthropic.models.every((entry) => (
+    entry.reasoningMandatory === null
+    && entry.reasoningSupportsMaxTokens === null
+  )));
+});
+
 test('Codex model cache normalization preserves every row and useful OpenAI metadata', () => {
   const models = normalizeOpenAiModelCache({
     models: [

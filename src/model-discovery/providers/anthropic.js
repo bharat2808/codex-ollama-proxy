@@ -1,6 +1,7 @@
 'use strict';
 
 const { adapterResult } = require('../adapter-result');
+const { enrichAnthropicFromDocumentation } = require('../anthropic-documentation');
 const { fetchJson } = require('../live-catalog');
 const { loadBundledProviderCatalog } = require('../provider-catalog');
 const {
@@ -56,7 +57,7 @@ function parseRow(row) {
   const providerMetadata = {};
   if (typeof value.created_at === 'string') providerMetadata.createdAt = value.created_at;
   if (typeof value.type === 'string') providerMetadata.type = value.type;
-  return {
+  return enrichAnthropicFromDocumentation({
     id,
     displayName: typeof value.display_name === 'string' && value.display_name.trim()
       ? value.display_name.trim()
@@ -75,7 +76,7 @@ function parseRow(row) {
     metadataSources,
     providerMetadata,
     source: 'anthropic-catalog',
-  };
+  });
 }
 
 function resolveBaseUrl(value) {
@@ -89,6 +90,11 @@ function resolveBaseUrl(value) {
 
 function endpointFor(baseUrl) {
   return `${resolveBaseUrl(baseUrl)}/models`;
+}
+
+function normalizeModels(models) {
+  return (Array.isArray(models) ? models : [])
+    .map((model) => enrichAnthropicFromDocumentation(model));
 }
 
 async function discoverLive(options = {}) {
@@ -166,6 +172,7 @@ module.exports = {
   discover,
   discoverLive,
   endpointFor,
+  normalizeModels,
   parseRow,
   resolveBaseUrl,
 };

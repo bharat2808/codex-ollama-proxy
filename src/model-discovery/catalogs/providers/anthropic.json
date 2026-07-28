@@ -7,27 +7,42 @@
       "displayName": "Claude Fable 5",
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
-      "inputModalities": ["text", "image"],
-      "outputModalities": ["text"],
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
       "reasoning": true,
-      "reasoningLevels": null,
-      "defaultReasoningLevel": null,
-      "reasoningDefaultEnabled": true,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
-      "toolCalling": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": "provider-catalog",
-        "reasoningLevels": null,
-        "defaultReasoningLevel": null,
-        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": null,
         "reasoningSupportsMaxTokens": null,
-        "reasoningMandatory": "provider-catalog",
-        "toolCalling": null
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2026-06-07T00:00:00Z",
+        "type": "model"
       },
       "source": "bundled-provider-catalog"
     },
@@ -36,15 +51,20 @@
       "displayName": "Claude Haiku 4.5",
       "contextWindow": 200000,
       "maxOutputTokens": 64000,
-      "inputModalities": ["text", "image"],
-      "outputModalities": ["text"],
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
       "reasoning": true,
       "reasoningLevels": null,
       "defaultReasoningLevel": null,
-      "reasoningDefaultEnabled": false,
-      "reasoningSupportsMaxTokens": true,
-      "reasoningMandatory": false,
-      "toolCalling": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
@@ -53,10 +73,225 @@
         "reasoning": "provider-catalog",
         "reasoningLevels": null,
         "defaultReasoningLevel": null,
-        "reasoningDefaultEnabled": "provider-catalog",
-        "reasoningSupportsMaxTokens": "provider-catalog",
-        "reasoningMandatory": "provider-catalog",
-        "toolCalling": null
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2025-10-15T00:00:00Z",
+        "type": "model"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "claude-opus-4-1-20250805",
+      "displayName": "Claude Opus 4.1",
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": null,
+      "defaultReasoningLevel": null,
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": null,
+        "defaultReasoningLevel": null,
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2025-08-05T00:00:00Z",
+        "type": "model"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "claude-opus-4-5-20251101",
+      "displayName": "Claude Opus 4.5",
+      "contextWindow": 200000,
+      "maxOutputTokens": 64000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2025-11-24T00:00:00Z",
+        "type": "model"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "claude-opus-4-6",
+      "displayName": "Claude Opus 4.6",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2026-02-04T00:00:00Z",
+        "type": "model"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "claude-opus-4-7",
+      "displayName": "Claude Opus 4.7",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2026-04-14T00:00:00Z",
+        "type": "model"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "claude-opus-4-8",
+      "displayName": "Claude Opus 4.8",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2026-05-28T00:00:00Z",
+        "type": "model"
       },
       "source": "bundled-provider-catalog"
     },
@@ -65,15 +300,64 @@
       "displayName": "Claude Opus 5",
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
-      "inputModalities": ["text", "image"],
-      "outputModalities": ["text"],
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2026-07-24T00:00:00Z",
+        "type": "model"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "claude-sonnet-4-5-20250929",
+      "displayName": "Claude Sonnet 4.5",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 64000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
       "reasoning": true,
       "reasoningLevels": null,
       "defaultReasoningLevel": null,
-      "reasoningDefaultEnabled": true,
+      "reasoningDefaultEnabled": null,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": false,
-      "toolCalling": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
@@ -82,10 +366,57 @@
         "reasoning": "provider-catalog",
         "reasoningLevels": null,
         "defaultReasoningLevel": null,
-        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningDefaultEnabled": null,
         "reasoningSupportsMaxTokens": null,
-        "reasoningMandatory": "provider-catalog",
-        "toolCalling": null
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2025-09-29T00:00:00Z",
+        "type": "model"
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "displayName": "Claude Sonnet 4.6",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": "provider-catalog",
+        "inputModalities": "provider-catalog",
+        "outputModalities": "provider-catalog",
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": null,
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2026-02-17T00:00:00Z",
+        "type": "model"
       },
       "source": "bundled-provider-catalog"
     },
@@ -94,27 +425,42 @@
       "displayName": "Claude Sonnet 5",
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
-      "inputModalities": ["text", "image"],
-      "outputModalities": ["text"],
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ],
       "reasoning": true,
-      "reasoningLevels": null,
-      "defaultReasoningLevel": null,
-      "reasoningDefaultEnabled": true,
+      "reasoningLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultReasoningLevel": "high",
+      "reasoningDefaultEnabled": null,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": false,
-      "toolCalling": null,
+      "reasoningMandatory": null,
+      "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
         "maxOutputTokens": "provider-catalog",
         "inputModalities": "provider-catalog",
         "outputModalities": "provider-catalog",
         "reasoning": "provider-catalog",
-        "reasoningLevels": null,
-        "defaultReasoningLevel": null,
-        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": null,
         "reasoningSupportsMaxTokens": null,
-        "reasoningMandatory": "provider-catalog",
-        "toolCalling": null
+        "reasoningMandatory": null,
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "createdAt": "2026-06-29T00:00:00Z",
+        "type": "model"
       },
       "source": "bundled-provider-catalog"
     }

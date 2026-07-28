@@ -701,11 +701,11 @@ test('OpenRouter reasoning metadata distinguishes all-efforts from no exposed ef
   assert.equal(noSelector.reasoningMandatory, true);
 });
 
-test('Anthropic discovery maps documented model capabilities without guessing', () => {
+test('Anthropic discovery enriches exact models from official compatibility documentation', () => {
   const model = anthropic.parseRow({
-    id: 'claude-sonnet-example',
+    id: 'claude-sonnet-5',
     type: 'model',
-    display_name: 'Claude Sonnet Example',
+    display_name: 'Claude Sonnet 5',
     created_at: '2026-07-01T00:00:00Z',
     max_input_tokens: 1000000,
     max_tokens: 128000,
@@ -726,21 +726,20 @@ test('Anthropic discovery maps documented model capabilities without guessing', 
         xhigh: { supported: false },
         max: { supported: true },
       },
-      tool_use: { supported: true },
       future_capability: { supported: true },
     },
   });
 
   assert.deepEqual(model, {
-    id: 'claude-sonnet-example',
-    displayName: 'Claude Sonnet Example',
+    id: 'claude-sonnet-5',
+    displayName: 'Claude Sonnet 5',
     contextWindow: 1000000,
     maxOutputTokens: 128000,
     inputModalities: ['text', 'image'],
-    outputModalities: null,
+    outputModalities: ['text'],
     reasoning: true,
     reasoningLevels: ['low', 'medium', 'high', 'max'],
-    defaultReasoningLevel: null,
+    defaultReasoningLevel: 'high',
     reasoningDefaultEnabled: null,
     reasoningSupportsMaxTokens: null,
     reasoningMandatory: null,
@@ -749,10 +748,10 @@ test('Anthropic discovery maps documented model capabilities without guessing', 
       contextWindow: 'provider-catalog',
       maxOutputTokens: 'provider-catalog',
       inputModalities: 'provider-catalog',
-      outputModalities: null,
+      outputModalities: 'provider-catalog',
       reasoning: 'provider-catalog',
       reasoningLevels: 'provider-catalog',
-      defaultReasoningLevel: null,
+      defaultReasoningLevel: 'provider-catalog',
       reasoningDefaultEnabled: null,
       reasoningSupportsMaxTokens: null,
       reasoningMandatory: null,
@@ -764,6 +763,23 @@ test('Anthropic discovery maps documented model capabilities without guessing', 
     },
     source: 'anthropic-catalog',
   });
+});
+
+test('Anthropic documentation enrichment does not guess capabilities for unknown future ids', () => {
+  const model = anthropic.parseRow({
+    id: 'claude-future-example',
+    type: 'model',
+    display_name: 'Claude Future Example',
+    max_input_tokens: 1000000,
+    max_tokens: 128000,
+    capabilities: {},
+  });
+
+  assert.equal(model.inputModalities, null);
+  assert.equal(model.outputModalities, null);
+  assert.equal(model.reasoningLevels, null);
+  assert.equal(model.defaultReasoningLevel, null);
+  assert.equal(model.toolCalling, null);
 });
 
 test('Anthropic discovery authenticates and follows model pagination in provider order', async () => {
@@ -819,6 +835,58 @@ test('Anthropic discovery authenticates and follows model pagination in provider
       version: '2023-06-01',
     },
   ]);
+});
+
+test('public Anthropic discovery enriches documented metadata in an existing fresh cache', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'anthropic-model-cache-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  const cachedModel = {
+    ...normalizeSuppliedModels(['claude-sonnet-5'])[0],
+    displayName: 'Claude Sonnet 5',
+    contextWindow: 1000000,
+    maxOutputTokens: 128000,
+    inputModalities: ['text', 'image'],
+    reasoning: true,
+    reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    metadataSources: {
+      ...normalizeSuppliedModels(['claude-sonnet-5'])[0].metadataSources,
+      contextWindow: 'provider-catalog',
+      maxOutputTokens: 'provider-catalog',
+      inputModalities: 'provider-catalog',
+      reasoning: 'provider-catalog',
+      reasoningLevels: 'provider-catalog',
+    },
+    source: 'anthropic-catalog',
+  };
+  const cacheOptions = {
+    provider: 'anthropic',
+    endpoint: anthropic.ENDPOINT,
+    apiKey: 'anthropic-secret',
+    cacheDir,
+  };
+  writeCache(
+    cacheOptions,
+    cacheIdentity(cacheOptions),
+    [cachedModel],
+    1000,
+    { origin: 'live', complete: true },
+  );
+
+  const result = await discoverModels({
+    provider: 'anthropic',
+    baseUrl: anthropic.BASE_URL,
+    apiKey: 'anthropic-secret',
+    cacheDir,
+    now: () => 1001,
+    fetchImpl: async () => {
+      throw new Error('fresh cache must avoid network access');
+    },
+  });
+
+  assert.equal(result.cache.state, 'fresh');
+  assert.deepEqual(result.models[0].outputModalities, ['text']);
+  assert.equal(result.models[0].defaultReasoningLevel, 'high');
+  assert.equal(result.models[0].toolCalling, true);
 });
 
 test('Anthropic discovery rejects cursor loops and falls back to its bundled catalog', async () => {
