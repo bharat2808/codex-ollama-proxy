@@ -3,6 +3,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { codexDir } = require('./runtime-paths');
+const launcherState = require('./launcher-state');
 const { discoverModels } = require('./model-discovery');
 const { projectCodexCatalog } = require('./model-catalog/project-codex-catalog');
 const {
@@ -11,7 +13,7 @@ const {
 } = require('./model-catalog/resolve-model-inventory');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
-const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
+const CODEX_DIR = codexDir();
 const CONFIG = path.join(CODEX_DIR, 'config.toml');
 const OLLAMA_REFERENCE = path.join(CODEX_DIR, 'config.toml.ollama-working');
 const MODEL_CATALOG = path.join(CODEX_DIR, 'ollama-launch-models-ollama-working.json');
@@ -21,6 +23,7 @@ const MODELS_CACHE = path.join(CODEX_DIR, 'models_cache.json');
 const VISION_CACHE = path.join(CODEX_DIR, 'cache', 'vision_capable_models.json');
 const BACKUP_DIR = path.join(CODEX_DIR, 'config-backups');
 const PROXY_MODELS = path.join(CODEX_DIR, 'ollama-shape-proxy', 'proxy-models.toml');
+const LAUNCHER_STATE = path.join(CODEX_DIR, 'ollama-shape-proxy', 'launcher-state.json');
 
 const DEFAULT_OLLAMA_MODEL = 'glm-5.2:cloud';
 const DEFAULT_CONTEXT_WINDOW = '1000000';
@@ -66,6 +69,26 @@ function readText(file) {
 
 function writeText(file, text) {
   fs.writeFileSync(file, text, 'utf8');
+}
+
+function tomlString(value) {
+  return JSON.stringify(String(value));
+}
+
+function configuredProxyPort() {
+  if (process.env.PROXY_PORT !== undefined) {
+    const port = Number(process.env.PROXY_PORT);
+    if (Number.isInteger(port) && port >= 1 && port <= 65535) return port;
+  }
+  try {
+    const state = launcherState.read(LAUNCHER_STATE);
+    if (state && state.proxy_port) return state.proxy_port;
+  } catch {}
+  return launcherState.DEFAULT_PROXY_PORT;
+}
+
+function proxyBaseUrl() {
+  return `http://127.0.0.1:${configuredProxyPort()}/v1/`;
 }
 
 function timestamp() {
@@ -287,13 +310,24 @@ function ensureStorefrontPluginTables(text) {
 function ensureOllamaProviderTable(text) {
   if (!exists(OLLAMA_REFERENCE)) {
     const blocks = tableBlocks(text);
-    if (Object.prototype.hasOwnProperty.call(blocks, OLLAMA_PROVIDER_HEADER)) return text;
-    return `${text.replace(/\s+$/u, '')}\n\n${OLLAMA_PROVIDER_HEADER}\nname = "Ollama"\nbase_url = "http://127.0.0.1:11434/v1/"\nwire_api = "responses"\nrequires_openai_auth = true\n`;
+    if (Object.prototype.hasOwnProperty.call(blocks, OLLAMA_PROVIDER_HEADER)) {
+      let result = text;
+      result = ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'base_url', tomlString(proxyBaseUrl()));
+      return ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'requires_openai_auth', 'true');
+    }
+    return `${text.replace(/\s+$/u, '')}\n\n${OLLAMA_PROVIDER_HEADER}\nname = "Ollama"\nbase_url = ${tomlString(proxyBaseUrl())}\nwire_api = "responses"\nrequires_openai_auth = true\n`;
   }
   const referenceText = readText(OLLAMA_REFERENCE);
   const { providerHeaders } = referenceHeaders(referenceText);
   let result = ensureReferenceTables(text, referenceText, providerHeaders);
+  result = ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'base_url', tomlString(proxyBaseUrl()));
   return ensureTableKey(result, OLLAMA_PROVIDER_HEADER, 'requires_openai_auth', 'true');
+}
+
+function ensureOllamaReference(text) {
+  if (exists(OLLAMA_REFERENCE)) return false;
+  writeText(OLLAMA_REFERENCE, text);
+  return true;
 }
 
 function normalizeOllama(text, model) {
@@ -305,15 +339,15 @@ function normalizeOllama(text, model) {
   const instructionLine = referenceTopLevelLine('developer_instructions');
   if (instructionLine) lines.push(instructionLine);
   if (model) {
-    lines = replaceOrInsert(lines, 'model', `"${model}"`);
+    lines = replaceOrInsert(lines, 'model', tomlString(model));
   } else {
     lines = removeKey(lines, 'model');
   }
   lines = replaceOrInsert(lines, 'model_reasoning_summary', '"auto"');
   lines = replaceOrInsert(lines, 'model_context_window', DEFAULT_CONTEXT_WINDOW);
   lines = replaceOrInsert(lines, 'model_auto_compact_token_limit', DEFAULT_AUTO_COMPACT);
-  lines = replaceOrInsert(lines, 'model_provider', `"${PROVIDER_NAME}"`);
-  lines = replaceOrInsert(lines, 'model_catalog_json', `"${MODEL_CATALOG}"`);
+  lines = replaceOrInsert(lines, 'model_provider', tomlString(PROVIDER_NAME));
+  lines = replaceOrInsert(lines, 'model_catalog_json', tomlString(MODEL_CATALOG));
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');
   normalized = ensureStorefrontPluginTables(normalized);
   normalized = ensureTableKey(normalized, '[features]', 'enable_mcp_apps', 'true');
@@ -655,6 +689,7 @@ async function main() {
   const modelArg = args.noModel ? null : (args.model || null);
   const newText = normalizeOllama(text, modelArg);
   writeText(CONFIG, newText);
+  if (ensureOllamaReference(newText)) console.log(`reference_created=${OLLAMA_REFERENCE}`);
   console.log(`switched=${args.mode}`);
   if (backup) console.log(`backup=${backup}`);
   console.log(currentStatus(newText));

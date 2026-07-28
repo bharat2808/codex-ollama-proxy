@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { assertPrivateDirectoryMode, assertPrivateFileMode } = require('./helpers/file-mode');
 
 const {
   mergeDiscoveredWithSupplied,
@@ -349,8 +350,8 @@ test('provider cache returns fresh data then the last successful stale data on r
     assert.equal(files.length, 1);
     const cacheText = fs.readFileSync(path.join(cacheDir, 'nvidia', files[0]), 'utf8');
     assert.doesNotMatch(cacheText, /cache-secret|catalog\.example/u);
-    assert.equal(fs.statSync(path.join(cacheDir, 'nvidia')).mode & 0o077, 0);
-    assert.equal(fs.statSync(path.join(cacheDir, 'nvidia', files[0])).mode & 0o077, 0);
+    assertPrivateDirectoryMode(path.join(cacheDir, 'nvidia'));
+    assertPrivateFileMode(path.join(cacheDir, 'nvidia', files[0]));
   } finally {
     fs.rmSync(cacheDir, { recursive: true, force: true });
   }

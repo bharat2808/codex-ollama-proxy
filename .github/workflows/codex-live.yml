@@ -1,0 +1,57 @@
+name: Codex Proxy Integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  live-codex:
+    name: Live Codex - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    environment: proxy-live-test
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run ordinary tests
+        run: |
+          npm run check
+          node --test
+      - name: Install real Codex
+        run: npm install --global @openai/codex@latest
+      - name: Verify Codex installation
+        run: codex --version
+      - name: Build proxy package
+        run: npm pack
+      - name: Run live integration test
+        env:
+          PROXY_TEST_API_KEY: ${{ secrets.PROXY_TEST_API_KEY }}
+          PROXY_TEST_URL: ${{ vars.PROXY_TEST_URL }}
+          PROXY_TEST_MODEL: ${{ vars.PROXY_TEST_MODEL }}
+          PROXY_TEST_ADAPTOR: ${{ vars.PROXY_TEST_ADAPTOR }}
+          CODEX_API_KEY: codex-proxy-ci-placeholder
+        run: node test/e2e/codex-live.js
+      - name: Upload diagnostic logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-proxy-logs-${{ matrix.os }}
+          path: integration-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -2,9 +2,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { codexDir } = require('./runtime-paths');
 const childProcess = require('child_process');
 
-const CODEX_DIR = process.env.CODEX_HOME || path.join(process.env.HOME, '.codex');
+const CODEX_DIR = codexDir();
 const PLUGINS_CACHE_DIR = path.join(CODEX_DIR, 'plugins', 'cache');
 const CODEX_APP_SERVER = process.env.CODEX_APP_SERVER_PATH ||
   '/Applications/ChatGPT.app/Contents/Resources/codex';
