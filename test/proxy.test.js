@@ -89,6 +89,49 @@ test('native image-output requests do not forward or inject function tools', () 
   assert.equal(body.tool_choice, undefined);
 });
 
+test('OpenAI requests normalize residual all-turns reasoning context to auto', () => {
+  withRouteConfig([
+    'default_model = "o3"',
+    'upstream_url = "https://api.openai.com/v1"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'o3',
+      input: 'hello',
+      reasoning: {
+        effort: 'high',
+        context: 'all_turns',
+      },
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.reasoning, {
+      effort: 'high',
+      context: 'auto',
+    });
+  });
+});
+
+test('non-OpenAI requests preserve all-turns reasoning context', () => {
+  withRouteConfig([
+    'default_model = "provider-model"',
+    'upstream_url = "https://example.com/v1"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'provider-model',
+      input: 'hello',
+      reasoning: {
+        effort: 'high',
+        context: 'all_turns',
+      },
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.reasoning.context, 'all_turns');
+  });
+});
+
 test('image generation tools are removed when Imagine is disabled', () => {
   withRouteConfig([
     'default_model = "text-model"',

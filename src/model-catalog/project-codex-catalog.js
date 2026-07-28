@@ -109,6 +109,7 @@ function applyDiscoveredMetadata(catalogModels, discoveredModels) {
 
 function nativeCapabilitiesFromDiscovery(discovery, imageModel) {
   const models = discovery && Array.isArray(discovery.models) ? discovery.models : [];
+  const provider = discovery && typeof discovery.provider === 'string' ? discovery.provider : null;
   const isOllama = Boolean(discovery && discovery.provider === 'ollama');
   const visionCapable = new Set();
   const imageOutputCapable = new Set();
@@ -124,7 +125,7 @@ function nativeCapabilitiesFromDiscovery(discovery, imageModel) {
     if (typeof model.toolCalling === 'boolean') toolCalling.set(model.id, model.toolCalling);
   }
   if (imageModel) visionCapable.add(imageModel);
-  return { isOllama, visionCapable, imageOutputCapable, toolCalling };
+  return { provider, isOllama, visionCapable, imageOutputCapable, toolCalling };
 }
 
 function applyCapabilities(model, options) {
@@ -141,7 +142,9 @@ function applyCapabilities(model, options) {
   model.supports_search_tool = options.canonical.supports_search_tool;
   model.shell_type = options.canonical.shell_type;
   model.web_search_tool_type = options.canonical.web_search_tool_type;
-  model.use_responses_lite = options.canonical.use_responses_lite;
+  model.use_responses_lite = options.provider === 'openai'
+    ? false
+    : options.canonical.use_responses_lite;
 
   const hasVision = lookupIds.some((id) => options.visionCapable.has(id));
   model.input_modalities = hasVision ? ['text', 'image'] : ['text'];

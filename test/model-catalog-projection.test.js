@@ -127,6 +127,29 @@ test('projects explicit non-Ollama vision support without guessing unknown capab
   assert.deepEqual([...result.visionCapable], ['remote-vision', 'remote-image']);
 });
 
+test('OpenAI catalog projection disables Responses Lite so reasoning context defaults to auto', () => {
+  const result = projectCodexCatalog({
+    existingModels: [],
+    knownIds: new Set(['o3']),
+    discovery: {
+      provider: 'openai',
+      models: [{
+        id: 'o3',
+        inputModalities: ['text'],
+        reasoning: true,
+        source: 'provider-catalog',
+      }],
+    },
+    canonical: {
+      ...canonical,
+      use_responses_lite: true,
+    },
+  });
+
+  assert.equal(result.models[0].use_responses_lite, false);
+  assert.equal(result.models[0].default_reasoning_summary, 'auto');
+});
+
 test('blank discovered display names fall back to the stable model id', () => {
   const models = [{ slug: 'stable-id', display_name: 'Stale Name' }];
   applyDiscoveredMetadata(models, [{
