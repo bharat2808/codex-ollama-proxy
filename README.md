@@ -14,6 +14,31 @@ The proxy runs locally, translates Codex-specific tool formats into provider-com
 
 > This project is unofficial and experimental. Codex tool formats may change between releases.
 
+## Supported Providers and Operating Systems
+
+Built-in provider profiles:
+
+* Google AI Studio and Vertex AI
+* NVIDIA
+* OpenRouter
+* Anthropic
+* OpenAI
+* Cohere
+* Z.AI
+* Moonshot
+* DeepSeek
+* xAI
+* Ollama
+
+Custom providers are also supported when they expose an OpenAI-compatible Responses API or
+Chat Completions API.
+
+Supported operating systems:
+
+* macOS using launchd
+* Linux using a systemd user service
+* Windows using Task Scheduler, with a per-user startup fallback
+
 ## Install
 
 ```bash
@@ -55,25 +80,6 @@ The local proxy listens on:
 ```text
 http://127.0.0.1:11436
 ```
-
-## Continuous Integration
-
-Pull requests run static checks, the complete Node test suite, and an `npm pack` installation
-smoke test on Linux, Windows, and macOS. These checks do not receive provider credentials.
-
-The `Codex Proxy Integration` workflow is manual and weekly. It installs the current Codex CLI,
-starts the packed proxy in the foreground, and verifies real shell and `apply_patch` tool calls on
-Linux and Windows. Configure its protected `proxy-live-test` environment with:
-
-* Secret `PROXY_TEST_API_KEY`
-* Variables `PROXY_TEST_URL` and `PROXY_TEST_MODEL`
-* Optional variable `PROXY_TEST_ADAPTOR` for non-Responses providers
-
-Require reviewers on that environment and use a dedicated, budget-limited provider credential.
-The workflow is intentionally not triggered by pull requests and never uses `pull_request_target`.
-Native service lifecycle checks are a separate manual workflow: Windows uses a hosted runner, while
-Linux requires a self-hosted runner labeled `linux` and `codex-proxy-systemd` with a working systemd
-user session.
 
 ## Recommended Workflow: Provider Presets
 
@@ -177,14 +183,6 @@ codex-universal-proxy preset add claude \
 codex-universal-proxy run claude
 ```
 
-`--provider claude` is an alias for `--provider anthropic`. Authenticated model
-discovery reads Anthropic's complete `/v1/models` inventory, including its
-published capability and token-limit metadata. If discovery is unavailable,
-the last successful cache or bundled Anthropic catalog is used. The bundled
-catalog is generated from an authenticated 11-model inventory and enriches
-exact documented model IDs with text output, OpenAI-compatible tool calling,
-and the documented default `high` effort. Unknown future IDs remain
-unenriched until Anthropic publishes their capabilities.
 
 ## OpenAI Preset
 
@@ -201,12 +199,6 @@ codex-universal-proxy preset add openai \
 codex-universal-proxy run openai
 ```
 
-OpenAI discovery retains every non-embedding model returned by the
-authenticated `/v1/models` endpoint. Image, audio, moderation, fine-tuned,
-legacy, and other non-embedding models remain available even when they may
-not accept Codex Responses requests. The last successful discovery cache and
-a bundled snapshot normalized from Codex's `models_cache.json` provide
-fallbacks.
 
 ## Custom Responses API Preset
 
