@@ -954,12 +954,63 @@ test('OpenAI discovery preserves provider metadata and leaves unknown capabiliti
   });
 });
 
-test('OpenAI discovery excludes embedding models and retains every other purpose in provider order', async () => {
+test('OpenAI catalog normalization applies the live-tested reasoning effort matrix', () => {
+  const models = openai.normalizeModels([
+    openai.parseRow({ id: 'o3' }),
+    openai.parseRow({ id: 'gpt-5.6-sol' }),
+    openai.parseRow({ id: 'gpt-5-pro' }),
+    openai.parseRow({ id: 'gpt-4' }),
+    openai.parseRow({ id: 'future-openai-model' }),
+  ]);
+
+  assert.deepEqual(models.map((model) => ({
+    id: model.id,
+    reasoning: model.reasoning,
+    levels: model.reasoningLevels,
+    defaultLevel: model.defaultReasoningLevel,
+  })), [
+    {
+      id: 'o3',
+      reasoning: true,
+      levels: ['low', 'medium', 'high'],
+      defaultLevel: 'medium',
+    },
+    {
+      id: 'gpt-5.6-sol',
+      reasoning: true,
+      levels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      defaultLevel: 'low',
+    },
+    {
+      id: 'gpt-5-pro',
+      reasoning: true,
+      levels: ['high'],
+      defaultLevel: 'high',
+    },
+    {
+      id: 'gpt-4',
+      reasoning: false,
+      levels: null,
+      defaultLevel: null,
+    },
+    {
+      id: 'future-openai-model',
+      reasoning: false,
+      levels: null,
+      defaultLevel: null,
+    },
+  ]);
+  assert.equal(models[0].metadataSources.reasoningLevels, 'provider-catalog');
+  assert.equal(models[3].metadataSources.reasoning, 'provider-catalog');
+});
+
+test('OpenAI discovery excludes embedding and Whisper models while retaining every other purpose in provider order', async () => {
   const ids = [
     'gpt-example',
     'text-embedding-example',
     'ft:text-embedding-example:organization:suffix:id',
     'vendor/embeddings-v2',
+    'whisper-1',
     'gpt-image-example',
     'tts-example',
     'omni-moderation-example',
@@ -1032,6 +1083,7 @@ test('public OpenAI discovery filters embedding rows from an existing fresh cach
     [
       openai.parseRow({ id: 'gpt-example' }),
       openai.parseRow({ id: 'text-embedding-example' }),
+      openai.parseRow({ id: 'whisper-1' }),
     ],
     1000,
     { origin: 'live', complete: true },

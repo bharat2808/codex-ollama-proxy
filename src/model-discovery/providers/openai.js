@@ -3,6 +3,7 @@
 const { adapterResult } = require('../adapter-result');
 const { fetchJson } = require('../live-catalog');
 const { loadBundledProviderCatalog } = require('../provider-catalog');
+const { applyDocumentedModalities } = require('../provider-catalog-overrides');
 const { emptyMetadataSources, normalizeModelId } = require('../normalize');
 
 const BASE_URL = 'https://api.openai.com/v1';
@@ -47,9 +48,18 @@ function isEmbeddingModelId(id) {
   return typeof id === 'string' && EMBEDDING_MODEL_ID_PATTERN.test(id);
 }
 
+function isExcludedModelId(id) {
+  return isEmbeddingModelId(id) || id === 'whisper-1';
+}
+
 function filterModels(models) {
   return (Array.isArray(models) ? models : [])
-    .filter((model) => model && !isEmbeddingModelId(model.id));
+    .filter((model) => model && !isExcludedModelId(model.id));
+}
+
+function normalizeModels(models) {
+  return (Array.isArray(models) ? models : [])
+    .map((model) => applyDocumentedModalities('openai', model));
 }
 
 function resolveBaseUrl(value) {
@@ -82,7 +92,7 @@ async function discoverLive(options = {}) {
   const unique = new Map();
   for (const row of payload.data) {
     const model = parseRow(row);
-    if (model && !isEmbeddingModelId(model.id) && !unique.has(model.id)) {
+    if (model && !isExcludedModelId(model.id) && !unique.has(model.id)) {
       unique.set(model.id, model);
     }
   }
@@ -90,7 +100,7 @@ async function discoverLive(options = {}) {
     throw new TypeError('OpenAI model catalog contained no valid models.');
   }
   return adapterResult({
-    models: [...unique.values()],
+    models: normalizeModels([...unique.values()]),
     warnings: [],
     origin: 'live',
     complete: true,
@@ -105,7 +115,7 @@ async function discover(options = {}) {
     const bundled = loadBundledProviderCatalog('openai');
     const warnings = ['OpenAI live catalog refresh failed; using the bundled provider catalog.'];
     return adapterResult({
-      models: bundled.models,
+      models: normalizeModels(bundled.models),
       warnings,
       origin: 'bundled',
       complete: false,
@@ -123,6 +133,7 @@ module.exports = {
   endpointFor,
   filterModels,
   isEmbeddingModelId,
+  normalizeModels,
   parseRow,
   resolveBaseUrl,
 };

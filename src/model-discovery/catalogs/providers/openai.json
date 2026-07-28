@@ -12,7 +12,7 @@
         "image"
       ],
       "outputModalities": null,
-      "reasoning": true,
+      "reasoning": false,
       "reasoningLevels": [
         "low",
         "medium",
@@ -20,9 +20,9 @@
         "xhigh"
       ],
       "defaultReasoningLevel": "medium",
-      "reasoningDefaultEnabled": true,
+      "reasoningDefaultEnabled": false,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
+      "reasoningMandatory": false,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -54,7 +54,7 @@
         "text"
       ],
       "outputModalities": null,
-      "reasoning": true,
+      "reasoning": false,
       "reasoningLevels": [
         "low",
         "medium",
@@ -62,9 +62,9 @@
         "xhigh"
       ],
       "defaultReasoningLevel": "high",
-      "reasoningDefaultEnabled": true,
+      "reasoningDefaultEnabled": false,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
+      "reasoningMandatory": false,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -99,6 +99,7 @@
       "outputModalities": null,
       "reasoning": true,
       "reasoningLevels": [
+        "none",
         "low",
         "medium",
         "high",
@@ -107,7 +108,7 @@
       "defaultReasoningLevel": "medium",
       "reasoningDefaultEnabled": true,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
+      "reasoningMandatory": false,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -152,6 +153,7 @@
       "outputModalities": null,
       "reasoning": true,
       "reasoningLevels": [
+        "none",
         "low",
         "medium",
         "high",
@@ -160,7 +162,7 @@
       "defaultReasoningLevel": "medium",
       "reasoningDefaultEnabled": true,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
+      "reasoningMandatory": false,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -195,6 +197,7 @@
       "outputModalities": null,
       "reasoning": true,
       "reasoningLevels": [
+        "none",
         "low",
         "medium",
         "high",
@@ -203,7 +206,7 @@
       "defaultReasoningLevel": "medium",
       "reasoningDefaultEnabled": true,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
+      "reasoningMandatory": false,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -248,6 +251,7 @@
       "outputModalities": null,
       "reasoning": true,
       "reasoningLevels": [
+        "none",
         "low",
         "medium",
         "high",
@@ -257,7 +261,7 @@
       "defaultReasoningLevel": "medium",
       "reasoningDefaultEnabled": true,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
+      "reasoningMandatory": false,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -302,17 +306,17 @@
       "outputModalities": null,
       "reasoning": true,
       "reasoningLevels": [
+        "none",
         "low",
         "medium",
         "high",
         "xhigh",
-        "max",
-        "ultra"
+        "max"
       ],
       "defaultReasoningLevel": "low",
       "reasoningDefaultEnabled": true,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
+      "reasoningMandatory": false,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",
@@ -357,17 +361,17 @@
       "outputModalities": null,
       "reasoning": true,
       "reasoningLevels": [
+        "none",
         "low",
         "medium",
         "high",
         "xhigh",
-        "max",
-        "ultra"
+        "max"
       ],
       "defaultReasoningLevel": "medium",
       "reasoningDefaultEnabled": true,
       "reasoningSupportsMaxTokens": null,
-      "reasoningMandatory": true,
+      "reasoningMandatory": false,
       "toolCalling": true,
       "metadataSources": {
         "contextWindow": "provider-catalog",

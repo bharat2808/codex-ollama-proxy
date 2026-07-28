@@ -13,6 +13,92 @@ const OLLAMA_GEMMA4_REASONING = Object.freeze({
   reasoningLevels: Object.freeze(['none', 'low', 'medium', 'high', 'max']),
 });
 
+function openAiReasoningEntries(ids, levels, defaultReasoningLevel = 'medium') {
+  const reasoningLevels = Object.freeze([...levels]);
+  const override = Object.freeze({
+    reasoning: true,
+    reasoningLevels,
+    defaultReasoningLevel,
+    reasoningDefaultEnabled: defaultReasoningLevel !== 'none',
+    reasoningMandatory: !reasoningLevels.includes('none'),
+  });
+  return ids.map((id) => [id, override]);
+}
+
+const OPENAI_DEFAULT_REASONING = Object.freeze({
+  reasoning: false,
+  reasoningDefaultEnabled: false,
+  reasoningMandatory: false,
+});
+
+const OPENAI_REASONING_OVERRIDES = Object.freeze(Object.fromEntries([
+  ...openAiReasoningEntries([
+    'o1-2024-12-17',
+    'o1',
+    'o3-mini',
+    'o3-mini-2025-01-31',
+    'o1-pro-2025-03-19',
+    'o1-pro',
+    'o3-2025-04-16',
+    'o4-mini-2025-04-16',
+    'o3',
+    'o4-mini',
+    'o3-pro',
+    'o3-pro-2025-06-10',
+  ], ['low', 'medium', 'high']),
+  ...openAiReasoningEntries([
+    'gpt-5-2025-08-07',
+    'gpt-5',
+    'gpt-5-mini-2025-08-07',
+    'gpt-5-mini',
+    'gpt-5-nano-2025-08-07',
+    'gpt-5-nano',
+  ], ['minimal', 'low', 'medium', 'high']),
+  ...openAiReasoningEntries([
+    'gpt-5-pro-2025-10-06',
+    'gpt-5-pro',
+  ], ['high'], 'high'),
+  ...openAiReasoningEntries([
+    'gpt-5.1-2025-11-13',
+    'gpt-5.1',
+  ], ['none', 'low', 'medium', 'high']),
+  ...openAiReasoningEntries([
+    'gpt-5.2-2025-12-11',
+    'gpt-5.2',
+    'gpt-5.3-codex',
+    'gpt-5.4-2026-03-05',
+    'gpt-5.4',
+    'gpt-5.4-nano-2026-03-17',
+    'gpt-5.4-nano',
+    'gpt-5.4-mini-2026-03-17',
+    'gpt-5.4-mini',
+    'gpt-5.5',
+    'gpt-5.5-2026-04-23',
+  ], ['none', 'low', 'medium', 'high', 'xhigh']),
+  ...openAiReasoningEntries([
+    'gpt-5.2-pro-2025-12-11',
+    'gpt-5.2-pro',
+    'gpt-5.4-pro',
+    'gpt-5.4-pro-2026-03-05',
+    'gpt-5.5-pro',
+    'gpt-5.5-pro-2026-04-23',
+  ], ['medium', 'high', 'xhigh']),
+  ...openAiReasoningEntries([
+    'gpt-5.2-chat-latest',
+    'gpt-5.3-chat-latest',
+    'chat-latest',
+    'o4-mini-deep-research',
+    'o4-mini-deep-research-2025-06-26',
+  ], ['medium']),
+  ...openAiReasoningEntries([
+    'gpt-5.6-sol',
+  ], ['none', 'low', 'medium', 'high', 'xhigh', 'max'], 'low'),
+  ...openAiReasoningEntries([
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+  ], ['none', 'low', 'medium', 'high', 'xhigh', 'max']),
+]));
+
 const CODEX_CATALOG_OVERRIDES = Object.freeze({
   openai: Object.freeze({
     default_reasoning_summary: 'auto',
@@ -122,6 +208,7 @@ const DOCUMENTED_MODALITIES = Object.freeze({
       toolCalling: true,
     }),
   }),
+  openai: OPENAI_REASONING_OVERRIDES,
   'ollama-cloud': Object.freeze(Object.fromEntries([
     'gemma4:31b-cloud',
     'glm-5.2:cloud',
@@ -182,11 +269,15 @@ const DOCUMENTED_MODALITIES = Object.freeze({
 });
 
 function applyDocumentedModalities(provider, model) {
-  const familyOverride = provider === 'google' && /^gemma-4-/u.test(model.id)
-    ? GOOGLE_GEMMA4_REASONING
-    : (provider === 'ollama' || provider === 'ollama-cloud') && /^gemma4(?::|$)/u.test(model.id)
-      ? OLLAMA_GEMMA4_REASONING
-      : null;
+  let familyOverride = null;
+  if (provider === 'openai') {
+    familyOverride = OPENAI_DEFAULT_REASONING;
+  } else if (provider === 'google' && /^gemma-4-/u.test(model.id)) {
+    familyOverride = GOOGLE_GEMMA4_REASONING;
+  } else if ((provider === 'ollama' || provider === 'ollama-cloud')
+    && /^gemma4(?::|$)/u.test(model.id)) {
+    familyOverride = OLLAMA_GEMMA4_REASONING;
+  }
   const documented = DOCUMENTED_MODALITIES[provider]?.[model.id] || familyOverride;
   if (!documented) return model;
   const enriched = { ...model, metadataSources: { ...model.metadataSources } };
