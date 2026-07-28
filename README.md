@@ -245,6 +245,22 @@ Both `run` and `preset use` configure the selected provider and start or restart
 
 After changing providers, restart Codex or open a new Codex thread.
 
+### Windows Desktop Model Picker Workaround
+
+The Windows Codex Desktop app may fail to load the proxy-generated model picker
+catalog. When that happens, activate the preset with a hardcoded Codex model
+override:
+
+```bash
+codex-ollama-proxy run glm-kimi --model-override "glm-5.2:cloud"
+```
+
+`--model-override` writes the top-level `model = "..."` value in
+`~/.codex/config.toml`, forcing every Codex request to that model. It does not
+change the proxy route `default_model`, `image_model`, or the stored preset.
+Use `--text-model` or `--default-model` only when you want to change proxy
+routing instead.
+
 ## Text and Image Models
 
 A preset can use separate text and image models:
