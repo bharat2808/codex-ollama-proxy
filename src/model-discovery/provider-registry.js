@@ -1,5 +1,6 @@
 'use strict';
 
+const anthropic = require('./providers/anthropic');
 const cohere = require('./providers/cohere');
 const custom = require('./providers/custom');
 const deepseek = require('./providers/deepseek');
@@ -7,11 +8,16 @@ const google = require('./providers/google');
 const moonshot = require('./providers/moonshot');
 const nvidia = require('./providers/nvidia');
 const ollama = require('./providers/ollama');
+const openai = require('./providers/openai');
 const openrouter = require('./providers/openrouter');
 const xai = require('./providers/xai');
 const zai = require('./providers/zai');
 
 const PROVIDERS = Object.freeze({
+  anthropic: definition(anthropic, {
+    aliases: ['claude'],
+    canonicalUrls: ['https://api.anthropic.com/v1'],
+  }),
   nvidia: definition(nvidia, {
     canonicalUrls: ['https://integrate.api.nvidia.com/v1'],
     cacheEndpoint: () => nvidia.ENDPOINT,
@@ -29,6 +35,9 @@ const PROVIDERS = Object.freeze({
   ollama: definition(ollama, {
     traits: { inventoryComplete: true, nativeInspection: true },
     cacheEndpoint: ({ baseUrl }) => `${ollama.resolveApiBase(baseUrl)}/api/tags`,
+  }),
+  openai: definition(openai, {
+    canonicalUrls: ['https://api.openai.com/v1'],
   }),
   zai: definition(zai, {
     aliases: ['z-ai', 'z.ai'],

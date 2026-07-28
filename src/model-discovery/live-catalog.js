@@ -89,10 +89,15 @@ async function fetchJson(options) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let url = validateFetchUrl(options.url, options);
   let includeAuthorization = Boolean(options.apiKey);
+  let includeAuthHeaders = Boolean(options.authHeaders);
 
   try {
     for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-      const headers = { Accept: 'application/json', ...(options.headers || {}) };
+      const headers = {
+        Accept: 'application/json',
+        ...(options.headers || {}),
+        ...(includeAuthHeaders ? options.authHeaders : {}),
+      };
       if (includeAuthorization) headers.Authorization = `Bearer ${options.apiKey}`;
       let response;
       try {
@@ -122,7 +127,10 @@ async function fetchJson(options) {
           : null;
         if (!location) throw discoveryError('HTTP', options.provider, 'Provider catalog returned an invalid redirect.');
         const nextUrl = validateFetchUrl(new URL(location, url).href, options);
-        if (nextUrl.origin !== url.origin) includeAuthorization = false;
+        if (nextUrl.origin !== url.origin) {
+          includeAuthorization = false;
+          includeAuthHeaders = false;
+        }
         url = nextUrl;
         continue;
       }

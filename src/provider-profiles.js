@@ -24,6 +24,18 @@ const PROFILES = Object.freeze({
     defaultAdaptor: 'none',
     adaptors: Object.freeze(['none', 'chat-completion']),
   }),
+  anthropic: Object.freeze({
+    aliases: Object.freeze(['claude']),
+    url: 'https://api.anthropic.com/v1',
+    defaultAdaptor: 'chat-completion',
+    adaptors: Object.freeze(['chat-completion']),
+  }),
+  openai: Object.freeze({
+    aliases: Object.freeze([]),
+    url: 'https://api.openai.com/v1',
+    defaultAdaptor: 'none',
+    adaptors: Object.freeze(['none']),
+  }),
   cohere: Object.freeze({
     aliases: Object.freeze([]),
     url: 'https://api.cohere.ai/compatibility/v1',

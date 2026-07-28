@@ -563,6 +563,58 @@ test('CLI preset add resolves AI Studio without an explicit URL or adaptor', () 
   }
 });
 
+test('CLI preset add resolves Claude and OpenAI provider profiles', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-anthropic-openai-provider-'));
+  const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');
+
+  try {
+    for (const fixture of [
+      {
+        name: 'claude',
+        provider: 'claude',
+        model: 'claude-sonnet-5',
+        adaptor: 'chat-completion',
+        url: 'https://api.anthropic.com/v1',
+      },
+      {
+        name: 'openai',
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        adaptor: 'none',
+        url: 'https://api.openai.com/v1',
+      },
+    ]) {
+      const add = spawnSync(process.execPath, [
+        path.join(__dirname, '..', 'bin', 'codex-ollama-proxy'),
+        'preset',
+        'add',
+        fixture.name,
+        '--provider',
+        fixture.provider,
+        '--text-model',
+        fixture.model,
+      ], {
+        cwd: path.join(__dirname, '..'),
+        env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+        encoding: 'utf8',
+      });
+
+      assert.equal(add.status, 0, add.stderr || add.stdout);
+      const preset = fs.readFileSync(
+        path.join(runtimeDir, 'presets', `${fixture.name}.toml`),
+        'utf8',
+      );
+      assert.match(preset, new RegExp(`^adaptor\\s*=\\s*"${fixture.adaptor}"$`, 'm'));
+      assert.match(preset, new RegExp(
+        `^upstream_url\\s*=\\s*"${fixture.url.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}"$`,
+        'm',
+      ));
+    }
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test('CLI preset add resolves Vertex AI project, location, and optional token', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-vertex-provider-'));
   const runtimeDir = path.join(codexHome, 'ollama-shape-proxy');

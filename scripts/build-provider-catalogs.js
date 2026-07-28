@@ -10,7 +10,18 @@ const {
 
 const cacheDirectory = path.resolve(process.argv[2] || path.join(__dirname, '..', 'model-discovery-cache'));
 const outputDirectory = path.resolve(process.argv[3] || CATALOG_DIRECTORY);
-const providerNames = ['cohere', 'deepseek', 'google', 'moonshot', 'nvidia', 'ollama', 'openrouter', 'xai'];
+const providerNames = [
+  'anthropic',
+  'cohere',
+  'deepseek',
+  'google',
+  'moonshot',
+  'nvidia',
+  'ollama',
+  'openai',
+  'openrouter',
+  'xai',
+];
 
 function cacheDocuments(provider) {
   const directory = path.join(cacheDirectory, provider);

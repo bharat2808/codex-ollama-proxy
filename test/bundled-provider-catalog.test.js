@@ -1,7 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
@@ -88,6 +90,74 @@ test('owned catalog generation drops OpenClaw rows and strips inherited seed fie
   assert.equal(catalog.models[0].metadataSources.maxOutputTokens, 'provider-catalog');
   assert.equal(catalog.models[0].metadataSources.outputModalities, 'openrouter-catalog');
   assert.equal(catalog.models[0].source, 'bundled-provider-catalog');
+});
+
+test('Anthropic and OpenAI catalog generation preserves every provider row without OpenRouter enrichment', () => {
+  const providerModels = [
+    model('gpt-example', { source: 'openai-catalog' }),
+    model('text-embedding-example', { source: 'openai-catalog' }),
+    model('gpt-image-example', { source: 'openai-catalog' }),
+  ];
+  const openrouter = [
+    model('gpt-example', {
+      contextWindow: 999999,
+      source: 'openrouter-catalog',
+    }),
+  ];
+
+  const openai = buildProviderCatalog('openai', providerModels, openrouter);
+  const anthropic = buildProviderCatalog('anthropic', [
+    model('claude-example', { source: 'anthropic-catalog' }),
+  ], openrouter);
+
+  assert.deepEqual(openai.models.map((entry) => entry.id), [
+    'gpt-example',
+    'gpt-image-example',
+    'text-embedding-example',
+  ]);
+  assert.equal(openai.models[0].contextWindow, null);
+  assert.deepEqual(anthropic.models.map((entry) => entry.id), ['claude-example']);
+});
+
+test('catalog build script emits Anthropic and complete-purpose OpenAI bundles from cache', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'provider-catalog-build-'));
+  const cache = path.join(root, 'cache');
+  const output = path.join(root, 'output');
+  try {
+    for (const [provider, models] of [
+      ['anthropic', [model('claude-example', { source: 'anthropic-catalog' })]],
+      ['openai', [
+        model('gpt-example', { source: 'openai-catalog' }),
+        model('text-embedding-example', { source: 'openai-catalog' }),
+        model('gpt-image-example', { source: 'openai-catalog' }),
+      ]],
+    ]) {
+      const directory = path.join(cache, provider);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, 'cache.json'), JSON.stringify({
+        provider,
+        fetchedAt: 1,
+        models,
+      }));
+    }
+
+    childProcess.execFileSync(process.execPath, [
+      path.join(__dirname, '..', 'scripts', 'build-provider-catalogs.js'),
+      cache,
+      output,
+    ]);
+
+    const anthropic = JSON.parse(fs.readFileSync(path.join(output, 'anthropic.json'), 'utf8'));
+    const openai = JSON.parse(fs.readFileSync(path.join(output, 'openai.json'), 'utf8'));
+    assert.deepEqual(anthropic.models.map((entry) => entry.id), ['claude-example']);
+    assert.deepEqual(openai.models.map((entry) => entry.id), [
+      'gpt-example',
+      'gpt-image-example',
+      'text-embedding-example',
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('owned catalog generation restores exact provider-documented modalities after stripping seeds', () => {
@@ -255,7 +325,7 @@ test('OpenRouter enrichment prefers the newest cached duplicate supplied first',
 });
 
 test('packaged provider catalogs are normalized, enriched, and contain no OpenClaw provenance', () => {
-  for (const provider of ['cohere', 'deepseek', 'google', 'moonshot', 'nvidia', 'ollama-cloud', 'openrouter', 'xai']) {
+  for (const provider of ['anthropic', 'cohere', 'deepseek', 'google', 'moonshot', 'nvidia', 'ollama-cloud', 'openai', 'openrouter', 'xai']) {
     const result = loadBundledProviderCatalog(provider);
     assert.equal(result.state, 'bundled');
     assert.ok(result.models.length > 0, `${provider} must contain models`);

@@ -148,6 +148,48 @@ codex-ollama-proxy run openrouter-glm
 
 The selected OpenRouter model must support the required API and tool-calling behavior.
 
+## Anthropic Preset
+
+Anthropic is supported through its OpenAI-compatible Chat Completions API. The
+proxy does not translate requests to the native Messages API.
+
+```bash
+export ANTHROPIC_API_KEY="..."
+
+codex-ollama-proxy preset add claude \
+  --provider anthropic \
+  --text-model "claude-sonnet-5" \
+  --api-key "$ANTHROPIC_API_KEY"
+
+codex-ollama-proxy run claude
+```
+
+`--provider claude` is an alias for `--provider anthropic`. Authenticated model
+discovery reads Anthropic's complete `/v1/models` inventory, including its
+published capability and token-limit metadata. If discovery is unavailable,
+the last successful cache or bundled Anthropic catalog is used.
+
+## OpenAI Preset
+
+OpenAI uses direct Responses API passthrough:
+
+```bash
+export OPENAI_API_KEY="..."
+
+codex-ollama-proxy preset add openai \
+  --provider openai \
+  --text-model "gpt-5.6-sol" \
+  --api-key "$OPENAI_API_KEY"
+
+codex-ollama-proxy run openai
+```
+
+OpenAI discovery retains every model returned by the authenticated
+`/v1/models` endpoint. This intentionally includes embedding, image, audio,
+moderation, fine-tuned, legacy, and other models that may not accept Codex
+Responses requests. The last successful cache and bundled OpenAI catalog
+provide discovery fallbacks.
+
 ## Custom Responses API Preset
 
 For any provider that exposes `POST /v1/responses`:
@@ -424,6 +466,8 @@ Codex may expose `apply_patch` as a custom or freeform tool. The proxy preserves
 
 * Ollama-compatible Responses API servers
 * OpenRouter models with compatible API behavior
+* Anthropic through its OpenAI-compatible Chat Completions API
+* OpenAI through its native Responses API
 * Custom providers exposing `POST /v1/responses`
 * Chat Completions providers through the built-in adaptor
 * Local Responses API shims

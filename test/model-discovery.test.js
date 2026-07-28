@@ -24,6 +24,8 @@ const moonshot = require('../src/model-discovery/providers/moonshot');
 const deepseek = require('../src/model-discovery/providers/deepseek');
 const google = require('../src/model-discovery/providers/google');
 const xai = require('../src/model-discovery/providers/xai');
+const anthropic = require('../src/model-discovery/providers/anthropic');
+const openai = require('../src/model-discovery/providers/openai');
 const { discoverModels } = require('../src/model-discovery');
 
 test('reasoning normalization preserves every effort accepted by the Codex model cache', () => {
@@ -272,6 +274,48 @@ test('bounded JSON fetching strips authorization on a cross-origin redirect', as
   assert.deepEqual(calls, [
     { url: 'https://provider.example/models', authorization: 'Bearer redirect-secret' },
     { url: 'https://cdn.example/catalog.json', authorization: undefined },
+  ]);
+});
+
+test('bounded JSON fetching strips provider authentication headers on a cross-origin redirect', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({
+      url: String(url),
+      apiKey: options.headers['x-api-key'],
+      version: options.headers['anthropic-version'],
+    });
+    if (calls.length === 1) {
+      return new Response('', {
+        status: 302,
+        headers: { Location: 'https://cdn.example/catalog.json' },
+      });
+    }
+    return new Response('{"data":[]}');
+  };
+
+  const result = await fetchJson({
+    url: 'https://api.anthropic.com/v1/models',
+    provider: 'anthropic',
+    authHeaders: {
+      'x-api-key': 'anthropic-secret',
+      'anthropic-version': '2023-06-01',
+    },
+    fetchImpl,
+  });
+
+  assert.deepEqual(result, { data: [] });
+  assert.deepEqual(calls, [
+    {
+      url: 'https://api.anthropic.com/v1/models',
+      apiKey: 'anthropic-secret',
+      version: '2023-06-01',
+    },
+    {
+      url: 'https://cdn.example/catalog.json',
+      apiKey: undefined,
+      version: undefined,
+    },
   ]);
 });
 
@@ -651,6 +695,264 @@ test('OpenRouter reasoning metadata distinguishes all-efforts from no exposed ef
   assert.equal(noSelector.defaultReasoningLevel, null);
   assert.equal(noSelector.reasoningDefaultEnabled, true);
   assert.equal(noSelector.reasoningMandatory, true);
+});
+
+test('Anthropic discovery maps documented model capabilities without guessing', () => {
+  const model = anthropic.parseRow({
+    id: 'claude-sonnet-example',
+    type: 'model',
+    display_name: 'Claude Sonnet Example',
+    created_at: '2026-07-01T00:00:00Z',
+    max_input_tokens: 1000000,
+    max_tokens: 128000,
+    capabilities: {
+      image_input: { supported: true },
+      thinking: {
+        supported: true,
+        types: {
+          adaptive: { supported: true },
+          enabled: { supported: true },
+        },
+      },
+      effort: {
+        supported: true,
+        low: { supported: true },
+        medium: { supported: true },
+        high: { supported: true },
+        xhigh: { supported: false },
+        max: { supported: true },
+      },
+      tool_use: { supported: true },
+      future_capability: { supported: true },
+    },
+  });
+
+  assert.deepEqual(model, {
+    id: 'claude-sonnet-example',
+    displayName: 'Claude Sonnet Example',
+    contextWindow: 1000000,
+    maxOutputTokens: 128000,
+    inputModalities: ['text', 'image'],
+    outputModalities: null,
+    reasoning: true,
+    reasoningLevels: ['low', 'medium', 'high', 'max'],
+    defaultReasoningLevel: null,
+    reasoningDefaultEnabled: null,
+    reasoningSupportsMaxTokens: null,
+    reasoningMandatory: null,
+    toolCalling: true,
+    metadataSources: {
+      contextWindow: 'provider-catalog',
+      maxOutputTokens: 'provider-catalog',
+      inputModalities: 'provider-catalog',
+      outputModalities: null,
+      reasoning: 'provider-catalog',
+      reasoningLevels: 'provider-catalog',
+      defaultReasoningLevel: null,
+      reasoningDefaultEnabled: null,
+      reasoningSupportsMaxTokens: null,
+      reasoningMandatory: null,
+      toolCalling: 'provider-catalog',
+    },
+    providerMetadata: {
+      createdAt: '2026-07-01T00:00:00Z',
+      type: 'model',
+    },
+    source: 'anthropic-catalog',
+  });
+});
+
+test('Anthropic discovery authenticates and follows model pagination in provider order', async () => {
+  const calls = [];
+  const pages = [
+    {
+      data: [
+        { id: 'claude-first', type: 'model', display_name: 'Claude First' },
+        { id: 'claude-shared', type: 'model', display_name: 'Claude Shared' },
+      ],
+      first_id: 'claude-first',
+      last_id: 'claude-shared',
+      has_more: true,
+    },
+    {
+      data: [
+        { id: 'claude-shared', type: 'model', display_name: 'Duplicate' },
+        { id: 'claude-last', type: 'model', display_name: 'Claude Last' },
+      ],
+      first_id: 'claude-shared',
+      last_id: 'claude-last',
+      has_more: false,
+    },
+  ];
+  const result = await anthropic.discover({
+    apiKey: 'anthropic-secret',
+    fetchImpl: async (url, options) => {
+      calls.push({
+        url: String(url),
+        apiKey: options.headers['x-api-key'],
+        version: options.headers['anthropic-version'],
+      });
+      return new Response(JSON.stringify(pages[calls.length - 1]));
+    },
+  });
+
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'claude-first',
+    'claude-shared',
+    'claude-last',
+  ]);
+  assert.equal(result.origin, 'live');
+  assert.equal(result.complete, true);
+  assert.deepEqual(calls, [
+    {
+      url: 'https://api.anthropic.com/v1/models?limit=1000',
+      apiKey: 'anthropic-secret',
+      version: '2023-06-01',
+    },
+    {
+      url: 'https://api.anthropic.com/v1/models?limit=1000&after_id=claude-shared',
+      apiKey: 'anthropic-secret',
+      version: '2023-06-01',
+    },
+  ]);
+});
+
+test('Anthropic discovery rejects cursor loops and falls back to its bundled catalog', async () => {
+  let calls = 0;
+  const result = await anthropic.discover({
+    apiKey: 'anthropic-secret',
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(JSON.stringify({
+        data: [{ id: `claude-page-${calls}`, type: 'model' }],
+        last_id: 'repeated-cursor',
+        has_more: true,
+      }));
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.origin, 'bundled');
+  assert.equal(result.complete, false);
+  assert.equal(result.fallback.state, 'bundled');
+  assert.ok(result.models.length > 0);
+});
+
+test('OpenAI discovery preserves provider metadata and leaves unknown capabilities unset', () => {
+  const model = openai.parseRow({
+    id: 'gpt-example',
+    object: 'model',
+    created: 1785196800,
+    owned_by: 'openai',
+  });
+
+  assert.deepEqual(model, {
+    id: 'gpt-example',
+    displayName: 'gpt-example',
+    contextWindow: null,
+    maxOutputTokens: null,
+    inputModalities: null,
+    outputModalities: null,
+    reasoning: null,
+    reasoningLevels: null,
+    defaultReasoningLevel: null,
+    reasoningDefaultEnabled: null,
+    reasoningSupportsMaxTokens: null,
+    reasoningMandatory: null,
+    toolCalling: null,
+    metadataSources: {
+      contextWindow: null,
+      maxOutputTokens: null,
+      inputModalities: null,
+      outputModalities: null,
+      reasoning: null,
+      reasoningLevels: null,
+      defaultReasoningLevel: null,
+      reasoningDefaultEnabled: null,
+      reasoningSupportsMaxTokens: null,
+      reasoningMandatory: null,
+      toolCalling: null,
+    },
+    providerMetadata: {
+      created: 1785196800,
+      object: 'model',
+      ownedBy: 'openai',
+    },
+    source: 'openai-catalog',
+  });
+});
+
+test('OpenAI discovery retains every model purpose in exact provider order', async () => {
+  const ids = [
+    'gpt-example',
+    'text-embedding-example',
+    'gpt-image-example',
+    'tts-example',
+    'omni-moderation-example',
+    'ft:gpt-example:organization:suffix:id',
+  ];
+  const calls = [];
+  const result = await openai.discover({
+    apiKey: 'openai-secret',
+    fetchImpl: async (url, options) => {
+      calls.push({
+        url: String(url),
+        authorization: options.headers.Authorization,
+      });
+      return new Response(JSON.stringify({
+        object: 'list',
+        data: ids.concat('gpt-example').map((id) => ({
+          id,
+          object: 'model',
+          created: 1785196800,
+          owned_by: 'openai',
+        })),
+      }));
+    },
+  });
+
+  assert.deepEqual(result.models.map((model) => model.id), ids);
+  assert.equal(result.origin, 'live');
+  assert.equal(result.complete, true);
+  assert.deepEqual(calls, [{
+    url: 'https://api.openai.com/v1/models',
+    authorization: 'Bearer openai-secret',
+  }]);
+});
+
+test('OpenAI discovery falls back to its bundled complete-purpose catalog', async () => {
+  const result = await openai.discover({
+    apiKey: 'openai-secret',
+    fetchImpl: async () => {
+      throw new Error('offline');
+    },
+  });
+
+  assert.equal(result.origin, 'bundled');
+  assert.equal(result.complete, false);
+  assert.equal(result.fallback.state, 'bundled');
+  assert.ok(result.models.some((model) => model.id.includes('embedding')));
+  assert.ok(result.models.some((model) => model.id.includes('image')));
+});
+
+test('Anthropic and OpenAI treat empty successful inventories as bundled fallbacks', async () => {
+  const anthropicResult = await anthropic.discover({
+    fetchImpl: async () => new Response(JSON.stringify({
+      data: [],
+      has_more: false,
+    })),
+  });
+  const openaiResult = await openai.discover({
+    fetchImpl: async () => new Response(JSON.stringify({
+      object: 'list',
+      data: [],
+    })),
+  });
+
+  assert.equal(anthropicResult.origin, 'bundled');
+  assert.equal(anthropicResult.fallback.state, 'bundled');
+  assert.equal(openaiResult.origin, 'bundled');
+  assert.equal(openaiResult.fallback.state, 'bundled');
 });
 
 test('Cohere discovery rejects deprecated rows and fills only exact-model seed metadata', async (t) => {
