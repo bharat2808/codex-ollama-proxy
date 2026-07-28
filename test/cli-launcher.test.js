@@ -176,7 +176,7 @@ test('Linux install and uninstall honor XDG_CONFIG_HOME and persist a custom COD
       unitText.includes(`Environment="CODEX_HOME=${systemdCodexHome}"`),
       true
     );
-    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /systemctl <--user> <daemon-reload>\nsystemctl <--user> <enable> <--now> <codex-universal-proxy\.service>/u);
+    assert.match(fs.readFileSync(fixture.commandLog, 'utf8'), /systemctl <--user> <daemon-reload>\nsystemctl <--user> <disable> <codex-ollama-proxy\.service>\nsystemctl <--user> <enable> <--now> <codex-universal-proxy\.service>/u);
 
     const restarted = fixture.runCommand('restart');
     assert.equal(restarted.status, 1, 'stubbed systemd does not start a proxy, so the health check should fail');
