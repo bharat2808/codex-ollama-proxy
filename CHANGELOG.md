@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0
+
 - Rebranded the package, primary executable, runtime paths, provider identity,
   catalogs, and native services as `codex-universal-proxy`. The legacy
   `codex-ollama-proxy` executable and `ollama-launch-codex-app` provider remain

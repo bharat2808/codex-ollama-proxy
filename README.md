@@ -550,7 +550,7 @@ Be careful when enabling request-body logging because it may include prompts, to
 
 ```bash
 npm install -g \
-  https://registry.npmjs.org/codex-universal-proxy/-/codex-universal-proxy-0.3.3.tgz
+  https://registry.npmjs.org/codex-universal-proxy/-/codex-universal-proxy-0.5.0.tgz
 ```
 
 ## Uninstall
