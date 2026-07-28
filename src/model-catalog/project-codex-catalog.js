@@ -1,5 +1,9 @@
 'use strict';
 
+const {
+  applyCodexCatalogOverrides,
+} = require('../model-discovery/provider-catalog-overrides');
+
 const TOOL_CAPABILITY_FIELDS = [
   'apply_patch_tool_type',
   'supports_parallel_tool_calls',
@@ -148,6 +152,7 @@ function applyCapabilities(model, options) {
   model.supports_image_detail_original = hasVision;
   model.supports_reasoning_summary_parameter = true;
   model.default_reasoning_summary = 'auto';
+  applyCodexCatalogOverrides(options.provider, model);
 }
 
 function toolCapabilitySnapshot(model) {
@@ -169,6 +174,7 @@ function projectCodexCatalog(options) {
     ...native,
     canonical: options.canonical,
     imageModel: options.imageModel,
+    provider: discovery && discovery.provider,
   };
   let pruned = 0;
   let changed = 0;

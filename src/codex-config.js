@@ -375,6 +375,7 @@ function normalizeOpenAI(text) {
   lines = removeKey(lines, 'model_provider');
   lines = removeKey(lines, 'model_catalog_json');
   lines = removeKey(lines, 'web_search');
+  lines = removeKey(lines, 'model_reasoning_effort');
   lines = removeKey(lines, 'model_reasoning_summary');
 
   let normalized = lines.join('\n').replace(/\s+$/u, '') + '\n\n' + rest.replace(/^\n+/u, '');

@@ -59,6 +59,21 @@ test('known OpenAI-compatible providers supply their default adaptor and URL', (
     adaptor: 'none',
     url: 'https://api.x.ai/v1',
   });
+  assert.deepEqual(resolveProviderProfile({ provider: 'anthropic' }), {
+    provider: 'anthropic',
+    adaptor: 'chat-completion',
+    url: 'https://api.anthropic.com/v1',
+  });
+  assert.deepEqual(resolveProviderProfile({ provider: 'claude' }), {
+    provider: 'anthropic',
+    adaptor: 'chat-completion',
+    url: 'https://api.anthropic.com/v1',
+  });
+  assert.deepEqual(resolveProviderProfile({ provider: 'openai' }), {
+    provider: 'openai',
+    adaptor: 'none',
+    url: 'https://api.openai.com/v1',
+  });
 });
 
 test('provider profiles reject unknown providers and incompatible adaptors', () => {
@@ -72,6 +87,14 @@ test('provider profiles reject unknown providers and incompatible adaptors', () 
   );
   assert.throws(
     () => resolveProviderProfile({ provider: 'nvidia', adaptor: 'google' }),
+    /does not support adaptor/i,
+  );
+  assert.throws(
+    () => resolveProviderProfile({ provider: 'anthropic', adaptor: 'none' }),
+    /does not support adaptor/i,
+  );
+  assert.throws(
+    () => resolveProviderProfile({ provider: 'openai', adaptor: 'chat-completion' }),
     /does not support adaptor/i,
   );
 });

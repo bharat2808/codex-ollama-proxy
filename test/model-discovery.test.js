@@ -14,7 +14,11 @@ const {
 } = require('../src/model-discovery/normalize');
 const { resolveProvider } = require('../src/model-discovery/provider-resolution');
 const { fetchJson } = require('../src/model-discovery/live-catalog');
-const { cacheIdentity, withProviderCache } = require('../src/model-discovery/file-cache');
+const {
+  cacheIdentity,
+  withProviderCache,
+  writeCache,
+} = require('../src/model-discovery/file-cache');
 const nvidia = require('../src/model-discovery/providers/nvidia');
 const openrouter = require('../src/model-discovery/providers/openrouter');
 const cohere = require('../src/model-discovery/providers/cohere');
@@ -24,6 +28,8 @@ const moonshot = require('../src/model-discovery/providers/moonshot');
 const deepseek = require('../src/model-discovery/providers/deepseek');
 const google = require('../src/model-discovery/providers/google');
 const xai = require('../src/model-discovery/providers/xai');
+const anthropic = require('../src/model-discovery/providers/anthropic');
+const openai = require('../src/model-discovery/providers/openai');
 const { discoverModels } = require('../src/model-discovery');
 
 test('reasoning normalization preserves every effort accepted by the Codex model cache', () => {
@@ -272,6 +278,48 @@ test('bounded JSON fetching strips authorization on a cross-origin redirect', as
   assert.deepEqual(calls, [
     { url: 'https://provider.example/models', authorization: 'Bearer redirect-secret' },
     { url: 'https://cdn.example/catalog.json', authorization: undefined },
+  ]);
+});
+
+test('bounded JSON fetching strips provider authentication headers on a cross-origin redirect', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({
+      url: String(url),
+      apiKey: options.headers['x-api-key'],
+      version: options.headers['anthropic-version'],
+    });
+    if (calls.length === 1) {
+      return new Response('', {
+        status: 302,
+        headers: { Location: 'https://cdn.example/catalog.json' },
+      });
+    }
+    return new Response('{"data":[]}');
+  };
+
+  const result = await fetchJson({
+    url: 'https://api.anthropic.com/v1/models',
+    provider: 'anthropic',
+    authHeaders: {
+      'x-api-key': 'anthropic-secret',
+      'anthropic-version': '2023-06-01',
+    },
+    fetchImpl,
+  });
+
+  assert.deepEqual(result, { data: [] });
+  assert.deepEqual(calls, [
+    {
+      url: 'https://api.anthropic.com/v1/models',
+      apiKey: 'anthropic-secret',
+      version: '2023-06-01',
+    },
+    {
+      url: 'https://cdn.example/catalog.json',
+      apiKey: undefined,
+      version: undefined,
+    },
   ]);
 });
 
@@ -651,6 +699,441 @@ test('OpenRouter reasoning metadata distinguishes all-efforts from no exposed ef
   assert.equal(noSelector.defaultReasoningLevel, null);
   assert.equal(noSelector.reasoningDefaultEnabled, true);
   assert.equal(noSelector.reasoningMandatory, true);
+});
+
+test('Anthropic discovery enriches exact models from official compatibility documentation', () => {
+  const model = anthropic.parseRow({
+    id: 'claude-sonnet-5',
+    type: 'model',
+    display_name: 'Claude Sonnet 5',
+    created_at: '2026-07-01T00:00:00Z',
+    max_input_tokens: 1000000,
+    max_tokens: 128000,
+    capabilities: {
+      image_input: { supported: true },
+      thinking: {
+        supported: true,
+        types: {
+          adaptive: { supported: true },
+          enabled: { supported: true },
+        },
+      },
+      effort: {
+        supported: true,
+        low: { supported: true },
+        medium: { supported: true },
+        high: { supported: true },
+        xhigh: { supported: false },
+        max: { supported: true },
+      },
+      future_capability: { supported: true },
+    },
+  });
+
+  assert.deepEqual(model, {
+    id: 'claude-sonnet-5',
+    displayName: 'Claude Sonnet 5',
+    contextWindow: 1000000,
+    maxOutputTokens: 128000,
+    inputModalities: ['text', 'image'],
+    outputModalities: ['text'],
+    reasoning: true,
+    reasoningLevels: ['low', 'medium', 'high', 'max'],
+    defaultReasoningLevel: 'high',
+    reasoningDefaultEnabled: null,
+    reasoningSupportsMaxTokens: null,
+    reasoningMandatory: null,
+    toolCalling: true,
+    metadataSources: {
+      contextWindow: 'provider-catalog',
+      maxOutputTokens: 'provider-catalog',
+      inputModalities: 'provider-catalog',
+      outputModalities: 'provider-catalog',
+      reasoning: 'provider-catalog',
+      reasoningLevels: 'provider-catalog',
+      defaultReasoningLevel: 'provider-catalog',
+      reasoningDefaultEnabled: null,
+      reasoningSupportsMaxTokens: null,
+      reasoningMandatory: null,
+      toolCalling: 'provider-catalog',
+    },
+    providerMetadata: {
+      createdAt: '2026-07-01T00:00:00Z',
+      type: 'model',
+    },
+    source: 'anthropic-catalog',
+  });
+});
+
+test('Anthropic documentation enrichment does not guess capabilities for unknown future ids', () => {
+  const model = anthropic.parseRow({
+    id: 'claude-future-example',
+    type: 'model',
+    display_name: 'Claude Future Example',
+    max_input_tokens: 1000000,
+    max_tokens: 128000,
+    capabilities: {},
+  });
+
+  assert.equal(model.inputModalities, null);
+  assert.equal(model.outputModalities, null);
+  assert.equal(model.reasoningLevels, null);
+  assert.equal(model.defaultReasoningLevel, null);
+  assert.equal(model.toolCalling, null);
+});
+
+test('Anthropic discovery authenticates and follows model pagination in provider order', async () => {
+  const calls = [];
+  const pages = [
+    {
+      data: [
+        { id: 'claude-first', type: 'model', display_name: 'Claude First' },
+        { id: 'claude-shared', type: 'model', display_name: 'Claude Shared' },
+      ],
+      first_id: 'claude-first',
+      last_id: 'claude-shared',
+      has_more: true,
+    },
+    {
+      data: [
+        { id: 'claude-shared', type: 'model', display_name: 'Duplicate' },
+        { id: 'claude-last', type: 'model', display_name: 'Claude Last' },
+      ],
+      first_id: 'claude-shared',
+      last_id: 'claude-last',
+      has_more: false,
+    },
+  ];
+  const result = await anthropic.discover({
+    apiKey: 'anthropic-secret',
+    fetchImpl: async (url, options) => {
+      calls.push({
+        url: String(url),
+        apiKey: options.headers['x-api-key'],
+        version: options.headers['anthropic-version'],
+      });
+      return new Response(JSON.stringify(pages[calls.length - 1]));
+    },
+  });
+
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'claude-first',
+    'claude-shared',
+    'claude-last',
+  ]);
+  assert.equal(result.origin, 'live');
+  assert.equal(result.complete, true);
+  assert.deepEqual(calls, [
+    {
+      url: 'https://api.anthropic.com/v1/models?limit=1000',
+      apiKey: 'anthropic-secret',
+      version: '2023-06-01',
+    },
+    {
+      url: 'https://api.anthropic.com/v1/models?limit=1000&after_id=claude-shared',
+      apiKey: 'anthropic-secret',
+      version: '2023-06-01',
+    },
+  ]);
+});
+
+test('public Anthropic discovery enriches documented metadata in an existing fresh cache', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'anthropic-model-cache-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  const cachedModel = {
+    ...normalizeSuppliedModels(['claude-sonnet-5'])[0],
+    displayName: 'Claude Sonnet 5',
+    contextWindow: 1000000,
+    maxOutputTokens: 128000,
+    inputModalities: ['text', 'image'],
+    reasoning: true,
+    reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    metadataSources: {
+      ...normalizeSuppliedModels(['claude-sonnet-5'])[0].metadataSources,
+      contextWindow: 'provider-catalog',
+      maxOutputTokens: 'provider-catalog',
+      inputModalities: 'provider-catalog',
+      reasoning: 'provider-catalog',
+      reasoningLevels: 'provider-catalog',
+    },
+    source: 'anthropic-catalog',
+  };
+  const cacheOptions = {
+    provider: 'anthropic',
+    endpoint: anthropic.ENDPOINT,
+    apiKey: 'anthropic-secret',
+    cacheDir,
+  };
+  writeCache(
+    cacheOptions,
+    cacheIdentity(cacheOptions),
+    [cachedModel],
+    1000,
+    { origin: 'live', complete: true },
+  );
+
+  const result = await discoverModels({
+    provider: 'anthropic',
+    baseUrl: anthropic.BASE_URL,
+    apiKey: 'anthropic-secret',
+    cacheDir,
+    now: () => 1001,
+    fetchImpl: async () => {
+      throw new Error('fresh cache must avoid network access');
+    },
+  });
+
+  assert.equal(result.cache.state, 'fresh');
+  assert.deepEqual(result.models[0].outputModalities, ['text']);
+  assert.equal(result.models[0].defaultReasoningLevel, 'high');
+  assert.equal(result.models[0].toolCalling, true);
+});
+
+test('Anthropic discovery rejects cursor loops and falls back to its bundled catalog', async () => {
+  let calls = 0;
+  const result = await anthropic.discover({
+    apiKey: 'anthropic-secret',
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(JSON.stringify({
+        data: [{ id: `claude-page-${calls}`, type: 'model' }],
+        last_id: 'repeated-cursor',
+        has_more: true,
+      }));
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.origin, 'bundled');
+  assert.equal(result.complete, false);
+  assert.equal(result.fallback.state, 'bundled');
+  assert.ok(result.models.length > 0);
+});
+
+test('OpenAI discovery preserves provider metadata and leaves unknown capabilities unset', () => {
+  const model = openai.parseRow({
+    id: 'gpt-example',
+    object: 'model',
+    created: 1785196800,
+    owned_by: 'openai',
+  });
+
+  assert.deepEqual(model, {
+    id: 'gpt-example',
+    displayName: 'gpt-example',
+    contextWindow: null,
+    maxOutputTokens: null,
+    inputModalities: null,
+    outputModalities: null,
+    reasoning: null,
+    reasoningLevels: null,
+    defaultReasoningLevel: null,
+    reasoningDefaultEnabled: null,
+    reasoningSupportsMaxTokens: null,
+    reasoningMandatory: null,
+    toolCalling: null,
+    metadataSources: {
+      contextWindow: null,
+      maxOutputTokens: null,
+      inputModalities: null,
+      outputModalities: null,
+      reasoning: null,
+      reasoningLevels: null,
+      defaultReasoningLevel: null,
+      reasoningDefaultEnabled: null,
+      reasoningSupportsMaxTokens: null,
+      reasoningMandatory: null,
+      toolCalling: null,
+    },
+    providerMetadata: {
+      created: 1785196800,
+      object: 'model',
+      ownedBy: 'openai',
+    },
+    source: 'openai-catalog',
+  });
+});
+
+test('OpenAI catalog normalization applies the live-tested reasoning effort matrix', () => {
+  const models = openai.normalizeModels([
+    openai.parseRow({ id: 'o3' }),
+    openai.parseRow({ id: 'gpt-5.6-sol' }),
+    openai.parseRow({ id: 'gpt-5-pro' }),
+    openai.parseRow({ id: 'gpt-4' }),
+    openai.parseRow({ id: 'future-openai-model' }),
+  ]);
+
+  assert.deepEqual(models.map((model) => ({
+    id: model.id,
+    reasoning: model.reasoning,
+    levels: model.reasoningLevels,
+    defaultLevel: model.defaultReasoningLevel,
+  })), [
+    {
+      id: 'o3',
+      reasoning: true,
+      levels: ['low', 'medium', 'high'],
+      defaultLevel: 'medium',
+    },
+    {
+      id: 'gpt-5.6-sol',
+      reasoning: true,
+      levels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      defaultLevel: 'low',
+    },
+    {
+      id: 'gpt-5-pro',
+      reasoning: true,
+      levels: ['high'],
+      defaultLevel: 'high',
+    },
+    {
+      id: 'gpt-4',
+      reasoning: false,
+      levels: null,
+      defaultLevel: null,
+    },
+    {
+      id: 'future-openai-model',
+      reasoning: false,
+      levels: null,
+      defaultLevel: null,
+    },
+  ]);
+  assert.equal(models[0].metadataSources.reasoningLevels, 'provider-catalog');
+  assert.equal(models[3].metadataSources.reasoning, 'provider-catalog');
+});
+
+test('OpenAI discovery excludes proven-incompatible models while retaining newly introduced models', async () => {
+  const ids = [
+    'gpt-4.1-mini',
+    'gpt-5.6-sol',
+    'text-embedding-example',
+    'ft:text-embedding-example:organization:suffix:id',
+    'vendor/embeddings-v2',
+    'whisper-1',
+    'gpt-image-2',
+    'tts-1',
+    'omni-moderation-latest',
+    'gpt-realtime-2.1',
+    'gpt-audio',
+    'gpt-5-chat-latest',
+    'ft:gpt-4.1-mini:organization:suffix:id',
+    'future-openai-model',
+    'ft:future-openai-model:organization:suffix:id',
+  ];
+  const calls = [];
+  const result = await openai.discover({
+    apiKey: 'openai-secret',
+    fetchImpl: async (url, options) => {
+      calls.push({
+        url: String(url),
+        authorization: options.headers.Authorization,
+      });
+      return new Response(JSON.stringify({
+        object: 'list',
+        data: ids.concat('gpt-4.1-mini').map((id) => ({
+          id,
+          object: 'model',
+          created: 1785196800,
+          owned_by: 'openai',
+        })),
+      }));
+    },
+  });
+
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'gpt-4.1-mini',
+    'gpt-5.6-sol',
+    'ft:gpt-4.1-mini:organization:suffix:id',
+    'future-openai-model',
+    'ft:future-openai-model:organization:suffix:id',
+  ]);
+  assert.equal(result.origin, 'live');
+  assert.equal(result.complete, true);
+  assert.deepEqual(calls, [{
+    url: 'https://api.openai.com/v1/models',
+    authorization: 'Bearer openai-secret',
+  }]);
+});
+
+test('OpenAI discovery falls back to its bundled Codex model-cache catalog', async () => {
+  const result = await openai.discover({
+    apiKey: 'openai-secret',
+    fetchImpl: async () => {
+      throw new Error('offline');
+    },
+  });
+
+  assert.equal(result.origin, 'bundled');
+  assert.equal(result.complete, false);
+  assert.equal(result.fallback.state, 'bundled');
+  assert.deepEqual(result.models.map((model) => model.id), [
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.5',
+    'gpt-5.6-luna',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+  ]);
+});
+
+test('public OpenAI discovery filters non-Codex rows from an existing fresh cache', async (t) => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openai-model-cache-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  const cacheOptions = {
+    provider: 'openai',
+    endpoint: openai.ENDPOINT,
+    apiKey: 'openai-secret',
+    cacheDir,
+  };
+  writeCache(
+    cacheOptions,
+    cacheIdentity(cacheOptions),
+    [
+      openai.parseRow({ id: 'gpt-4.1-mini' }),
+      openai.parseRow({ id: 'text-embedding-example' }),
+      openai.parseRow({ id: 'whisper-1' }),
+      openai.parseRow({ id: 'gpt-audio' }),
+      openai.parseRow({ id: 'gpt-image-2' }),
+    ],
+    1000,
+    { origin: 'live', complete: true },
+  );
+
+  const result = await discoverModels({
+    provider: 'openai',
+    baseUrl: openai.BASE_URL,
+    apiKey: 'openai-secret',
+    cacheDir,
+    now: () => 1001,
+    fetchImpl: async () => {
+      throw new Error('fresh cache must avoid network access');
+    },
+  });
+
+  assert.equal(result.cache.state, 'fresh');
+  assert.deepEqual(result.models.map((model) => model.id), ['gpt-4.1-mini']);
+});
+
+test('Anthropic and OpenAI treat empty successful inventories as bundled fallbacks', async () => {
+  const anthropicResult = await anthropic.discover({
+    fetchImpl: async () => new Response(JSON.stringify({
+      data: [],
+      has_more: false,
+    })),
+  });
+  const openaiResult = await openai.discover({
+    fetchImpl: async () => new Response(JSON.stringify({
+      object: 'list',
+      data: [],
+    })),
+  });
+
+  assert.equal(anthropicResult.origin, 'bundled');
+  assert.equal(anthropicResult.fallback.state, 'bundled');
+  assert.equal(openaiResult.origin, 'bundled');
+  assert.equal(openaiResult.fallback.state, 'bundled');
 });
 
 test('Cohere discovery rejects deprecated rows and fills only exact-model seed metadata', async (t) => {

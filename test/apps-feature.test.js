@@ -99,6 +99,7 @@ test('normalizeOpenAI preserves apps feature in [features]', () => {
   fs.writeFileSync(path.join(codexHome, 'config.toml'), [
     'sandbox_mode = "danger-full-access"',
     'model = "glm-5.2:cloud"',
+    'model_reasoning_effort = "none"',
     'model_provider = "ollama-launch-codex-app"',
     '',
     '[features]',
@@ -123,6 +124,7 @@ test('normalizeOpenAI preserves apps feature in [features]', () => {
     const config = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
     assert.match(config, /^enable_mcp_apps = true$/m);
     assert.doesNotMatch(config, /^model_provider =/m);
+    assert.doesNotMatch(config, /^model_reasoning_effort\s*=/m);
     assert.doesNotMatch(config, /requires_openai_auth/);
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });

@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 1,
+  "provider": "openai",
+  "models": [
+    {
+      "id": "gpt-5.4",
+      "displayName": "GPT-5.4",
+      "contextWindow": 272000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": null,
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": null,
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "provider-catalog",
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "description": "Strong model for everyday coding.",
+        "visibility": "list",
+        "supportedInApi": true,
+        "maximumContextWindow": 1000000,
+        "additionalSpeedTiers": [
+          "fast"
+        ],
+        "serviceTiers": [
+          {
+            "id": "priority",
+            "name": "Fast",
+            "description": "1.5x speed, increased usage"
+          }
+        ]
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "displayName": "GPT-5.4-Mini",
+      "contextWindow": 272000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": null,
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": null,
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "provider-catalog",
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "description": "Small, fast, and cost-efficient model for simpler coding tasks.",
+        "visibility": "list",
+        "supportedInApi": true,
+        "maximumContextWindow": 272000
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gpt-5.5",
+      "displayName": "GPT-5.5",
+      "contextWindow": 272000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": null,
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": null,
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "provider-catalog",
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "description": "Frontier model for complex coding, research, and real-world work.",
+        "visibility": "list",
+        "supportedInApi": true,
+        "maximumContextWindow": 272000,
+        "additionalSpeedTiers": [
+          "fast"
+        ],
+        "serviceTiers": [
+          {
+            "id": "priority",
+            "name": "Fast",
+            "description": "1.5x speed, increased usage"
+          }
+        ]
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "displayName": "GPT-5.6-Luna",
+      "contextWindow": 272000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": null,
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": null,
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "provider-catalog",
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "description": "Fast and affordable agentic coding model.",
+        "visibility": "list",
+        "supportedInApi": true,
+        "maximumContextWindow": 272000,
+        "additionalSpeedTiers": [
+          "fast"
+        ],
+        "serviceTiers": [
+          {
+            "id": "priority",
+            "name": "Fast",
+            "description": "1.5x speed, increased usage"
+          }
+        ]
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "displayName": "GPT-5.6-Sol",
+      "contextWindow": 272000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": null,
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultReasoningLevel": "low",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": null,
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "provider-catalog",
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "description": "Latest frontier agentic coding model.",
+        "visibility": "list",
+        "supportedInApi": true,
+        "maximumContextWindow": 272000,
+        "additionalSpeedTiers": [
+          "fast"
+        ],
+        "serviceTiers": [
+          {
+            "id": "priority",
+            "name": "Fast",
+            "description": "1.5x speed, increased usage"
+          }
+        ]
+      },
+      "source": "bundled-provider-catalog"
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "displayName": "GPT-5.6-Terra",
+      "contextWindow": 272000,
+      "maxOutputTokens": null,
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": null,
+      "reasoning": true,
+      "reasoningLevels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultReasoningLevel": "medium",
+      "reasoningDefaultEnabled": true,
+      "reasoningSupportsMaxTokens": null,
+      "reasoningMandatory": false,
+      "toolCalling": true,
+      "metadataSources": {
+        "contextWindow": "provider-catalog",
+        "maxOutputTokens": null,
+        "inputModalities": "provider-catalog",
+        "outputModalities": null,
+        "reasoning": "provider-catalog",
+        "reasoningLevels": "provider-catalog",
+        "defaultReasoningLevel": "provider-catalog",
+        "reasoningDefaultEnabled": "provider-catalog",
+        "reasoningSupportsMaxTokens": null,
+        "reasoningMandatory": "provider-catalog",
+        "toolCalling": "provider-catalog"
+      },
+      "providerMetadata": {
+        "description": "Balanced agentic coding model for everyday work.",
+        "visibility": "list",
+        "supportedInApi": true,
+        "maximumContextWindow": 272000,
+        "additionalSpeedTiers": [
+          "fast"
+        ],
+        "serviceTiers": [
+          {
+            "id": "priority",
+            "name": "Fast",
+            "description": "1.5x speed, increased usage"
+          }
+        ]
+      },
+      "source": "bundled-provider-catalog"
+    }
+  ]
+}

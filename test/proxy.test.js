@@ -386,6 +386,14 @@ function withRouteConfig(config, run, setup) {
   }
 }
 
+function writeReasoningCatalog(codexHome, models) {
+  fs.writeFileSync(
+    path.join(codexHome, 'ollama-launch-models.json'),
+    JSON.stringify({ models }),
+    'utf8',
+  );
+}
+
 function textItem(id, text, attachments = []) {
   return {
     type: 'message',
@@ -1044,6 +1052,63 @@ test('xAI request translation removes null fields from replayed reasoning items'
       summary: [{ type: 'summary_text', text: 'Used the requested tool.' }],
     });
   });
+});
+
+test('OpenAI request translation removes stale reasoning after switching to a non-reasoning model', () => {
+  withRouteConfig([
+    'upstream_url = "https://api.openai.com/v1"',
+    'default_model = "gpt-4.1-mini"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'gpt-4.1-mini',
+      input: 'hello',
+      reasoning: {
+        effort: 'none',
+        summary: 'auto',
+      },
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.reasoning, undefined);
+  }, ({ codexHome }) => writeReasoningCatalog(codexHome, [{
+    slug: 'gpt-4.1-mini',
+    supported_reasoning_levels: [],
+    default_reasoning_level: null,
+  }]));
+});
+
+test('OpenAI request translation replaces a stale effort with the selected model default', () => {
+  withRouteConfig([
+    'upstream_url = "https://api.openai.com/v1"',
+    'default_model = "o3"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'o3',
+      input: 'hello',
+      reasoning: {
+        effort: 'none',
+        summary: 'auto',
+      },
+      tools: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.deepEqual(body.reasoning, {
+      effort: 'medium',
+      summary: 'auto',
+    });
+  }, ({ codexHome }) => writeReasoningCatalog(codexHome, [{
+    slug: 'o3',
+    supported_reasoning_levels: [
+      { effort: 'low' },
+      { effort: 'medium' },
+      { effort: 'high' },
+    ],
+    default_reasoning_level: 'medium',
+  }]));
 });
 
 test('request translation exposes deferred tool_search namespace tools as callable functions', () => {
@@ -1842,6 +1907,7 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
     assert.equal(received[0].url, '/custom/responses');
     assert.equal(received[0].authorization, 'Bearer secret-token');
     assert.equal(received[0].body.model, 'test-model');
+    assert.equal(received[0].body._originalModel, undefined);
   } finally {
     await close(server);
     await close(upstream);
