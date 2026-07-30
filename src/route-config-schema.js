@@ -19,6 +19,7 @@ const ROUTE_KEY_DEFS = [
   { key: 'upstream_api_key', type: 'string', default: '' },
   { key: 'models', type: 'string-array', default: [] },
   { key: 'default_model', type: 'string', default: '' },
+  { key: 'voice_model', type: 'string', default: '' },
   { key: 'image_model', type: 'string', default: '' },
   { key: 'auto_route_image', type: 'bool', default: false },
   { key: 'persist_inline_images', type: 'bool', default: true },
@@ -44,7 +45,7 @@ const ROUTE_KEY_DEFS = [
 const ALL_ROUTE_KEYS = {};
 for (const def of ROUTE_KEY_DEFS) ALL_ROUTE_KEYS[def.key] = def.default;
 
-// Preset-scope keys: the 11 non-imagine config values a preset may save.
+// Preset-scope keys: every non-imagine config value a preset may save.
 const PRESET_KEY_DEFS = ROUTE_KEY_DEFS.filter((def) => !def.imagine);
 const PRESET_KEYS = {};
 for (const def of PRESET_KEY_DEFS) PRESET_KEYS[def.key] = def;

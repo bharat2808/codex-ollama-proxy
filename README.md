@@ -403,8 +403,29 @@ The proxy uses Codex's existing `generate_image` tool. It does not inspect ordin
 
 ## Local Voice Configuration
 
-Local voice is configured separately from provider presets. Configure Whisper
-and Kokoro, then enable routing for Codex's built-in Voice Chat button:
+The active provider preset owns the optional conversational `voice_model`.
+Whisper and Kokoro remain in the separate speech configuration.
+
+To let a lightweight model handle conversation and decide when Codex work is
+needed, include both models in the preset:
+
+```bash
+codex-universal-proxy preset add local-voice \
+  --url "http://127.0.0.1:11434/v1" \
+  --models "qwen3-coder,qwen3:8b" \
+  --default-model "qwen3-coder" \
+  --voice-model "qwen3:8b"
+```
+
+The voice model receives one tool, `delegate_to_codex`. Plain model text is
+spoken directly through Kokoro. When the model includes a brief acknowledgement
+with a tool call, Kokoro speaks it before the handoff. Calling the tool hands
+the request to the preset's normal Codex model and tool loop. Presets without
+`voice_model` preserve the previous behavior and delegate every completed
+transcript.
+
+Configure Whisper and Kokoro, then enable routing for Codex's built-in Voice
+Chat button:
 
 The local transport requires `ffmpeg`, `whisper-cli`, and a whisper.cpp model.
 On macOS, Homebrew-installed commands are discovered even when the background
@@ -438,9 +459,11 @@ disabling voice so the app-server reloads the transport configuration.
 The built-in button then uses this pipeline:
 
 ```text
-WebRTC microphone -> ffmpeg/Opus -> Whisper -> Codex handoff
-  -> active preset /v1/responses -> Codex tools
-  -> Kokoro -> ffmpeg/Opus -> WebRTC speaker
+WebRTC microphone -> ffmpeg/Opus -> Whisper -> preset voice_model
+  -> direct response -> Kokoro -> WebRTC speaker
+  or
+  -> delegate_to_codex -> preset default_model /v1/responses
+     -> Codex tools -> Kokoro -> WebRTC speaker
 ```
 
 Voice handoff turns receive an extra developer instruction asking the selected
@@ -467,7 +490,7 @@ enabling voice, disable will leave that later edit untouched. Routing state is
 written before Codex configuration changes and recovered during installation
 if an enable or disable operation is interrupted.
 
-The same public settings can be edited in
+The same public speech settings can be edited in
 `~/.codex/codex-universal-proxy/voice.toml`. Use the CLI for enable and disable
 so the managed restoration fields remain consistent.
 

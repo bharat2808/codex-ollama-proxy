@@ -334,6 +334,89 @@ test('CLI preset add stores provider config without API key and preset use appli
   }
 });
 
+test('CLI preset stores and applies a preset-owned voice coordinator model', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-preset-voice-model-'));
+  const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), 'sandbox_mode = "danger-full-access"\n', 'utf8');
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
+      'preset',
+      'add',
+      'local-voice',
+      '--url',
+      'http://127.0.0.1:11434/v1',
+      '--models',
+      'qwen3-coder,qwen3:8b',
+      '--default-model',
+      'qwen3-coder',
+      '--voice-model',
+      'qwen3:8b',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const presetPath = path.join(runtimeDir, 'presets', 'local-voice.toml');
+    assert.match(fs.readFileSync(presetPath, 'utf8'), /^voice_model\s*=\s*"qwen3:8b"$/m);
+
+    const use = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
+      'preset',
+      'use',
+      'local-voice',
+      '--no-refresh',
+      '--no-backup',
+      '--no-start',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.equal(use.status, 0, use.stderr || use.stdout);
+    assert.match(
+      fs.readFileSync(path.join(runtimeDir, 'proxy-models.toml'), 'utf8'),
+      /^voice_model\s*=\s*"qwen3:8b"$/m,
+    );
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('CLI preset rejects a voice coordinator model outside the preset model list', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-preset-invalid-voice-model-'));
+  fs.mkdirSync(path.join(codexHome, 'codex-universal-proxy'), { recursive: true });
+
+  try {
+    const add = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'bin', 'codex-universal-proxy'),
+      'preset',
+      'add',
+      'invalid-voice',
+      '--url',
+      'http://127.0.0.1:11434/v1',
+      '--models',
+      'qwen3-coder',
+      '--voice-model',
+      'qwen3:8b',
+    ], {
+      cwd: path.join(__dirname, '..'),
+      env: Object.assign({}, process.env, { CODEX_HOME: codexHome }),
+      encoding: 'utf8',
+    });
+
+    assert.notEqual(add.status, 0);
+    assert.match(add.stderr, /--voice-model must occur in --models/u);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 test('CLI preset add can store API key when requested', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cli-preset-key-'));
   const runtimeDir = path.join(codexHome, 'codex-universal-proxy');

@@ -8,6 +8,7 @@ const MAX_WS_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_AUDIO_CHUNK_BYTES = 1024 * 1024;
 const MAX_QUEUED_AUDIO_BYTES = 2 * 1024 * 1024;
 const MAX_CONTEXT_BYTES = 500;
+const MAX_DIRECT_RESPONSE_BYTES = 8 * 1024;
 const MAX_PENDING_OUTPUTS = 8;
 
 function wavFormat(wav) {
@@ -80,10 +81,15 @@ function createFramelessVoiceServer({
   enabled = () => false,
   transcribePcm,
   synthesizeSpeech,
+  coordinateTranscript = async (transcript) => ({
+    action: 'delegate',
+    input: transcript,
+  }),
   log = () => {},
 } = {}) {
   if (typeof transcribePcm !== 'function') throw new Error('transcribePcm is required');
   if (typeof synthesizeSpeech !== 'function') throw new Error('synthesizeSpeech is required');
+  if (typeof coordinateTranscript !== 'function') throw new Error('coordinateTranscript must be a function');
   const websocketServer = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES,
@@ -133,7 +139,60 @@ function createFramelessVoiceServer({
         closed: false,
         queuedAudioBytes: 0,
         pendingOutputs: 0,
+        inputQueue: Promise.resolve(),
+        speechQueue: Promise.resolve(),
+        outputQueue: Promise.resolve(),
       };
+
+      function sendError(message) {
+        log(`frameless voice request rejected: ${message}`);
+        send(websocket, { type: 'error', error: { message } });
+      }
+
+      function enqueueOutputText(rawText, maxBytes = MAX_CONTEXT_BYTES) {
+        const text = String(rawText || '').trim();
+        if (!text || session.closed) return Promise.resolve();
+        if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+          sendError(`voice text exceeds ${maxBytes} bytes`);
+          return Promise.resolve();
+        }
+        if (session.pendingOutputs >= MAX_PENDING_OUTPUTS) {
+          sendError('voice output queue is full');
+          return Promise.resolve();
+        }
+        session.pendingOutputs += 1;
+        const job = session.outputQueue.then(async () => {
+          if (session.closed) return;
+          log(`frameless voice synthesis started: ${Buffer.byteLength(text, 'utf8')} text bytes`);
+          const audio = wavToPcm16(await synthesizeSpeech(text, session));
+          if (session.closed) return;
+          log(`frameless voice synthesis completed: ${audio.length} PCM bytes`);
+          send(websocket, {
+            type: 'output_transcript.added',
+            item: { id: `output_${randomUUID()}`, type: 'output_transcript', text },
+          });
+          send(websocket, {
+            type: 'output_audio.delta',
+            audio: audio.toString('base64'),
+            start_ms: 0,
+            end_ms: Math.round(audio.length / 2 / 24000 * 1000),
+          });
+          send(websocket, {
+            type: 'turn.done',
+            turn: { id: `turn_${randomUUID()}`, role: 'assistant', transcript: text },
+          });
+        });
+        session.outputQueue = job
+          .catch((error) => {
+            log(`frameless voice synthesis failed: ${error.message}`);
+            send(websocket, { type: 'error', error: { message: error.message } });
+          })
+          .finally(() => {
+            session.pendingOutputs -= 1;
+          });
+        return job;
+      }
+
       const segmenter = new PcmSpeechSegmenter({
         sampleRate: session.sampleRate,
         onSpeech(pcm) {
@@ -153,13 +212,22 @@ function createFramelessVoiceServer({
               type: 'turn.done',
               turn: { id: `turn_${randomUUID()}`, role: 'user', transcript },
             });
+            const decision = await coordinateTranscript(transcript, session);
+            if (decision && decision.action === 'speak') {
+              await enqueueOutputText(decision.text, MAX_DIRECT_RESPONSE_BYTES);
+              return;
+            }
+            if (decision && decision.preface) {
+              await enqueueOutputText(decision.preface, MAX_DIRECT_RESPONSE_BYTES);
+            }
+            const delegatedInput = String(decision && decision.input || transcript).trim();
             send(websocket, {
               type: 'delegation.created',
               item: {
                 id: delegationId,
                 type: 'delegation',
                 target: 'client',
-                content: [{ type: 'input_text', text: transcript }],
+                content: [{ type: 'input_text', text: delegatedInput }],
               },
             });
           });
@@ -170,14 +238,6 @@ function createFramelessVoiceServer({
           return job;
         },
       });
-      session.inputQueue = Promise.resolve();
-      session.speechQueue = Promise.resolve();
-      session.outputQueue = Promise.resolve();
-
-      function sendError(message) {
-        log(`frameless voice request rejected: ${message}`);
-        send(websocket, { type: 'error', error: { message } });
-      }
 
       async function finishSession() {
         if (!session.accepting) return;
@@ -240,44 +300,7 @@ function createFramelessVoiceServer({
         }
         const text = contextText(event).trim();
         if (!text) return;
-        if (Buffer.byteLength(text, 'utf8') > MAX_CONTEXT_BYTES) {
-          sendError(`voice context exceeds ${MAX_CONTEXT_BYTES} bytes`);
-          return;
-        }
-        if (session.pendingOutputs >= MAX_PENDING_OUTPUTS) {
-          sendError('voice output queue is full');
-          return;
-        }
-        session.pendingOutputs += 1;
-        const job = session.outputQueue.then(async () => {
-          if (session.closed) return;
-          log(`frameless voice synthesis started: ${Buffer.byteLength(text, 'utf8')} text bytes`);
-          const audio = wavToPcm16(await synthesizeSpeech(text, session));
-          if (session.closed) return;
-          log(`frameless voice synthesis completed: ${audio.length} PCM bytes`);
-          send(websocket, {
-            type: 'output_transcript.added',
-            item: { id: `output_${randomUUID()}`, type: 'output_transcript', text },
-          });
-          send(websocket, {
-            type: 'output_audio.delta',
-            audio: audio.toString('base64'),
-            start_ms: 0,
-            end_ms: Math.round(audio.length / 2 / 24000 * 1000),
-          });
-          send(websocket, {
-            type: 'turn.done',
-            turn: { id: `turn_${randomUUID()}`, role: 'assistant', transcript: text },
-          });
-        });
-        session.outputQueue = job
-          .catch((error) => {
-            log(`frameless voice synthesis failed: ${error.message}`);
-            send(websocket, { type: 'error', error: { message: error.message } });
-          })
-          .finally(() => {
-            session.pendingOutputs -= 1;
-          });
+        enqueueOutputText(text);
       });
       websocket.on('error', (error) => {
         log(`frameless voice websocket failed: ${error.message}`);

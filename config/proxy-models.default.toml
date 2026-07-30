@@ -3,15 +3,17 @@
 #
 # models      : ordered models explicitly included in discovery/catalog.
 # default_model: model Codex preselects for a new thread.
+# voice_model : optional conversational coordinator used by local voice.
 # image_model : model the proxy rewrites the request to when a message contains
 #               an input_image content block. Must be vision-capable in the catalog
 #               (codex-universal-models.json input_modalities includes "image").
 #
-# Both slugs must exist in codex-universal-models.json and be available on the
-# upstream Responses API server.
+# Configured model slugs must exist in codex-universal-models.json and be
+# available on the upstream Responses API server.
 
 models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]
 default_model = "glm-5.2:cloud"
+voice_model = ""
 image_model = "kimi-k2.7-code:cloud"
 
 # Base URL for the upstream Responses API server. The proxy appends

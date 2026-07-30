@@ -21,6 +21,7 @@ const { normalizeOpenAiReasoningRequest } = require('./model-catalog/reasoning-r
 const { createLocalVoiceRuntime } = require('./voice-agent/local-voice-runtime');
 const { createFramelessVoiceServer } = require('./voice-agent/frameless-voice-server');
 const { createRealtimeVoiceServer } = require('./voice-agent/realtime-voice-server');
+const { createVoiceCoordinator } = require('./voice-agent/voice-coordinator');
 const { VOICE_TURN_INSTRUCTIONS } = require('./voice-agent/voice-agent-session');
 const { createWeriftVoicePeer } = require('./voice-agent/werift-voice-peer');
 
@@ -68,7 +69,7 @@ function loadRouteConfig() {
     const minChars = parseInt(process.env.PROXY_DEDUPE_MIN_CHARS, 10);
     if (Number.isFinite(minChars) && minChars >= 0) ROUTE_CFG.duplicate_input_min_chars = minChars;
   }
-  log('route config: text=' + ROUTE_CFG.default_model + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
+  log('route config: text=' + ROUTE_CFG.default_model + ' voice=' + (ROUTE_CFG.voice_model || '(delegate-only)') + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
 }
 
 function getUpstream() {
@@ -1995,10 +1996,20 @@ async function decodeRequestBody(body, contentEncoding) {
 const localVoiceRuntime = createLocalVoiceRuntime({
   configFile: VOICE_CONFIG_PATH,
 });
+const coordinateVoiceTranscript = createVoiceCoordinator({
+  getModel: () => ROUTE_CFG.voice_model,
+  requestResponse: async (body) => {
+    const upstream = getUpstream();
+    await ensureCloudModelForRequest(upstream, body);
+    return upstreamLib.requestJson(upstream, body);
+  },
+  log,
+});
 const realtimeVoiceServer = createRealtimeVoiceServer({
   enabled: () => voiceConfig.read(VOICE_CONFIG_PATH).voice_enabled,
   createPeer: createWeriftVoicePeer,
   transcribePcm: localVoiceRuntime.transcribePcm,
+  coordinateTranscript: coordinateVoiceTranscript,
   synthesizeSpeech: localVoiceRuntime.synthesizeSpeech,
   streamSpeech: localVoiceRuntime.streamSpeech,
   log,
@@ -2006,6 +2017,7 @@ const realtimeVoiceServer = createRealtimeVoiceServer({
 const framelessVoiceServer = createFramelessVoiceServer({
   enabled: () => voiceConfig.read(VOICE_CONFIG_PATH).voice_enabled,
   transcribePcm: localVoiceRuntime.transcribePcm,
+  coordinateTranscript: coordinateVoiceTranscript,
   synthesizeSpeech: localVoiceRuntime.synthesizeSpeech,
   log,
 });
@@ -2259,7 +2271,7 @@ server.on('close', () => {
   });
 });
 
-// Best-effort startup check that the configured default_model / image_model
+// Best-effort startup check that the configured text / voice / image models
 // resolve in the local Ollama registry. Only runs when the upstream is the
 // local Ollama daemon (host is 127.0.0.1/localhost AND the OpenAI mount path
 // is /v1, the standard Ollama topology). Remote Responses-API upstreams, the
@@ -2272,7 +2284,12 @@ server.on('close', () => {
 // Non-fatal: Ollama may start after the proxy, and the proxy still serves; the
 // per-request path already handles upstream errors.
 async function verifyConfiguredModels() {
-  const slugs = [...new Set([...ROUTE_CFG.models, ROUTE_CFG.default_model, ROUTE_CFG.image_model].filter(Boolean))];
+  const slugs = [...new Set([
+    ...ROUTE_CFG.models,
+    ROUTE_CFG.default_model,
+    ROUTE_CFG.voice_model,
+    ROUTE_CFG.image_model,
+  ].filter(Boolean))];
   if (!slugs.length) return;
   const upstream = getUpstream();
   const base = upstream && upstream.baseUrl ? upstream.baseUrl : null;

@@ -150,6 +150,11 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
   const voice = createRealtimeVoiceServer({
     enabled: () => true,
     transcribePcm: async () => 'inspect the repository',
+    coordinateTranscript: async (transcript) => ({
+      action: 'delegate',
+      input: transcript,
+      preface: 'I’ll ask Codex to inspect it.',
+    }),
     synthesizeSpeech: async (text) => {
       spoken.push(text);
       return Buffer.from(`audio:${text}`);
@@ -196,9 +201,11 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
     const delegation = events.find((event) => event.type === 'delegation.created');
     assert.equal(delegation.item.target, 'client');
     assert.equal(delegation.item.content[0].text, 'inspect the repository');
-    assert.deepEqual(
-      events.slice(0, 4).map((event) => event.type),
-      ['session.started', 'input_transcript.added', 'turn.done', 'delegation.created'],
+    assert.deepEqual(spoken, ['I’ll ask Codex to inspect it.']);
+    assert.deepEqual(played, ['audio:I’ll ask Codex to inspect it.']);
+    assert.ok(
+      events.findIndex((event) => event.type === 'output_transcript.added')
+      < events.findIndex((event) => event.type === 'delegation.created'),
     );
 
     sideband.send(JSON.stringify({
@@ -207,18 +214,138 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
       channel: 'speakable',
       content: [{ type: 'input_text', text: 'I inspected it.' }],
     }));
-    while (!events.some((event) => (
+    while (events.filter((event) => (
       event.type === 'turn.done' && event.turn.role === 'assistant'
-    ))) {
+    )).length < 2) {
       await once(sideband, 'message');
     }
-    assert.deepEqual(spoken, ['I inspected it.']);
-    assert.deepEqual(played, ['audio:I inspected it.']);
+    assert.deepEqual(spoken, ['I’ll ask Codex to inspect it.', 'I inspected it.']);
+    assert.deepEqual(played, ['audio:I’ll ask Codex to inspect it.', 'audio:I inspected it.']);
     assert.equal(
-      events.find((event) => event.type === 'output_transcript.added').item.text,
+      events.filter((event) => event.type === 'output_transcript.added').at(-1).item.text,
       'I inspected it.',
     );
     assert.deepEqual(browserEvents, events);
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 WebRTC speaks a direct coordinator response without delegating', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  let peerOptions;
+  const played = [];
+  const directResponse = `Hello from the preset voice model. ${'x'.repeat(501)}`;
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    transcribePcm: async () => 'hello there',
+    coordinateTranscript: async () => ({
+      action: 'speak',
+      text: directResponse,
+    }),
+    synthesizeSpeech: async (text) => Buffer.from(`audio:${text}`),
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async playAudio(audio) {
+          played.push(audio.toString('utf8'));
+        },
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    await peerOptions.onSpeech(Buffer.from([1, 2, 3, 4]));
+    await waitFor(
+      () => events.some((event) => (
+        event.type === 'turn.done' && event.turn.role === 'assistant'
+      )),
+      'expected a direct coordinator response',
+    );
+
+    assert.deepEqual(played, [`audio:${directResponse}`]);
+    assert.equal(events.some((event) => event.type === 'delegation.created'), false);
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 WebRTC publishes the transcript before coordinator inference completes', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  let peerOptions;
+  let resolveDecision;
+  const decision = new Promise((resolve) => {
+    resolveDecision = resolve;
+  });
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    transcribePcm: async () => 'inspect the repository',
+    coordinateTranscript: async () => decision,
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    const speech = peerOptions.onSpeech(Buffer.from([1, 2, 3, 4]));
+    await waitFor(
+      () => events.some((event) => event.type === 'input_transcript.added'),
+      'expected input transcript before coordinator response',
+    );
+    assert.equal(events.some((event) => event.type === 'delegation.created'), false);
+
+    resolveDecision({ action: 'delegate', input: 'inspect the repository' });
+    await speech;
+    await waitFor(
+      () => events.some((event) => event.type === 'delegation.created'),
+      'expected delegation after coordinator response',
+    );
     sideband.close();
     await once(sideband, 'close');
   } finally {

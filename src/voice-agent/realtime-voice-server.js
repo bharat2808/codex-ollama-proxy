@@ -6,6 +6,7 @@ const { WebSocket, WebSocketServer } = require('ws');
 const MAX_CALL_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_WS_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_CONTEXT_BYTES = 500;
+const MAX_DIRECT_RESPONSE_BYTES = 8 * 1024;
 const MAX_PENDING_OUTPUTS = 8;
 
 function requestPath(request) {
@@ -123,6 +124,10 @@ function createRealtimeVoiceServer({
   transcribePcm = async () => {
     throw new Error('local voice transcription is not configured');
   },
+  coordinateTranscript = async (transcript) => ({
+    action: 'delegate',
+    input: transcript,
+  }),
   synthesizeSpeech = async () => {
     throw new Error('local voice synthesis is not configured');
   },
@@ -131,6 +136,7 @@ function createRealtimeVoiceServer({
   log = () => {},
 } = {}) {
   if (typeof createPeer !== 'function') throw new Error('createPeer is required');
+  if (typeof coordinateTranscript !== 'function') throw new Error('coordinateTranscript must be a function');
   const calls = new Map();
   const websocketServer = new WebSocketServer({
     noServer: true,
@@ -200,13 +206,22 @@ function createRealtimeVoiceServer({
         type: 'turn.done',
         turn: { id: `turn_${randomUUID()}`, role: 'user', transcript },
       });
+      const decision = await coordinateTranscript(transcript, call);
+      if (decision && decision.action === 'speak') {
+        await enqueueCallSpeech(call, decision.text, MAX_DIRECT_RESPONSE_BYTES);
+        return;
+      }
+      if (decision && decision.preface) {
+        await enqueueCallSpeech(call, decision.preface, MAX_DIRECT_RESPONSE_BYTES);
+      }
+      const delegatedInput = String(decision && decision.input || transcript).trim();
       sendCallEvent(call, {
         type: 'delegation.created',
         item: {
           id: delegationId,
           type: 'delegation',
           target: 'client',
-          content: [{ type: 'input_text', text: transcript }],
+          content: [{ type: 'input_text', text: delegatedInput }],
         },
       });
       return;
@@ -222,11 +237,20 @@ function createRealtimeVoiceServer({
       transcript,
       item_id: itemId,
     });
+    const decision = await coordinateTranscript(transcript, call);
+    if (decision && decision.action === 'speak') {
+      await enqueueCallSpeech(call, decision.text, MAX_DIRECT_RESPONSE_BYTES);
+      return;
+    }
+    if (decision && decision.preface) {
+      await enqueueCallSpeech(call, decision.preface, MAX_DIRECT_RESPONSE_BYTES);
+    }
+    const delegatedInput = String(decision && decision.input || transcript).trim();
     sendCallEvent(call, {
       type: 'conversation.handoff.requested',
       handoff_id: handoffId,
       item_id: itemId,
-      input_transcript: transcript,
+      input_transcript: delegatedInput,
     });
   }
 
@@ -272,15 +296,16 @@ function createRealtimeVoiceServer({
     });
   }
 
-  function enqueueCallSpeech(call, text) {
+  function enqueueCallSpeech(
+    call,
+    text,
+    maxBytes = call.protocol === 'frameless' ? MAX_CONTEXT_BYTES : Infinity,
+  ) {
     if (!call.accepting || call.closed) return Promise.resolve();
-    if (
-      call.protocol === 'frameless'
-      && Buffer.byteLength(text, 'utf8') > MAX_CONTEXT_BYTES
-    ) {
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
       sendCallEvent(call, {
         type: 'error',
-        error: { message: `voice context exceeds ${MAX_CONTEXT_BYTES} bytes` },
+        error: { message: `voice text exceeds ${maxBytes} bytes` },
       });
       return Promise.resolve();
     }

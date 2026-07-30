@@ -100,9 +100,12 @@ test('Codex frameless live transport transcribes PCM and creates a client delega
       channel: 'speakable',
       content: [{ type: 'input_text', text: 'The repository is ready.' }],
     }));
-    while (!events.some((event) => event.type === 'output_audio.delta')) {
+    while (!events.some((event) => (
+      event.type === 'output_audio.delta' || event.type === 'error'
+    ))) {
       await once(socket, 'message');
     }
+    assert.equal(events.some((event) => event.type === 'error'), false);
     const audio = Buffer.from(
       events.find((event) => event.type === 'output_audio.delta').audio,
       'base64',
@@ -111,6 +114,54 @@ test('Codex frameless live transport transcribes PCM and creates a client delega
     assert.equal(
       events.find((event) => event.type === 'output_transcript.added').item.text,
       'The repository is ready.',
+    );
+  } finally {
+    socket.close();
+    await once(socket, 'close');
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex frameless live transport speaks a direct coordinator response without delegating', async () => {
+  const spoken = [];
+  const directResponse = `Hello from the preset voice model. ${'x'.repeat(501)}`;
+  const { voice, server, port } = await createServer({
+    coordinateTranscript: async () => ({
+      action: 'speak',
+      text: directResponse,
+    }),
+    synthesizeSpeech: async (text) => {
+      spoken.push(text);
+      return float32Wav([0]);
+    },
+  });
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/v1/live`);
+  const events = [];
+  socket.on('message', (raw) => events.push(JSON.parse(raw.toString())));
+
+  try {
+    await once(socket, 'open');
+    socket.send(JSON.stringify({ type: 'session.update', session: {} }));
+    while (!events.some((event) => event.type === 'session.started')) await once(socket, 'message');
+
+    const speech = Buffer.alloc(24000 * 0.3 * 2);
+    for (let offset = 0; offset < speech.length; offset += 2) speech.writeInt16LE(4000, offset);
+    const silence = Buffer.alloc(24000 * 0.7 * 2);
+    socket.send(JSON.stringify({ type: 'input_audio.append', audio: speech.toString('base64') }));
+    socket.send(JSON.stringify({ type: 'input_audio.append', audio: silence.toString('base64') }));
+
+    while (!events.some((event) => (
+      event.type === 'output_audio.delta' || event.type === 'error'
+    ))) {
+      await once(socket, 'message');
+    }
+    assert.equal(events.some((event) => event.type === 'error'), false);
+    assert.deepEqual(spoken, [directResponse]);
+    assert.equal(events.some((event) => event.type === 'delegation.created'), false);
+    assert.equal(
+      events.find((event) => event.type === 'output_transcript.added').item.text,
+      directResponse,
     );
   } finally {
     socket.close();

@@ -49,7 +49,7 @@ function usage() {
   codex-universal-proxy serve [--adaptor chat-completion|google] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
   codex-universal-proxy serve --preset NAME [--api-key KEY] [--model-override MODEL] [--replace]
   codex-universal-proxy serve --adaptor chat-completion|google [--completion-model MODEL] [--adaptor-port PORT]
-  codex-universal-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
+  codex-universal-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--voice-model MODEL] [--image-model MODEL] [--api-key KEY]
   codex-universal-proxy preset add NAME --provider vertexai --project PROJECT --location LOCATION --models MODEL[,MODEL...] [--vertex-token TOKEN]
     [--auto-image|--no-auto-image] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
     [--persist-images|--no-persist-images] [--image-retention-days DAYS]
@@ -372,7 +372,7 @@ function applyPreset(name, flags = {}) {
   // --model`.
   const values = Object.assign({}, preset.values);
   if (flags.textModel) {
-    values.models = [flags.textModel];
+    values.models = [...new Set([flags.textModel, values.voice_model].filter(Boolean))];
     values.default_model = flags.textModel;
     values.image_model = flags.textModel;
   }
@@ -467,6 +467,7 @@ function route(flags) {
   } else if (flags.defaultModel) {
     text = writeRouteValue(text, 'default_model', flags.defaultModel);
   }
+  if (flags.voiceModel) text = writeRouteValue(text, 'voice_model', flags.voiceModel);
   if (flags.imageModel) text = writeRouteValue(text, 'image_model', flags.imageModel);
   if (flags.autoImage) text = writeRouteValue(text, 'auto_route_image', true);
   if (flags.noAutoImage) text = writeRouteValue(text, 'auto_route_image', false);
