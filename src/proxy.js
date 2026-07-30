@@ -3,6 +3,8 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { promisify } = require('node:util');
+const zlib = require('node:zlib');
 const { codexDir } = require('./runtime-paths');
 const branding = require('./branding');
 const webSearch = require('./web-search');
@@ -1918,6 +1920,31 @@ function sendSseCompleted(clientRes, response) {
   clientRes.end();
 }
 
+const requestBodyDecompressors = {
+  gzip: promisify(zlib.gunzip),
+  deflate: promisify(zlib.inflate),
+  br: promisify(zlib.brotliDecompress),
+  ...(typeof zlib.zstdDecompress === 'function'
+    ? { zstd: promisify(zlib.zstdDecompress) }
+    : {}),
+};
+
+async function decodeRequestBody(body, contentEncoding) {
+  const encoding = String(contentEncoding || 'identity').trim().toLowerCase();
+  if (!encoding || encoding === 'identity') return body;
+
+  const decompress = requestBodyDecompressors[encoding];
+  if (!decompress) {
+    throw new Error('unsupported Content-Encoding: ' + encoding);
+  }
+
+  try {
+    return await decompress(body);
+  } catch (error) {
+    throw new Error('invalid ' + encoding + ' request body: ' + error.message);
+  }
+}
+
 const server = http.createServer((clientReq, clientRes) => {
   const isResponses = clientReq.method === 'POST' && clientReq.url.endsWith('/responses');
   const chunks = [];
@@ -1929,6 +1956,17 @@ const server = http.createServer((clientReq, clientRes) => {
     let originalStream = false;
     let originalModel = null;
     if (isResponses) {
+      try {
+        bodyBuf = await decodeRequestBody(bodyBuf, clientReq.headers['content-encoding']);
+      } catch (error) {
+        sendJsonResponse(clientRes, 400, {
+          error: {
+            message: error.message,
+            type: 'invalid_request_error',
+          },
+        });
+        return;
+      }
       try {
         body = JSON.parse(bodyBuf.toString('utf8'));
         originalStream = body && body.stream === true;
@@ -2093,6 +2131,7 @@ const server = http.createServer((clientReq, clientRes) => {
     const targetUrl = upstreamLib.urlForClientPath(upstream, clientReq.url);
     const upstreamHeaders = Object.assign({}, clientReq.headers, upstreamLib.authHeaders(upstream));
     upstreamHeaders.host = targetUrl.host;
+    delete upstreamHeaders['content-encoding'];
     upstreamHeaders['content-length'] = String(bodyBuf.length);
     const upstreamReq = upstreamLib.transport(targetUrl).request({
       protocol: targetUrl.protocol,

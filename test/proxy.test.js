@@ -5,6 +5,7 @@ const { spawnSync } = require('node:child_process');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { assertPrivateDirectoryMode, assertPrivateFileMode } = require('./helpers/file-mode');
@@ -214,17 +215,21 @@ function close(server) {
 }
 
 function postJson(port, body) {
+  return postBuffer(port, Buffer.from(JSON.stringify(body)), {
+    'content-type': 'application/json',
+  });
+}
+
+function postBuffer(port, payload, headers = {}) {
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify(body);
     const req = http.request({
       host: '127.0.0.1',
       port,
       method: 'POST',
       path: '/v1/responses',
-      headers: {
-        'content-type': 'application/json',
+      headers: Object.assign({
         'content-length': Buffer.byteLength(payload),
-      },
+      }, headers),
     }, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
@@ -1918,6 +1923,96 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
     else process.env.PROXY_PORT = previousProxyPort;
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
+});
+
+test('proxy decodes compressed responses request bodies before translating and forwarding them', async () => {
+  const received = [];
+  await withProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks);
+      try {
+        received.push({
+          contentEncoding: req.headers['content-encoding'],
+          contentLength: req.headers['content-length'],
+          raw,
+          body: JSON.parse(raw.toString('utf8')),
+        });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ id: 'resp_test', output: [], status: 'completed' }));
+      } catch {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'upstream received a non-JSON body' }));
+      }
+    });
+  }, async (proxyPort) => {
+    const body = {
+      model: 'test-model',
+      input: 'compressed request',
+      tools: [],
+      stream: false,
+    };
+    const json = Buffer.from(JSON.stringify(body));
+    const encodings = [
+      ['zstd', zlib.zstdCompressSync],
+      ['gzip', zlib.gzipSync],
+      ['deflate', zlib.deflateSync],
+      ['br', zlib.brotliCompressSync],
+    ];
+
+    for (const [contentEncoding, compress] of encodings) {
+      const response = await postBuffer(proxyPort, compress(json), {
+        'content-type': 'application/json',
+        'content-encoding': contentEncoding,
+      });
+      assert.equal(response.statusCode, 200, contentEncoding);
+    }
+
+    assert.equal(received.length, encodings.length);
+    for (const request of received) {
+      assert.equal(request.contentEncoding, undefined);
+      assert.equal(request.contentLength, String(request.raw.length));
+      assert.equal(request.body.model, 'test-model');
+      assert.equal(request.body.input, 'compressed request');
+    }
+  });
+});
+
+test('proxy rejects malformed compressed responses request bodies without contacting upstream', async () => {
+  let upstreamRequests = 0;
+  await withProxy((_req, res) => {
+    upstreamRequests += 1;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'unexpected', output: [], status: 'completed' }));
+  }, async (proxyPort) => {
+    const response = await postBuffer(proxyPort, Buffer.from('not gzip data'), {
+      'content-type': 'application/json',
+      'content-encoding': 'gzip',
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body, /invalid gzip request body/i);
+    assert.equal(upstreamRequests, 0);
+  });
+});
+
+test('proxy rejects unsupported request content encodings without contacting upstream', async () => {
+  let upstreamRequests = 0;
+  await withProxy((_req, res) => {
+    upstreamRequests += 1;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'unexpected', output: [], status: 'completed' }));
+  }, async (proxyPort) => {
+    const response = await postBuffer(proxyPort, Buffer.from('encoded elsewhere'), {
+      'content-type': 'application/json',
+      'content-encoding': 'compress',
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body, /unsupported content-encoding/i);
+    assert.equal(upstreamRequests, 0);
+  });
 });
 
 test('proxy caches non-streaming native image results and returns their saved path', async () => {
