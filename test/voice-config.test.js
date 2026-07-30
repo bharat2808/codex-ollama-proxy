@@ -157,7 +157,7 @@ test('voice enable routes Codex handoffs through the configured active preset wi
   }
 });
 
-test('switch openai cannot detach an enabled voice preset from the proxy', () => {
+test('switch openai removes the proxy provider even when local voice is enabled', () => {
   const f = fixture();
   try {
     fs.writeFileSync(f.codexConfig, 'sandbox_mode = "danger-full-access"\n', 'utf8');
@@ -178,11 +178,17 @@ test('switch openai cannot detach an enabled voice preset from the proxy', () =>
 
     const switched = f.run(['switch', 'openai']);
 
-    assert.notEqual(switched.status, 0);
-    assert.match(switched.stderr, /disable local voice before switching to OpenAI/u);
+    assert.equal(switched.status, 0, switched.stderr || switched.stdout);
     const config = fs.readFileSync(f.codexConfig, 'utf8');
-    assert.match(config, /^model_provider = "codex-universal-proxy"$/m);
-    assert.match(config, /^requires_openai_auth = true$/m);
+    assert.doesNotMatch(config, /^model_provider\s*=/m);
+    assert.doesNotMatch(config, /^\[model_providers\.codex-universal-proxy\]$/m);
+    assert.match(config, /^experimental_realtime_webrtc_call_base_url = "http:\/\/127\.0\.0\.1:11436\/v1"$/m);
+    assert.match(config, /^experimental_realtime_ws_base_url = "http:\/\/127\.0\.0\.1:11436\/v1"$/m);
+    assert.match(config, /^realtime_conversation = true$/m);
+    assert.match(
+      fs.readFileSync(path.join(f.runtimeDir, 'voice.toml'), 'utf8'),
+      /^voice_enabled = true$/m,
+    );
   } finally {
     f.cleanup();
   }

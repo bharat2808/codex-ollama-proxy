@@ -165,6 +165,17 @@ function createRealtimeVoiceServer({
   function sendCallEvent(call, event) {
     if (call.closed) return;
     const payload = JSON.stringify(event);
+    if (
+      call.protocol === 'frameless'
+      && call.peer
+      && typeof call.peer.sendDataEvent === 'function'
+    ) {
+      try {
+        call.peer.sendDataEvent(event);
+      } catch (error) {
+        log(`realtime frameless browser event failed: ${error.message}`);
+      }
+    }
     if (call.sideband && call.sideband.readyState === WebSocket.OPEN) {
       call.sideband.send(payload);
     } else {
@@ -340,6 +351,17 @@ function createRealtimeVoiceServer({
       }
       call.peer = peer;
       calls.set(callId, call);
+      if (protocol === 'frameless') {
+        sendCallEvent(call, {
+          type: 'session.started',
+          session: {
+            id: `sess_${callId}`,
+            instructions: typeof parsed.session.instructions === 'string'
+              ? parsed.session.instructions
+              : '',
+          },
+        });
+      }
       log(`realtime ${protocol} WebRTC call created: ${callId}`);
       call.sidebandJoinTimer = setTimeout(() => {
         log(`realtime call ${callId} expired before sideband joined`);

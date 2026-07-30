@@ -519,12 +519,6 @@ function codexConfig(args) {
 
 function switchMode(mode, flags) {
   if (mode === 'openai') {
-    if (fs.existsSync(VOICE_CONFIG) && voiceConfig.read(VOICE_CONFIG).voice_enabled) {
-      die(
-        'Error: disable local voice before switching to OpenAI. '
-        + 'Enabled voice handoffs require the Codex Universal Proxy provider.',
-      );
-    }
     codexConfig(['openai']);
     return;
   }

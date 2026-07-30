@@ -139,6 +139,22 @@ test('voice handoffs replace a stale Codex model with the active preset default'
   });
 });
 
+test('active presets replace stale models on internal Codex turns', () => {
+  withRouteConfig([
+    'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
+    'default_model = "glm-5.2:cloud"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'gpt-5.6-luna',
+      input: 'Generate a concise title for the completed voice thread.',
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.model, 'glm-5.2:cloud');
+  });
+});
+
 test('replayed voice handoffs with existing guidance still use the preset default', () => {
   withRouteConfig([
     'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',

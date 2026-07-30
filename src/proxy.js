@@ -796,26 +796,27 @@ async function appendVisibleGeneratedImageMessages(response, requestBody) {
   return messages;
 }
 
-// Apply per-request model routing based on the config + presence of an image.
+// Keep requests inside the active preset, then apply image routing.
+// Models outside a configured allowlist are stale client selections and use
+// the preset default before any image-specific decision is made.
 // Vision-capable models always pass through with images, regardless of auto_route_image.
 // Text-only models pass through when auto_route_image is off.
 // Text-only models get rewritten to image_model when auto_route_image is on.
-function applyModelRouting(body, { voiceTurn = false } = {}) {
+function applyModelRouting(body) {
   if (!body || typeof body !== 'object') return body;
   if (
-    voiceTurn
-    && ROUTE_CFG.default_model
+    ROUTE_CFG.default_model
     && ROUTE_CFG.models.length > 0
     && !ROUTE_CFG.models.includes(body.model)
   ) {
     debugLog(
-      'voice route: model "' + body.model
+      'preset route: model "' + body.model
       + '" is outside the active preset -> rewrite to "' + ROUTE_CFG.default_model + '"',
     );
     body.model = ROUTE_CFG.default_model;
   }
   const hasImage = activeTurnHasImage(body);
-  if (!hasImage) return body; // text requests always pass through unchanged
+  if (!hasImage) return body;
   // Model has vision — let it through regardless of auto_route setting
   if (modelHasVision(body.model)) {
     debugLog('auto-route: model "' + body.model + '" has vision -> passing through');
@@ -889,7 +890,7 @@ function prepareVoiceTurn(body) {
 
 function translateRequestBody(body) {
   if (!body || typeof body !== 'object') return body;
-  const voiceTurn = prepareVoiceTurn(body);
+  prepareVoiceTurn(body);
   if (ROUTE_CFG.dedupe_large_input) {
     const removed = dedupeLargeInputBlocks(body, ROUTE_CFG.duplicate_input_min_chars);
     if (removed.blocks > 0) {
@@ -901,7 +902,7 @@ function translateRequestBody(body) {
   // from tool_search_output items (deferred tools surfaced by tool_search).
   if (Array.isArray(body.tools)) ingestNamespaces(body.tools);
   const activeImageTurn = activeTurnHasImage(body);
-  applyModelRouting(body, { voiceTurn });
+  applyModelRouting(body);
   normalizeOpenAiReasoningRequest(body, getUpstream().baseUrl, loadReasoningCatalogModels());
   removeUnsupportedReasoningEffort(body);
   normalizeXaiReasoningInput(body);

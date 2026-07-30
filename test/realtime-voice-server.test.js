@@ -146,6 +146,7 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
   let peerOptions;
   const spoken = [];
   const played = [];
+  const browserEvents = [];
   const voice = createRealtimeVoiceServer({
     enabled: () => true,
     transcribePcm: async () => 'inspect the repository',
@@ -159,6 +160,9 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
         answerSdp: 'v=0\r\na=setup:active\r\n',
         async playAudio(audio) {
           played.push(audio.toString('utf8'));
+        },
+        sendDataEvent(event) {
+          browserEvents.push(event);
         },
         close() {},
       };
@@ -181,9 +185,9 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
     const location = offer.headers.get('location');
     assert.match(location, /^\/v1\/live\/rtc_[a-f0-9-]+$/u);
     const sideband = new WebSocket(`ws://127.0.0.1:${port}${location}`);
-    await once(sideband, 'open');
     const events = [];
     sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
 
     await peerOptions.onSpeech(Buffer.from([1, 2, 3, 4]));
     while (!events.some((event) => event.type === 'delegation.created')) {
@@ -193,8 +197,8 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
     assert.equal(delegation.item.target, 'client');
     assert.equal(delegation.item.content[0].text, 'inspect the repository');
     assert.deepEqual(
-      events.slice(0, 3).map((event) => event.type),
-      ['input_transcript.added', 'turn.done', 'delegation.created'],
+      events.slice(0, 4).map((event) => event.type),
+      ['session.started', 'input_transcript.added', 'turn.done', 'delegation.created'],
     );
 
     sideband.send(JSON.stringify({
@@ -213,6 +217,106 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
     assert.equal(
       events.find((event) => event.type === 'output_transcript.added').item.text,
       'I inspected it.',
+    );
+    assert.deepEqual(browserEvents, events);
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 announces the live session to the browser and sideband', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  const browserEvents = [];
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    createPeer: async () => ({
+      answerSdp: 'v=0\r\na=setup:active\r\n',
+      sendDataEvent(event) {
+        browserEvents.push(event);
+      },
+      close() {},
+    }),
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    assert.equal(offer.status, 201);
+    const location = offer.headers.get('location');
+    const callId = location.split('/').at(-1);
+
+    assert.deepEqual(browserEvents, [{
+      type: 'session.started',
+      session: {
+        id: `sess_${callId}`,
+        instructions: 'Codex V3 voice session',
+      },
+    }]);
+
+    const sideband = new WebSocket(`ws://127.0.0.1:${port}${location}`);
+    const sidebandEvents = [];
+    sideband.on('message', (payload) => {
+      sidebandEvents.push(JSON.parse(payload.toString('utf8')));
+    });
+    await once(sideband, 'open');
+    await waitFor(
+      () => sidebandEvents.length === 1,
+      'expected session.started on the Codex sideband',
+    );
+    assert.deepEqual(sidebandEvents, browserEvents);
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 sideband startup survives a browser event delivery failure', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    createPeer: async () => ({
+      answerSdp: 'v=0\r\na=setup:active\r\n',
+      sendDataEvent() {
+        throw new Error('browser data channel unavailable');
+      },
+      close() {},
+    }),
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    assert.equal(offer.status, 201);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => {
+      events.push(JSON.parse(payload.toString('utf8')));
+    });
+    await once(sideband, 'open');
+    await waitFor(
+      () => events.some((event) => event.type === 'session.started'),
+      'expected sideband startup after browser delivery failed',
     );
     sideband.close();
     await once(sideband, 'close');
