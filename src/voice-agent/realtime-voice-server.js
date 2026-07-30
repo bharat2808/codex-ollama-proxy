@@ -4,6 +4,9 @@ const { randomUUID } = require('node:crypto');
 const { WebSocket, WebSocketServer } = require('ws');
 
 const MAX_CALL_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_WS_PAYLOAD_BYTES = 1024 * 1024;
+const MAX_CONTEXT_BYTES = 500;
+const MAX_PENDING_OUTPUTS = 8;
 
 function requestPath(request) {
   return new URL(request.url, 'http://127.0.0.1').pathname;
@@ -95,6 +98,25 @@ function speakableHandoffText(event) {
     .trim();
 }
 
+function framelessContextText(event) {
+  if (
+    event.type !== 'delegation.context.append'
+    && event.type !== 'session.context.append'
+  ) {
+    return '';
+  }
+  if (event.channel && event.channel !== 'speakable' && event.channel !== 'commentary') {
+    return '';
+  }
+  return Array.isArray(event.content)
+    ? event.content
+      .filter((item) => item && item.type === 'input_text')
+      .map((item) => String(item.text || ''))
+      .join('')
+      .trim()
+    : '';
+}
+
 function createRealtimeVoiceServer({
   enabled = () => false,
   createPeer,
@@ -109,11 +131,16 @@ function createRealtimeVoiceServer({
 } = {}) {
   if (typeof createPeer !== 'function') throw new Error('createPeer is required');
   const calls = new Map();
-  const websocketServer = new WebSocketServer({ noServer: true });
+  const websocketServer = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_WS_PAYLOAD_BYTES,
+  });
   let attachedServer = null;
 
   function closeCall(call) {
     if (call.closing) return call.closing;
+    call.accepting = false;
+    call.closed = true;
     calls.delete(call.id);
     if (call.sidebandJoinTimer) {
       clearTimeout(call.sidebandJoinTimer);
@@ -136,6 +163,7 @@ function createRealtimeVoiceServer({
   }
 
   function sendCallEvent(call, event) {
+    if (call.closed) return;
     const payload = JSON.stringify(event);
     if (call.sideband && call.sideband.readyState === WebSocket.OPEN) {
       call.sideband.send(payload);
@@ -145,8 +173,32 @@ function createRealtimeVoiceServer({
   }
 
   async function transcribeCallSpeech(call, pcm) {
+    if (call.closed) return;
     const transcript = String(await transcribePcm(pcm, call) || '').trim();
-    if (!transcript) return;
+    if (!transcript || call.closed) return;
+    log(`realtime ${call.protocol} transcription completed: ${Buffer.byteLength(transcript, 'utf8')} text bytes`);
+    if (call.protocol === 'frameless') {
+      const inputId = `input_${randomUUID()}`;
+      const delegationId = `delegation_${randomUUID()}`;
+      sendCallEvent(call, {
+        type: 'input_transcript.added',
+        item: { id: inputId, type: 'input_transcript', text: transcript },
+      });
+      sendCallEvent(call, {
+        type: 'turn.done',
+        turn: { id: `turn_${randomUUID()}`, role: 'user', transcript },
+      });
+      sendCallEvent(call, {
+        type: 'delegation.created',
+        item: {
+          id: delegationId,
+          type: 'delegation',
+          target: 'client',
+          content: [{ type: 'input_text', text: transcript }],
+        },
+      });
+      return;
+    }
     const handoffId = `handoff_${randomUUID()}`;
     const itemId = `item_${randomUUID()}`;
     sendCallEvent(call, {
@@ -167,11 +219,27 @@ function createRealtimeVoiceServer({
   }
 
   async function speakCallText(call, text) {
+    if (call.closed) return;
+    log(`realtime ${call.protocol} synthesis started: ${Buffer.byteLength(text, 'utf8')} text bytes`);
     const audio = await synthesizeSpeech(text, call);
+    if (call.closed) return;
     if (!call.peer || typeof call.peer.playAudio !== 'function') {
       throw new Error('local WebRTC peer cannot play synthesized audio');
     }
     await call.peer.playAudio(audio);
+    if (call.closed) return;
+    log(`realtime ${call.protocol} synthesis playback completed`);
+    if (call.protocol === 'frameless') {
+      sendCallEvent(call, {
+        type: 'output_transcript.added',
+        item: { id: `output_${randomUUID()}`, type: 'output_transcript', text },
+      });
+      sendCallEvent(call, {
+        type: 'turn.done',
+        turn: { id: `turn_${randomUUID()}`, role: 'assistant', transcript: text },
+      });
+      return;
+    }
     sendCallEvent(call, {
       type: 'conversation.output_transcript.delta',
       delta: text,
@@ -183,20 +251,45 @@ function createRealtimeVoiceServer({
   }
 
   function enqueueCallSpeech(call, text) {
-    const job = call.outputQueue.then(() => speakCallText(call, text));
-    call.outputQueue = job.catch((error) => {
-      log(`realtime speech synthesis failed: ${error.message}`);
+    if (!call.accepting || call.closed) return Promise.resolve();
+    if (
+      call.protocol === 'frameless'
+      && Buffer.byteLength(text, 'utf8') > MAX_CONTEXT_BYTES
+    ) {
       sendCallEvent(call, {
         type: 'error',
-        error: {
-          message: `local speech synthesis failed: ${error.message}`,
-        },
+        error: { message: `voice context exceeds ${MAX_CONTEXT_BYTES} bytes` },
       });
+      return Promise.resolve();
+    }
+    if (call.protocol === 'frameless' && call.pendingOutputs >= MAX_PENDING_OUTPUTS) {
+      sendCallEvent(call, {
+        type: 'error',
+        error: { message: 'voice output queue is full' },
+      });
+      return Promise.resolve();
+    }
+    call.pendingOutputs += 1;
+    const job = call.outputQueue.then(async () => {
+      if (!call.closed) await speakCallText(call, text);
     });
+    call.outputQueue = job
+      .catch((error) => {
+        log(`realtime speech synthesis failed: ${error.message}`);
+        sendCallEvent(call, {
+          type: 'error',
+          error: {
+            message: `local speech synthesis failed: ${error.message}`,
+          },
+        });
+      })
+      .finally(() => {
+        call.pendingOutputs -= 1;
+      });
     return job;
   }
 
-  async function createCall(request, response) {
+  async function createCall(request, response, protocol = 'legacy') {
     if (!enabled()) {
       sendText(response, 503, 'local voice is disabled');
       return;
@@ -204,10 +297,16 @@ function createRealtimeVoiceServer({
     try {
       const body = await readRequestBody(request);
       const parsed = parseCallBody(body, request.headers['content-type']);
-      const callId = `call_${randomUUID()}`;
+      const callId = protocol === 'frameless'
+        ? `rtc_${randomUUID()}`
+        : `call_${randomUUID()}`;
       const call = {
         id: callId,
+        protocol,
+        accepting: true,
+        closed: false,
         pendingEvents: [],
+        pendingOutputs: 0,
         session: parsed.session,
         sideband: null,
         outputQueue: Promise.resolve(),
@@ -217,6 +316,7 @@ function createRealtimeVoiceServer({
         callId,
         offerSdp: parsed.offerSdp,
         session: parsed.session,
+        protocol,
         headers: request.headers,
         onClose() {
           closeCall(call);
@@ -240,6 +340,7 @@ function createRealtimeVoiceServer({
       }
       call.peer = peer;
       calls.set(callId, call);
+      log(`realtime ${protocol} WebRTC call created: ${callId}`);
       call.sidebandJoinTimer = setTimeout(() => {
         log(`realtime call ${callId} expired before sideband joined`);
         closeCall(call);
@@ -248,7 +349,9 @@ function createRealtimeVoiceServer({
       response.writeHead(201, {
         'content-type': 'application/sdp',
         'content-length': String(Buffer.byteLength(peer.answerSdp)),
-        location: `/v1/realtime/calls/${callId}`,
+        location: protocol === 'frameless'
+          ? `/v1/live/${callId}`
+          : `/v1/realtime/calls/${callId}`,
       });
       response.end(peer.answerSdp);
     } catch (error) {
@@ -259,11 +362,17 @@ function createRealtimeVoiceServer({
   }
 
   function handleRequest(request, response) {
-    if (request.method !== 'POST' || requestPath(request) !== '/v1/realtime/calls') {
-      return false;
+    if (request.method !== 'POST') return false;
+    const path = requestPath(request);
+    if (path === '/v1/realtime/calls') {
+      createCall(request, response, 'legacy');
+      return true;
     }
-    createCall(request, response);
-    return true;
+    if (path === '/v1/live') {
+      createCall(request, response, 'frameless');
+      return true;
+    }
+    return false;
   }
 
   function onUpgrade(request, socket, head) {
@@ -274,10 +383,19 @@ function createRealtimeVoiceServer({
       socket.destroy();
       return;
     }
-    if (url.pathname !== '/v1/realtime') return;
-    const callId = url.searchParams.get('call_id');
+    let callId = null;
+    let protocol = null;
+    if (url.pathname === '/v1/realtime') {
+      callId = url.searchParams.get('call_id');
+      protocol = 'legacy';
+    } else {
+      const live = url.pathname.match(/^\/v1\/live\/([^/]+)$/u);
+      if (!live) return;
+      [, callId] = live;
+      protocol = 'frameless';
+    }
     const call = callId && calls.get(callId);
-    if (!call) {
+    if (!call || call.protocol !== protocol) {
       socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
@@ -288,7 +406,11 @@ function createRealtimeVoiceServer({
         call.sidebandJoinTimer = null;
       }
       call.sideband = websocket;
+      log(`realtime ${call.protocol} sideband connected: ${call.id}`);
       for (const payload of call.pendingEvents.splice(0)) websocket.send(payload);
+      websocket.on('error', (error) => {
+        log(`realtime ${call.protocol} sideband failed: ${error.message}`);
+      });
       websocket.on('message', (payload, isBinary) => {
         if (isBinary) return;
         let event;
@@ -297,7 +419,7 @@ function createRealtimeVoiceServer({
         } catch {
           return;
         }
-        if (event.type === 'session.update') {
+        if (call.protocol === 'legacy' && event.type === 'session.update') {
           const instructions = event.session && typeof event.session.instructions === 'string'
             ? event.session.instructions
             : call.session.instructions;
@@ -314,11 +436,14 @@ function createRealtimeVoiceServer({
           }
           return;
         }
-        const text = speakableHandoffText(event);
+        const text = call.protocol === 'frameless'
+          ? framelessContextText(event)
+          : speakableHandoffText(event);
         if (text) enqueueCallSpeech(call, text);
       });
       websocket.once('close', () => {
         if (call.sideband === websocket) call.sideband = null;
+        log(`realtime ${call.protocol} sideband closed: ${call.id}`);
         closeCall(call);
       });
       websocketServer.emit('connection', websocket, request);
