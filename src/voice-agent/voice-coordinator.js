@@ -91,6 +91,7 @@ function createVoiceCoordinator({
         input: [...history, userItem],
         tools: [DELEGATE_TOOL],
         tool_choice: 'auto',
+        reasoning: { effort: 'none' },
         stream: false,
       });
       const delegated = delegationFrom(response, input);

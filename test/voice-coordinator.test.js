@@ -31,6 +31,7 @@ test('voice coordinator returns direct speech from the preset voice model', asyn
   });
   assert.equal(requests[0].model, 'qwen3:8b');
   assert.equal(requests[0].stream, false);
+  assert.deepEqual(requests[0].reasoning, { effort: 'none' });
   assert.equal(requests[0].tools.length, 1);
   assert.equal(requests[0].tools[0].name, 'delegate_to_codex');
 });
