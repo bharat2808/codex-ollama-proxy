@@ -93,3 +93,36 @@ test('streamResponse aborts an in-flight upstream response', async () => {
     await close(provider);
   }
 });
+
+test('streamResponse parses SSE delimiters split across transport chunks', async () => {
+  const provider = http.createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.write(
+      'event: response.output_text.delta\r\n'
+      + 'data: {"type":"response.output_text.delta","delta":"Hello."}\r\n\r',
+    );
+    setImmediate(() => {
+      response.write(
+        '\nevent: response.completed\r\n'
+        + 'data: {"type":"response.completed","response":{"output_text":"Hello."}}\r\n\r',
+      );
+      setImmediate(() => {
+        response.end('\n');
+      });
+    });
+  });
+  const port = await listen(provider);
+  const deltas = [];
+
+  try {
+    const response = await upstream.streamResponse(
+      upstream.createUpstream(`http://127.0.0.1:${port}/v1`),
+      { model: 'test', stream: true },
+      { onTextDelta: (delta) => deltas.push(delta) },
+    );
+    assert.deepEqual(deltas, ['Hello.']);
+    assert.deepEqual(response, { output_text: 'Hello.' });
+  } finally {
+    await close(provider);
+  }
+});

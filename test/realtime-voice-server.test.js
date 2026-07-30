@@ -1027,21 +1027,26 @@ test('a completed local speech segment is transcribed and handed off to the norm
 
 test('Codex handoff commentary and final output are synthesized and played over WebRTC', async () => {
   const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  let peerOptions;
   const spoken = [];
   const played = [];
   const voice = createRealtimeVoiceServer({
     enabled: () => true,
+    transcribePcm: async () => 'inspect the files',
     synthesizeSpeech: async (text) => {
       spoken.push(text);
       return Buffer.from(`audio:${text}`);
     },
-    createPeer: async () => ({
-      answerSdp: 'v=0\r\na=setup:active\r\n',
-      async playAudio(audio) {
-        played.push(audio.toString('utf8'));
-      },
-      close() {},
-    }),
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async playAudio(audio) {
+          played.push(audio.toString('utf8'));
+        },
+        close() {},
+      };
+    },
   });
   const server = http.createServer((request, response) => {
     if (!voice.handleRequest(request, response)) {
@@ -1067,16 +1072,29 @@ test('Codex handoff commentary and final output are synthesized and played over 
     }));
     await once(sideband, 'message');
 
+    const handoffEvents = [];
+    sideband.on('message', (payload) => {
+      handoffEvents.push(JSON.parse(payload.toString('utf8')));
+    });
+    await peerOptions.onSpeech(Buffer.from([1, 2, 3, 4]));
+    await waitFor(
+      () => handoffEvents.some((event) => event.type === 'conversation.handoff.requested'),
+      'expected a handoff before handoff output',
+    );
+    const handoffId = handoffEvents.find(
+      (event) => event.type === 'conversation.handoff.requested',
+    ).handoff_id;
+
     sideband.send(JSON.stringify({
       type: 'conversation.handoff.append',
-      handoff_id: 'handoff_test',
+      handoff_id: handoffId,
       output_text: 'I will inspect the files now.',
     }));
     sideband.send(JSON.stringify({
       type: 'conversation.item.create',
       item: {
         type: 'function_call_output',
-        call_id: 'handoff_test',
+        call_id: handoffId,
         output: '"Agent Final Message":\n\nThere are twelve files.',
       },
     }));
@@ -1098,6 +1116,18 @@ test('Codex handoff commentary and final output are synthesized and played over 
     assert.deepEqual(played, [
       'audio:I will inspect the files now.',
       'audio:There are twelve files.',
+    ]);
+
+    peerOptions.onSpeechStart();
+    sideband.send(JSON.stringify({
+      type: 'conversation.handoff.append',
+      handoff_id: handoffId,
+      output_text: 'This stale result must be ignored.',
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(spoken, [
+      'I will inspect the files now.',
+      'There are twelve files.',
     ]);
     assert.deepEqual(
       outputEvents.filter((event) => event.type === 'response.output_audio_transcript.done')

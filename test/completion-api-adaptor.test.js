@@ -521,6 +521,60 @@ test('completion API adaptor bounds stalled upstream requests', async () => {
   }
 });
 
+test('completion API adaptor aborts its provider request when the Responses client disconnects', async () => {
+  let providerResponse;
+  let providerStarted;
+  let providerClosed;
+  const started = new Promise((resolve) => {
+    providerStarted = resolve;
+  });
+  const closed = new Promise((resolve) => {
+    providerClosed = resolve;
+  });
+  const chatServer = http.createServer((_req, res) => {
+    providerResponse = res;
+    res.once('close', providerClosed);
+    providerStarted();
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'stalled-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+  const request = http.request({
+    host: '127.0.0.1',
+    port: adaptorServer.address().port,
+    path: '/v1/responses',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+  request.on('error', () => {});
+
+  try {
+    request.end(JSON.stringify({
+      model: 'stalled-model',
+      input: 'cancel this',
+      stream: true,
+    }));
+    await started;
+    request.destroy();
+    await Promise.race([
+      closed,
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('provider request was not aborted')), 500);
+      }),
+    ]);
+  } finally {
+    request.destroy();
+    if (providerResponse && !providerResponse.writableEnded) providerResponse.end();
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
 test('CLI serve --adaptor chat-completion starts proxy plus adaptor using upstream config', async () => {
   const received = [];
   const provider = http.createServer((req, res) => {

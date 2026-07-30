@@ -132,14 +132,14 @@ function streamResponse(upstream, body, {
             jsonBody += chunk;
             continue;
           }
-          pending += chunk.replace(/\r\n/gu, '\n');
+          pending += chunk;
           for (;;) {
-            const boundary = pending.indexOf('\n\n');
-            if (boundary < 0) break;
-            const block = pending.slice(0, boundary);
-            pending = pending.slice(boundary + 2);
+            const boundary = pending.match(/\r?\n\r?\n/u);
+            if (!boundary) break;
+            const block = pending.slice(0, boundary.index);
+            pending = pending.slice(boundary.index + boundary[0].length);
             const data = block
-              .split('\n')
+              .split(/\r?\n/u)
               .filter((line) => line.startsWith('data:'))
               .map((line) => line.slice(5).trimStart())
               .join('\n');

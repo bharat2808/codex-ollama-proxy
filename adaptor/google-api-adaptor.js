@@ -334,7 +334,7 @@ function googleTarget(options, model, stream) {
   return { url, headers, vertex };
 }
 
-async function callGoogle(body, options, stream, request = null) {
+async function callGoogle(body, options, stream, request = null, signal) {
   const model = body.model || options.defaultModel;
   if (!model) throw new Error('Google model is not set');
   const target = googleTarget(options, model, stream);
@@ -347,13 +347,15 @@ async function callGoogle(body, options, stream, request = null) {
     ? options.requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
   let response;
   try {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
     response = await (options.fetchImpl || fetch)(target.url, {
       method: 'POST',
       headers: target.headers,
       body: JSON.stringify(request || buildGenerateContentRequest(body, model)),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
     });
   } catch (error) {
+    if (signal && signal.aborted) throw error;
     if (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
       const timeoutError = new Error('upstream request timed out after ' + timeoutMs + 'ms');
       timeoutError.statusCode = 504;
@@ -443,7 +445,7 @@ function parseSseBlock(block) {
   return data.join('\n');
 }
 
-async function streamGoogleResponse(res, body, options, continuations) {
+async function streamGoogleResponse(res, body, options, continuations, signal) {
   const model = body.model || options.defaultModel;
   const responseId = id('resp');
   const createdAt = now();
@@ -456,7 +458,7 @@ async function streamGoogleResponse(res, body, options, continuations) {
   const modelParts = [];
 
   const request = buildGoogleRequest(body, model, continuations);
-  const upstream = await callGoogle(body, options, true, request);
+  const upstream = await callGoogle(body, options, true, request, signal);
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-cache',
@@ -626,6 +628,11 @@ function startServer(options = {}) {
   const continuations = new Map();
   const server = http.createServer(async (req, res) => {
     const requestPath = req.url.replace(/\?.*$/u, '').replace(/\/+$/u, '') || '/';
+    const clientController = new AbortController();
+    req.once('aborted', () => clientController.abort());
+    res.once('close', () => {
+      if (!res.writableEnded) clientController.abort();
+    });
     try {
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
@@ -652,10 +659,24 @@ function startServer(options = {}) {
       }
       if (req.method === 'POST' && (requestPath === '/v1/responses' || requestPath === '/responses')) {
         const body = await parseJsonBody(req);
-        if (body.stream) return await streamGoogleResponse(res, body, config, continuations);
+        if (body.stream) {
+          return await streamGoogleResponse(
+            res,
+            body,
+            config,
+            continuations,
+            clientController.signal,
+          );
+        }
         const model = body.model || config.defaultModel;
         const request = buildGoogleRequest(body, model, continuations);
-        const upstream = await callGoogle(body, config, false, request);
+        const upstream = await callGoogle(
+          body,
+          config,
+          false,
+          request,
+          clientController.signal,
+        );
         const payload = await upstream.json();
         const response = geminiToResponse(payload, model);
         conversationHistory.rememberContinuations(continuations, model, request, payload, response);
@@ -664,6 +685,7 @@ function startServer(options = {}) {
       return jsonResponse(res, 404, { error: 'not found' });
     } catch (error) {
       if (config.verbose) console.error('[google-api-adaptor]', error);
+      if (clientController.signal.aborted || res.destroyed) return;
       if (!res.headersSent) return jsonResponse(res, error.statusCode || 500, { error: error.message });
       sse(res, 'response.error', { type: 'response.error', error: { message: error.message } });
       res.end();

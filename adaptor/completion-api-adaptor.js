@@ -258,7 +258,7 @@ function completionToResponse(completion, model) {
   };
 }
 
-async function callChatCompletion(body, options, stream) {
+async function callChatCompletion(body, options, stream, signal) {
   if (!options.baseUrl) throw new Error('CHAT_COMPLETION_BASE_URL is not set');
   const target = new URL(options.baseUrl.replace(/\/+$/u, '') + '/chat/completions');
   const headers = { 'content-type': 'application/json' };
@@ -268,13 +268,15 @@ async function callChatCompletion(body, options, stream) {
     : DEFAULT_REQUEST_TIMEOUT_MS;
   let response;
   try {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
     response = await fetch(target, {
       method: 'POST',
       headers,
       body: JSON.stringify(buildChatBody(body, options, stream)),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
     });
   } catch (error) {
+    if (signal && signal.aborted) throw error;
     if (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
       const timeoutError = new Error('upstream request timed out after ' + timeoutMs + 'ms');
       timeoutError.statusCode = 504;
@@ -299,7 +301,7 @@ function parseSseBlock(block) {
   return { event, data: data.join('\n') };
 }
 
-async function streamResponse(res, body, options) {
+async function streamResponse(res, body, options, signal) {
   const responseId = id('resp');
   const createdAt = now();
   const model = body.model || options.defaultModel;
@@ -325,7 +327,7 @@ async function streamResponse(res, body, options) {
     response: { id: responseId, object: 'response', created_at: createdAt, status: 'in_progress', model, output: [], output_text: '' },
   });
 
-  const upstream = await callChatCompletion(body, options, true);
+  const upstream = await callChatCompletion(body, options, true, signal);
   let buffer = '';
   for await (const chunk of upstream.body) {
     buffer += Buffer.from(chunk).toString('utf8');
@@ -487,6 +489,11 @@ function startServer(options = {}) {
   const config = Object.assign(envOptions(), options);
   const server = http.createServer(async (req, res) => {
     const path = req.url.replace(/\?.*$/u, '').replace(/\/+$/u, '') || '/';
+    const clientController = new AbortController();
+    req.once('aborted', () => clientController.abort());
+    res.once('close', () => {
+      if (!res.writableEnded) clientController.abort();
+    });
     try {
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
@@ -520,16 +527,17 @@ function startServer(options = {}) {
       if (req.method === 'POST' && (path === '/v1/responses' || path === '/responses')) {
         const body = await parseJsonBody(req);
         if (body.stream) {
-          await streamResponse(res, body, config);
+          await streamResponse(res, body, config, clientController.signal);
           return;
         }
-        const upstream = await callChatCompletion(body, config, false);
+        const upstream = await callChatCompletion(body, config, false, clientController.signal);
         const completion = await upstream.json();
         return jsonResponse(res, 200, completionToResponse(completion, body.model || config.defaultModel));
       }
       return jsonResponse(res, 404, { error: 'not found' });
     } catch (error) {
       if (config.verbose) console.error('[completion-api-adaptor]', error);
+      if (clientController.signal.aborted || res.destroyed) return;
       if (!res.headersSent) return jsonResponse(res, error.statusCode || 500, { error: error.message });
       sse(res, 'response.error', { type: 'response.error', error: { message: error.message } });
       res.end();

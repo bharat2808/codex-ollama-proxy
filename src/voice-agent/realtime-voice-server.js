@@ -165,6 +165,7 @@ function createRealtimeVoiceServer({
       controller: call.activeController,
     };
     call.activeDelegationId = null;
+    call.activeHandoffId = null;
     call.outputQueue = Promise.resolve();
     stopCallAudio(call);
     return call.collectingTurn;
@@ -365,6 +366,7 @@ function createRealtimeVoiceServer({
     }
     if (!isCurrentTurn(call, generation)) return;
     const delegatedInput = String(decision && decision.input || transcript).trim();
+    call.activeHandoffId = handoffId;
     sendCallEvent(call, {
       type: 'conversation.handoff.requested',
       handoff_id: handoffId,
@@ -472,6 +474,7 @@ function createRealtimeVoiceServer({
         collectingTurn: null,
         activeController: null,
         activeDelegationId: null,
+        activeHandoffId: null,
         inputJobs: new Set(),
         voiceCoordinatorHistory: [],
       };
@@ -632,6 +635,10 @@ function createRealtimeVoiceServer({
         ) {
           return;
         }
+        const handoffEventId = call.protocol === 'legacy'
+          ? (event.handoff_id || (event.item && event.item.call_id))
+          : null;
+        if (handoffEventId && handoffEventId !== call.activeHandoffId) return;
         if (text) enqueueCallSpeech(call, text);
       });
       websocket.once('close', () => {

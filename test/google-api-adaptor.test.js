@@ -686,6 +686,60 @@ test('Google adaptor returns an upstream streaming error before starting SSE', a
   }
 });
 
+test('Google adaptor aborts its provider request when the Responses client disconnects', async () => {
+  let providerResponse;
+  let providerStarted;
+  let providerClosed;
+  const started = new Promise((resolve) => {
+    providerStarted = resolve;
+  });
+  const closed = new Promise((resolve) => {
+    providerClosed = resolve;
+  });
+  const upstream = http.createServer((_request, response) => {
+    providerResponse = response;
+    response.once('close', providerClosed);
+    providerStarted();
+  });
+  const upstreamPort = await listen(upstream);
+  const adaptor = require('../adaptor/google-api-adaptor');
+  const server = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${upstreamPort}/v1beta/openai`,
+    defaultModel: 'gemini-test',
+  });
+  await new Promise((resolve) => server.once('listening', resolve));
+  const request = http.request({
+    host: '127.0.0.1',
+    port: server.address().port,
+    path: '/v1/responses',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+  request.on('error', () => {});
+
+  try {
+    request.end(JSON.stringify({
+      model: 'gemini-test',
+      input: 'cancel this',
+      stream: true,
+    }));
+    await started;
+    request.destroy();
+    await Promise.race([
+      closed,
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('provider request was not aborted')), 500);
+      }),
+    ]);
+  } finally {
+    request.destroy();
+    if (providerResponse && !providerResponse.writableEnded) providerResponse.end();
+    await close(server);
+    await close(upstream);
+  }
+});
+
 test('Google adaptor is a supported preset and launcher adaptor', () => {
   const presets = require('../src/presets');
   const launcherState = require('../src/launcher-state');
