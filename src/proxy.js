@@ -19,6 +19,7 @@ const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
 const { normalizeOpenAiReasoningRequest } = require('./model-catalog/reasoning-request-normalization');
 const { createLocalVoiceRuntime } = require('./voice-agent/local-voice-runtime');
+const { createFramelessVoiceServer } = require('./voice-agent/frameless-voice-server');
 const { createRealtimeVoiceServer } = require('./voice-agent/realtime-voice-server');
 const { VOICE_TURN_INSTRUCTIONS } = require('./voice-agent/voice-agent-session');
 const { createWeriftVoicePeer } = require('./voice-agent/werift-voice-peer');
@@ -1987,6 +1988,12 @@ const realtimeVoiceServer = createRealtimeVoiceServer({
   synthesizeSpeech: localVoiceRuntime.synthesizeSpeech,
   log,
 });
+const framelessVoiceServer = createFramelessVoiceServer({
+  enabled: () => voiceConfig.read(VOICE_CONFIG_PATH).voice_enabled,
+  transcribePcm: localVoiceRuntime.transcribePcm,
+  synthesizeSpeech: localVoiceRuntime.synthesizeSpeech,
+  log,
+});
 
 const server = http.createServer((clientReq, clientRes) => {
   if (realtimeVoiceServer.handleRequest(clientReq, clientRes)) return;
@@ -2227,9 +2234,13 @@ const server = http.createServer((clientReq, clientRes) => {
   clientReq.on('error', (e) => log('client error: ' + e.message));
 });
 realtimeVoiceServer.attach(server);
+framelessVoiceServer.attach(server);
 server.on('close', () => {
   realtimeVoiceServer.close().catch((error) => {
     debugLog('realtime voice shutdown failed: ' + error.message);
+  });
+  framelessVoiceServer.close().catch((error) => {
+    debugLog('frameless voice shutdown failed: ' + error.message);
   });
 });
 

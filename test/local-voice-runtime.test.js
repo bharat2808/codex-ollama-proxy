@@ -25,11 +25,15 @@ test('local voice runtime passes current Whisper configuration and cleans up its
     },
   });
 
-  const result = await runtime.transcribePcm(Buffer.from([1, 0, 2, 0]));
+  const result = await runtime.transcribePcm(
+    Buffer.from([1, 0, 2, 0]),
+    { sampleRate: 24000 },
+  );
 
   assert.equal(result, 'hello Codex');
   assert.equal(writes[0][0], '/tmp/input.wav');
   assert.equal(writes[0][1].subarray(0, 4).toString('ascii'), 'RIFF');
+  assert.equal(writes[0][1].readUInt32LE(24), 24000);
   assert.deepEqual(calls, [{
     audioPath: '/tmp/input.wav',
     modelPath: '/models/base.bin',

@@ -20,14 +20,16 @@ function createLocalVoiceRuntime({
 } = {}) {
   if (!configFile) throw new Error('voice configFile is required');
 
-  async function transcribePcm(pcm) {
+  async function transcribePcm(pcm, context = {}) {
     const config = readConfig(configFile);
     if (!config.whisper_model) {
       throw new Error('Whisper model is not configured; run voice --whisper-model PATH');
     }
     const audioPath = allocatePath('input');
     try {
-      await writeFile(audioPath, pcm16ToWav(pcm));
+      await writeFile(audioPath, pcm16ToWav(pcm, {
+        sampleRate: context.sampleRate || 16000,
+      }));
       return await transcribe({
         audioPath,
         modelPath: config.whisper_model,
