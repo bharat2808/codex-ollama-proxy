@@ -69,6 +69,7 @@
     "ws": "^8.21.1"
   },
   "overrides": {
+    "ip": "npm:@eggjs/ip@2.1.0",
     "sharp": "^0.35.3"
   }
 }
