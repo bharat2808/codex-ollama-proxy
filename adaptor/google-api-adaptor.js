@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
 const { createAccessTokenProvider } = require('../src/google-adc');
+const { phaseForAssistantText } = require('../src/message-phase');
 const conversationHistory = require('./google-conversation-history');
 
 const DEFAULT_PORT = 8787;
@@ -369,12 +370,13 @@ async function callGoogle(body, options, stream, request = null) {
   return response;
 }
 
-function messageItem(text, itemId = id('msg')) {
+function messageItem(text, itemId = id('msg'), phase = 'final_answer') {
   return {
     id: itemId,
     type: 'message',
     status: 'completed',
     role: 'assistant',
+    phase,
     content: [{ type: 'output_text', text, annotations: [] }],
   };
 }
@@ -413,8 +415,9 @@ function usageFor(payload) {
 function geminiToResponse(payload, model) {
   const parts = payload?.candidates?.[0]?.content?.parts || [];
   const text = parts.filter((part) => typeof part.text === 'string').map((part) => part.text).join('');
+  const hasToolCalls = parts.some((part) => part.functionCall);
   const output = [];
-  if (text) output.push(messageItem(text));
+  if (text) output.push(messageItem(text, id('msg'), phaseForAssistantText(hasToolCalls)));
   for (const part of parts) {
     if (part.functionCall) output.push(toolItem(part));
     if (part.inlineData && part.inlineData.data) output.push(imageItem(part));
@@ -562,7 +565,11 @@ async function streamGoogleResponse(res, body, options, continuations) {
     }
   }
   if (messageId) {
-    const item = messageItem(text, messageId);
+    const item = messageItem(
+      text,
+      messageId,
+      phaseForAssistantText(output.some((entry) => entry && entry.type === 'function_call')),
+    );
     output[textOutputIndex] = item;
     sse(res, 'response.output_text.done', {
       type: 'response.output_text.done',

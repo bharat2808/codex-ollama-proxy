@@ -574,6 +574,7 @@ test('Google adaptor maps native Gemini text, tool calls, and inline images to R
       'function_call',
       'image_generation_call',
     ]);
+    assert.equal(response.body.output[0].phase, 'commentary');
     assert.equal(response.body.output_text, 'done');
     assert.equal(response.body.output[2].result, 'data:image/png;base64,aW1hZ2U=');
   } finally {
@@ -653,6 +654,7 @@ test('Google adaptor converts streamed Gemini parts into Responses SSE events', 
       'image_generation_call',
       'function_call',
     ]);
+    assert.equal(completed.data.response.output[0].phase, 'commentary');
   } finally {
     await close(server);
     await close(upstream);

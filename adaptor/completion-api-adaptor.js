@@ -3,6 +3,7 @@
 
 const http = require('http');
 const crypto = require('crypto');
+const { phaseForAssistantText } = require('../src/message-phase');
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
@@ -190,12 +191,13 @@ function buildChatBody(body, options, stream) {
   return payload;
 }
 
-function messageItem(text) {
+function messageItem(text, phase = 'final_answer') {
   return {
     id: id('msg'),
     type: 'message',
     status: 'completed',
     role: 'assistant',
+    phase,
     content: [{ type: 'output_text', text, annotations: [] }],
   };
 }
@@ -234,13 +236,16 @@ function completionToResponse(completion, model) {
   const choice = completion.choices && completion.choices[0];
   const msg = choice && choice.message ? choice.message : {};
   const text = msg.content || '';
+  const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
   const output = [];
   for (const call of msg.tool_calls || []) output.push(toolItem(call));
   for (const image of msg.images || []) {
     const item = imageItem(image);
     if (item) output.push(item);
   }
-  if (text || output.length === 0) output.push(messageItem(text));
+  if (text || output.length === 0) {
+    output.push(messageItem(text, phaseForAssistantText(hasToolCalls)));
+  }
   return {
     id: id('resp'),
     object: 'response',
@@ -444,7 +449,14 @@ async function streamResponse(res, body, options) {
   }
 
   if (textStarted) {
-    const item = { id: msgId, type: 'message', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] };
+    const item = {
+      id: msgId,
+      type: 'message',
+      status: 'completed',
+      role: 'assistant',
+      phase: phaseForAssistantText(toolStates.size > 0),
+      content: [{ type: 'output_text', text, annotations: [] }],
+    };
     sse(res, 'response.output_text.done', { type: 'response.output_text.done', item_id: msgId, output_index: textOutputIndex, content_index: 0, sequence_number: sequence++, text });
     sse(res, 'response.content_part.done', { type: 'response.content_part.done', item_id: msgId, output_index: textOutputIndex, content_index: 0, sequence_number: sequence++, part: item.content[0] });
     sse(res, 'response.output_item.done', { type: 'response.output_item.done', output_index: textOutputIndex, sequence_number: sequence++, item });
