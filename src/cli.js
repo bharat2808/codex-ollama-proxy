@@ -520,6 +520,8 @@ function codexConfig(args) {
 function switchMode(mode, flags) {
   if (mode === 'openai') {
     codexConfig(['openai']);
+    const currentVoice = voiceConfig.read(VOICE_CONFIG);
+    if (ownsVoiceRouting(currentVoice)) completeVoiceDisable(currentVoice);
     return;
   }
   if (mode !== 'ollama') die('switch mode must be "openai" or "ollama"');

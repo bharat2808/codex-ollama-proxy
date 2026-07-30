@@ -157,7 +157,7 @@ test('voice enable routes Codex handoffs through the configured active preset wi
   }
 });
 
-test('switch openai removes the proxy provider even when local voice is enabled', () => {
+test('switch openai releases proxy-owned model and voice routing without changing the active preset', () => {
   const f = fixture();
   try {
     fs.writeFileSync(f.codexConfig, 'sandbox_mode = "danger-full-access"\n', 'utf8');
@@ -175,6 +175,11 @@ test('switch openai removes the proxy provider even when local voice is enabled'
       '--no-start',
     ]);
     assert.equal(enabled.status, 0, enabled.stderr || enabled.stdout);
+    fs.appendFileSync(
+      path.join(f.runtimeDir, 'proxy-models.toml'),
+      '\nactive_preset = "local-voice"\n',
+      'utf8',
+    );
 
     const switched = f.run(['switch', 'openai']);
 
@@ -182,12 +187,15 @@ test('switch openai removes the proxy provider even when local voice is enabled'
     const config = fs.readFileSync(f.codexConfig, 'utf8');
     assert.doesNotMatch(config, /^model_provider\s*=/m);
     assert.doesNotMatch(config, /^\[model_providers\.codex-universal-proxy\]$/m);
-    assert.match(config, /^experimental_realtime_webrtc_call_base_url = "http:\/\/127\.0\.0\.1:11436\/v1"$/m);
-    assert.match(config, /^experimental_realtime_ws_base_url = "http:\/\/127\.0\.0\.1:11436\/v1"$/m);
-    assert.match(config, /^realtime_conversation = true$/m);
+    assert.doesNotMatch(config, /^experimental_realtime_webrtc_call_base_url\s*=/m);
+    assert.doesNotMatch(config, /^experimental_realtime_ws_base_url\s*=/m);
+    assert.doesNotMatch(config, /^realtime_conversation\s*=/m);
+    const localVoice = fs.readFileSync(path.join(f.runtimeDir, 'voice.toml'), 'utf8');
+    assert.match(localVoice, /^voice_enabled = false$/m);
+    assert.match(localVoice, /^routing_state = "disabled"$/m);
     assert.match(
-      fs.readFileSync(path.join(f.runtimeDir, 'voice.toml'), 'utf8'),
-      /^voice_enabled = true$/m,
+      fs.readFileSync(path.join(f.runtimeDir, 'proxy-models.toml'), 'utf8'),
+      /^active_preset = "local-voice"$/m,
     );
   } finally {
     f.cleanup();
