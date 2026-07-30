@@ -116,6 +116,66 @@ test('voice handoff requests receive spoken-turn guidance before provider transl
   assert.equal(guidance.length, 1);
 });
 
+test('voice handoffs replace a stale Codex model with the active preset default', () => {
+  withRouteConfig([
+    'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
+    'default_model = "glm-5.2:cloud"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'gpt-5.6-luna',
+      input: [{
+        type: 'message',
+        role: 'user',
+        content: [{
+          type: 'input_text',
+          text: '<realtime_delegation>\nCheck the current branch.\n</realtime_delegation>',
+        }],
+      }],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.model, 'glm-5.2:cloud');
+  });
+});
+
+test('replayed voice handoffs with existing guidance still use the preset default', () => {
+  withRouteConfig([
+    'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
+    'default_model = "glm-5.2:cloud"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'gpt-5.6-luna',
+      input: [
+        {
+          type: 'message',
+          role: 'developer',
+          content: [{ type: 'input_text', text: VOICE_TURN_INSTRUCTIONS }],
+        },
+        {
+          type: 'message',
+          role: 'user',
+          content: [{
+            type: 'input_text',
+            text: '<realtime_delegation>\nCheck the current branch.\n</realtime_delegation>',
+          }],
+        },
+      ],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.model, 'glm-5.2:cloud');
+    assert.equal(
+      body.input.filter((item) => (
+        Array.isArray(item.content)
+        && item.content.some((part) => part && part.text === VOICE_TURN_INSTRUCTIONS)
+      )).length,
+      1,
+    );
+  });
+});
+
 test('ordinary Responses requests do not receive voice guidance', () => {
   const { translateRequestBody } = require('../src/proxy');
   const body = {

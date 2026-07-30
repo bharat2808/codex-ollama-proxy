@@ -157,6 +157,37 @@ test('voice enable routes Codex handoffs through the configured active preset wi
   }
 });
 
+test('switch openai cannot detach an enabled voice preset from the proxy', () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(f.codexConfig, 'sandbox_mode = "danger-full-access"\n', 'utf8');
+    fs.writeFileSync(path.join(f.runtimeDir, 'proxy-models.toml'), [
+      'active_preset = "local-voice"',
+      'default_model = "local-model"',
+      'models = ["local-model"]',
+      'upstream_url = "http://127.0.0.1:11434/v1"',
+      '',
+    ].join('\n'), 'utf8');
+    const enabled = f.run([
+      'voice',
+      '--enable',
+      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-start',
+    ]);
+    assert.equal(enabled.status, 0, enabled.stderr || enabled.stdout);
+
+    const switched = f.run(['switch', 'openai']);
+
+    assert.notEqual(switched.status, 0);
+    assert.match(switched.stderr, /disable local voice before switching to OpenAI/u);
+    const config = fs.readFileSync(f.codexConfig, 'utf8');
+    assert.match(config, /^model_provider = "codex-universal-proxy"$/m);
+    assert.match(config, /^requires_openai_auth = true$/m);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('voice disable restores pre-existing Codex Realtime endpoints without disturbing later user edits', () => {
   const f = fixture();
   try {

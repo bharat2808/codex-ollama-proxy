@@ -800,8 +800,20 @@ async function appendVisibleGeneratedImageMessages(response, requestBody) {
 // Vision-capable models always pass through with images, regardless of auto_route_image.
 // Text-only models pass through when auto_route_image is off.
 // Text-only models get rewritten to image_model when auto_route_image is on.
-function applyModelRouting(body) {
+function applyModelRouting(body, { voiceTurn = false } = {}) {
   if (!body || typeof body !== 'object') return body;
+  if (
+    voiceTurn
+    && ROUTE_CFG.default_model
+    && ROUTE_CFG.models.length > 0
+    && !ROUTE_CFG.models.includes(body.model)
+  ) {
+    debugLog(
+      'voice route: model "' + body.model
+      + '" is outside the active preset -> rewrite to "' + ROUTE_CFG.default_model + '"',
+    );
+    body.model = ROUTE_CFG.default_model;
+  }
   const hasImage = activeTurnHasImage(body);
   if (!hasImage) return body; // text requests always pass through unchanged
   // Model has vision — let it through regardless of auto_route setting
@@ -856,27 +868,28 @@ function inputContainsText(value, needle) {
   return Object.values(value).some((item) => inputContainsText(item, needle));
 }
 
-function injectVoiceTurnInstructions(body) {
+function prepareVoiceTurn(body) {
   if (!Array.isArray(body && body.input)) return false;
   const activeUserMessage = body.input.findLast((item) => (
     item && item.type === 'message' && item.role === 'user'
   ));
   if (!inputContainsText(activeUserMessage, '<realtime_delegation>')) return false;
-  if (inputContainsText(body.input, VOICE_TURN_INSTRUCTIONS)) return false;
-  body.input.unshift({
-    type: 'message',
-    role: 'developer',
-    content: [{
-      type: 'input_text',
-      text: VOICE_TURN_INSTRUCTIONS,
-    }],
-  });
+  if (!inputContainsText(body.input, VOICE_TURN_INSTRUCTIONS)) {
+    body.input.unshift({
+      type: 'message',
+      role: 'developer',
+      content: [{
+        type: 'input_text',
+        text: VOICE_TURN_INSTRUCTIONS,
+      }],
+    });
+  }
   return true;
 }
 
 function translateRequestBody(body) {
   if (!body || typeof body !== 'object') return body;
-  injectVoiceTurnInstructions(body);
+  const voiceTurn = prepareVoiceTurn(body);
   if (ROUTE_CFG.dedupe_large_input) {
     const removed = dedupeLargeInputBlocks(body, ROUTE_CFG.duplicate_input_min_chars);
     if (removed.blocks > 0) {
@@ -888,7 +901,7 @@ function translateRequestBody(body) {
   // from tool_search_output items (deferred tools surfaced by tool_search).
   if (Array.isArray(body.tools)) ingestNamespaces(body.tools);
   const activeImageTurn = activeTurnHasImage(body);
-  applyModelRouting(body);
+  applyModelRouting(body, { voiceTurn });
   normalizeOpenAiReasoningRequest(body, getUpstream().baseUrl, loadReasoningCatalogModels());
   removeUnsupportedReasoningEffort(body);
   normalizeXaiReasoningInput(body);
