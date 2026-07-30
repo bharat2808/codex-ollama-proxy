@@ -2,6 +2,10 @@
 
 const { randomUUID } = require('node:crypto');
 const { WebSocket, WebSocketServer } = require('ws');
+const {
+  appendVoiceCoordinatorHistory,
+  rememberVoiceCoordinatorUpdate,
+} = require('./voice-coordinator');
 
 const MAX_CALL_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_WS_PAYLOAD_BYTES = 1024 * 1024;
@@ -156,6 +160,14 @@ function createRealtimeVoiceServer({
     }
   }
 
+  function preserveConcurrentCoordinatorUpdates(call, initialHistory, coordinatorHistory) {
+    const liveHistory = Array.isArray(call.voiceCoordinatorHistory)
+      ? call.voiceCoordinatorHistory
+      : [];
+    const concurrentUpdates = liveHistory.slice(initialHistory.length);
+    return appendVoiceCoordinatorHistory(coordinatorHistory, ...concurrentUpdates);
+  }
+
   function beginCallTurn(call) {
     if (call.activeController) call.activeController.abort();
     call.generation += 1;
@@ -259,9 +271,10 @@ function createRealtimeVoiceServer({
         type: 'turn.done',
         turn: { id: `turn_${randomUUID()}`, role: 'user', transcript },
       });
+      const initialHistory = call.voiceCoordinatorHistory;
       const context = {
         signal: controller.signal,
-        voiceCoordinatorHistory: call.voiceCoordinatorHistory,
+        voiceCoordinatorHistory: initialHistory,
         onSpeechPhrase: (text) => enqueueCallSpeech(
           call,
           text,
@@ -271,7 +284,11 @@ function createRealtimeVoiceServer({
       };
       const decision = await coordinateTranscript(transcript, context);
       if (!isCurrentTurn(call, generation)) return;
-      call.voiceCoordinatorHistory = context.voiceCoordinatorHistory;
+      call.voiceCoordinatorHistory = preserveConcurrentCoordinatorUpdates(
+        call,
+        initialHistory,
+        context.voiceCoordinatorHistory,
+      );
       if (decision && decision.action === 'speak') {
         if (decision.streamed) {
           await call.outputQueue;
@@ -324,9 +341,10 @@ function createRealtimeVoiceServer({
       transcript,
       item_id: itemId,
     });
+    const initialHistory = call.voiceCoordinatorHistory;
     const context = {
       signal: controller.signal,
-      voiceCoordinatorHistory: call.voiceCoordinatorHistory,
+      voiceCoordinatorHistory: initialHistory,
       onSpeechPhrase: (text) => enqueueCallSpeech(
         call,
         text,
@@ -336,7 +354,11 @@ function createRealtimeVoiceServer({
     };
     const decision = await coordinateTranscript(transcript, context);
     if (!isCurrentTurn(call, generation)) return;
-    call.voiceCoordinatorHistory = context.voiceCoordinatorHistory;
+    call.voiceCoordinatorHistory = preserveConcurrentCoordinatorUpdates(
+      call,
+      initialHistory,
+      context.voiceCoordinatorHistory,
+    );
     if (decision && decision.action === 'speak') {
       if (decision.streamed) {
         await call.outputQueue;
@@ -627,6 +649,18 @@ function createRealtimeVoiceServer({
         const text = call.protocol === 'frameless'
           ? framelessContextText(event)
           : speakableHandoffText(event);
+        if (
+          text
+          && (
+            call.protocol !== 'frameless'
+            || Buffer.byteLength(text, 'utf8') <= MAX_CONTEXT_BYTES
+          )
+        ) {
+          call.voiceCoordinatorHistory = rememberVoiceCoordinatorUpdate(
+            call.voiceCoordinatorHistory,
+            text,
+          );
+        }
         if (
           call.protocol === 'frameless'
           && event.type === 'delegation.context.append'

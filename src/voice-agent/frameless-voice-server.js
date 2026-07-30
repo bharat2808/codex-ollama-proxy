@@ -2,6 +2,9 @@
 
 const { randomUUID } = require('node:crypto');
 const { WebSocket, WebSocketServer } = require('ws');
+const {
+  rememberVoiceCoordinatorUpdate,
+} = require('./voice-coordinator');
 const { PcmSpeechSegmenter } = require('./voice-audio');
 
 const MAX_WS_PAYLOAD_BYTES = 1024 * 1024;
@@ -142,6 +145,7 @@ function createFramelessVoiceServer({
         inputQueue: Promise.resolve(),
         speechQueue: Promise.resolve(),
         outputQueue: Promise.resolve(),
+        voiceCoordinatorHistory: [],
       };
 
       function sendError(message) {
@@ -300,6 +304,12 @@ function createFramelessVoiceServer({
         }
         const text = contextText(event).trim();
         if (!text) return;
+        if (Buffer.byteLength(text, 'utf8') <= MAX_CONTEXT_BYTES) {
+          session.voiceCoordinatorHistory = rememberVoiceCoordinatorUpdate(
+            session.voiceCoordinatorHistory,
+            text,
+          );
+        }
         enqueueOutputText(text);
       });
       websocket.on('error', (error) => {

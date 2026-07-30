@@ -437,6 +437,173 @@ test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overt
   }
 });
 
+test('Codex V3 retains muted stale delegation results for the next voice decision', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  let peerOptions;
+  const histories = [];
+  const spoken = [];
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    transcribePcm: async (pcm) => pcm.toString(),
+    coordinateTranscript: async (transcript, context) => {
+      histories.push(structuredClone(context.voiceCoordinatorHistory));
+      return { action: 'delegate', input: transcript };
+    },
+    synthesizeSpeech: async (text) => {
+      spoken.push(text);
+      return Buffer.from(`audio:${text}`);
+    },
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async playAudio() {},
+        async stopAudio() {},
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    await peerOptions.onSpeech(Buffer.from('inspect the repository'));
+    await waitFor(
+      () => events.some((event) => event.type === 'delegation.created'),
+      'expected the initial delegation',
+    );
+    const delegationId = events.find(
+      (event) => event.type === 'delegation.created',
+    ).item.id;
+
+    peerOptions.onSpeechStart();
+    sideband.send(JSON.stringify({
+      type: 'delegation.context.append',
+      delegation_item_id: delegationId,
+      channel: 'speakable',
+      content: [{ type: 'input_text', text: 'The repository has three failing tests.' }],
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(spoken, []);
+
+    await peerOptions.onSpeech(Buffer.from('what did it find'));
+
+    assert.deepEqual(histories.at(-1), [{
+      role: 'developer',
+      content: [{
+        type: 'input_text',
+        text: 'Codex handoff update: The repository has three failing tests.',
+      }],
+    }]);
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 does not lose a handoff update that arrives during coordinator inference', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  let peerOptions;
+  let releaseFirst;
+  let markFirstStarted;
+  const firstStarted = new Promise((resolve) => {
+    markFirstStarted = resolve;
+  });
+  const firstGate = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const histories = [];
+  const spoken = [];
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    transcribePcm: async (pcm) => pcm.toString(),
+    coordinateTranscript: async (transcript, context) => {
+      if (transcript === 'first request') {
+        markFirstStarted();
+        await firstGate;
+        return { action: 'delegate', input: transcript };
+      }
+      histories.push(structuredClone(context.voiceCoordinatorHistory));
+      return { action: 'delegate', input: transcript };
+    },
+    synthesizeSpeech: async (text) => {
+      spoken.push(text);
+      return Buffer.from(`audio:${text}`);
+    },
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async playAudio() {},
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    await once(sideband, 'open');
+
+    const first = peerOptions.onSpeech(Buffer.from('first request'));
+    await firstStarted;
+    sideband.send(JSON.stringify({
+      type: 'session.context.append',
+      channel: 'commentary',
+      content: [{ type: 'input_text', text: 'Codex is halfway through the task.' }],
+    }));
+    await waitFor(
+      () => spoken.includes('Codex is halfway through the task.'),
+      'expected the concurrent handoff update',
+    );
+    releaseFirst();
+    await first;
+    await peerOptions.onSpeech(Buffer.from('second request'));
+
+    assert.deepEqual(histories[0], [{
+      role: 'developer',
+      content: [{
+        type: 'input_text',
+        text: 'Codex handoff update: Codex is halfway through the task.',
+      }],
+    }]);
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releaseFirst();
+    await voice.close();
+    await close(server);
+  }
+});
+
 test('Codex V3 WebRTC plays streamed coordinator phrases before inference completes', async () => {
   const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerOptions;

@@ -87,6 +87,68 @@ test('voice coordinator preserves spoken text that accompanies a delegation tool
   });
 });
 
+test('voice coordinator retains delegated work so the model can classify later follow-ups', async () => {
+  const requests = [];
+  let responseNumber = 0;
+  const coordinate = createVoiceCoordinator({
+    getModel: () => 'qwen3:8b',
+    requestResponse: async (body) => {
+      requests.push(body);
+      responseNumber += 1;
+      if (responseNumber === 1) {
+        return {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-delegate-1',
+            name: 'delegate_to_codex',
+            arguments: JSON.stringify({
+              request: 'Inspect the repository and fix the failing tests.',
+            }),
+          }],
+        };
+      }
+      return {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'I’ll redirect that work.' }],
+        }],
+      };
+    },
+  });
+  const context = {};
+
+  await coordinate('fix the failing tests', context);
+  await coordinate('actually start with the proxy tests', context);
+
+  assert.deepEqual(requests[1].input.slice(0, 3), [
+    {
+      role: 'user',
+      content: [{ type: 'input_text', text: 'fix the failing tests' }],
+    },
+    {
+      type: 'function_call',
+      call_id: 'call-delegate-1',
+      name: 'delegate_to_codex',
+      arguments: JSON.stringify({
+        request: 'Inspect the repository and fix the failing tests.',
+      }),
+    },
+    {
+      type: 'function_call_output',
+      call_id: 'call-delegate-1',
+      output: JSON.stringify({
+        status: 'accepted',
+        request: 'Inspect the repository and fix the failing tests.',
+      }),
+    },
+  ]);
+  assert.equal(
+    requests[1].input.at(-1).content[0].text,
+    'actually start with the proxy tests',
+  );
+});
+
 test('voice coordinator preserves legacy delegation when the preset has no voice model', async () => {
   let requests = 0;
   const coordinate = createVoiceCoordinator({

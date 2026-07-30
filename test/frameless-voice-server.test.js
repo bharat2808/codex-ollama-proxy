@@ -171,6 +171,55 @@ test('Codex frameless live transport speaks a direct coordinator response withou
   }
 });
 
+test('frameless live transport retains Codex context for the next voice decision', async () => {
+  const histories = [];
+  const { voice, server, port } = await createServer({
+    coordinateTranscript: async (transcript, context) => {
+      histories.push(structuredClone(context.voiceCoordinatorHistory));
+      return { action: 'delegate', input: transcript };
+    },
+  });
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/v1/live`);
+  const events = [];
+  socket.on('message', (raw) => events.push(JSON.parse(raw.toString())));
+
+  try {
+    await once(socket, 'open');
+    socket.send(JSON.stringify({ type: 'session.update', session: {} }));
+    while (!events.some((event) => event.type === 'session.started')) await once(socket, 'message');
+    socket.send(JSON.stringify({
+      type: 'session.context.append',
+      channel: 'commentary',
+      content: [{ type: 'input_text', text: 'Codex found the failing adapter.' }],
+    }));
+    while (!events.some((event) => event.type === 'output_audio.delta')) {
+      await once(socket, 'message');
+    }
+
+    const speech = Buffer.alloc(24000 * 0.3 * 2);
+    for (let offset = 0; offset < speech.length; offset += 2) speech.writeInt16LE(4000, offset);
+    const silence = Buffer.alloc(24000 * 0.7 * 2);
+    socket.send(JSON.stringify({ type: 'input_audio.append', audio: speech.toString('base64') }));
+    socket.send(JSON.stringify({ type: 'input_audio.append', audio: silence.toString('base64') }));
+    while (!events.some((event) => event.type === 'delegation.created')) {
+      await once(socket, 'message');
+    }
+
+    assert.deepEqual(histories[0], [{
+      role: 'developer',
+      content: [{
+        type: 'input_text',
+        text: 'Codex handoff update: Codex found the failing adapter.',
+      }],
+    }]);
+  } finally {
+    socket.close();
+    await once(socket, 'close');
+    await voice.close();
+    await close(server);
+  }
+});
+
 test('frameless live transport rejects browser-originated WebSocket upgrades', async () => {
   const { voice, server, port } = await createServer();
   const socket = new WebSocket(`ws://127.0.0.1:${port}/v1/live`, {

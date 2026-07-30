@@ -7,6 +7,8 @@ const COORDINATOR_INSTRUCTIONS = [
   'You are the conversational voice coordinator for a Codex agent.',
   'Respond directly only when the request is self-contained and requires no tools, files, workspace access, research, or longer-running work.',
   `For every action or task, call ${DELEGATE_TOOL_NAME}.`,
+  `Also call ${DELEGATE_TOOL_NAME} when the user corrects, redirects, or cancels previously delegated work.`,
+  'The Codex handoff owns the workspace and thread tools. It will decide whether to start new work or steer an existing worker.',
   'When delegating, first give the user one brief spoken acknowledgement, then call the tool.',
   'Keep direct spoken responses concise and natural.',
   'Never claim that delegated work has already completed.',
@@ -30,16 +32,39 @@ const DELEGATE_TOOL = {
   strict: true,
 };
 
+function appendVoiceCoordinatorHistory(history, ...items) {
+  return [
+    ...(Array.isArray(history) ? history : []),
+    ...items.filter(Boolean),
+  ].slice(-MAX_HISTORY_ITEMS);
+}
+
+function rememberVoiceCoordinatorUpdate(history, text) {
+  const update = String(text || '').trim();
+  if (!update) return Array.isArray(history) ? history : [];
+  return appendVoiceCoordinatorHistory(history, {
+    role: 'developer',
+    content: [{
+      type: 'input_text',
+      text: `Codex handoff update: ${update}`,
+    }],
+  });
+}
+
 function outputItems(response) {
   return Array.isArray(response && response.output) ? response.output : [];
 }
 
-function delegationFrom(response, fallback) {
-  const call = outputItems(response).find((item) => (
+function delegationCallFrom(response) {
+  return outputItems(response).find((item) => (
     item
     && item.type === 'function_call'
     && item.name === DELEGATE_TOOL_NAME
   ));
+}
+
+function delegationFrom(response, fallback) {
+  const call = delegationCallFrom(response);
   if (!call) return null;
   try {
     const args = JSON.parse(String(call.arguments || '{}'));
@@ -162,6 +187,29 @@ function createVoiceCoordinator({
       const delegated = delegationFrom(response, input);
       if (delegated) {
         const preface = speechFrom(response);
+        const call = delegationCallFrom(response);
+        const accepted = call && call.call_id
+          ? {
+            type: 'function_call_output',
+            call_id: call.call_id,
+            output: JSON.stringify({
+              status: 'accepted',
+              request: delegated,
+            }),
+          }
+          : {
+            role: 'assistant',
+            content: [{
+              type: 'output_text',
+              text: `I handed this request to Codex: ${delegated}`,
+            }],
+          };
+        context.voiceCoordinatorHistory = appendVoiceCoordinatorHistory(
+          history,
+          userItem,
+          ...outputItems(response),
+          accepted,
+        );
         return {
           action: 'delegate',
           input: delegated,
@@ -176,11 +224,11 @@ function createVoiceCoordinator({
         role: 'assistant',
         content: [{ type: 'output_text', text }],
       };
-      context.voiceCoordinatorHistory = [
-        ...history,
+      context.voiceCoordinatorHistory = appendVoiceCoordinatorHistory(
+        history,
         userItem,
         assistantItem,
-      ].slice(-MAX_HISTORY_ITEMS);
+      );
       return {
         action: 'speak',
         text,
@@ -198,6 +246,8 @@ module.exports = {
   COORDINATOR_INSTRUCTIONS,
   DELEGATE_TOOL,
   DELEGATE_TOOL_NAME,
+  appendVoiceCoordinatorHistory,
   createPhraseEmitter,
   createVoiceCoordinator,
+  rememberVoiceCoordinatorUpdate,
 };
