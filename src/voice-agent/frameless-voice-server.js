@@ -111,16 +111,19 @@ function createFramelessVoiceServer({
     }
     if (url.pathname !== '/v1/live') return;
     if (request.headers.origin) {
+      log('frameless voice upgrade rejected: browser Origin header is not allowed');
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
     }
     if (!enabled()) {
+      log('frameless voice upgrade rejected: local voice is disabled');
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
     }
     websocketServer.handleUpgrade(request, socket, head, (websocket) => {
+      log('frameless voice websocket connected');
       sockets.add(websocket);
       const session = {
         id: `sess_${randomUUID()}`,
@@ -134,10 +137,12 @@ function createFramelessVoiceServer({
       const segmenter = new PcmSpeechSegmenter({
         sampleRate: session.sampleRate,
         onSpeech(pcm) {
+          log(`frameless voice speech segment queued: ${pcm.length} PCM bytes`);
           const job = session.speechQueue.then(async () => {
             if (session.closed) return;
             const transcript = String(await transcribePcm(pcm, session) || '').trim();
             if (!transcript || session.closed) return;
+            log(`frameless voice transcription completed: ${Buffer.byteLength(transcript, 'utf8')} text bytes`);
             const inputId = `input_${randomUUID()}`;
             const delegationId = `delegation_${randomUUID()}`;
             send(websocket, {
@@ -198,6 +203,7 @@ function createFramelessVoiceServer({
         }
         if (event.type === 'session.update') {
           session.instructions = String(event.session && event.session.instructions || '');
+          log(`frameless voice session started: ${session.id}`);
           send(websocket, {
             type: 'session.started',
             session: {
@@ -245,8 +251,10 @@ function createFramelessVoiceServer({
         session.pendingOutputs += 1;
         const job = session.outputQueue.then(async () => {
           if (session.closed) return;
+          log(`frameless voice synthesis started: ${Buffer.byteLength(text, 'utf8')} text bytes`);
           const audio = wavToPcm16(await synthesizeSpeech(text, session));
           if (session.closed) return;
+          log(`frameless voice synthesis completed: ${audio.length} PCM bytes`);
           send(websocket, {
             type: 'output_transcript.added',
             item: { id: `output_${randomUUID()}`, type: 'output_transcript', text },
@@ -278,6 +286,7 @@ function createFramelessVoiceServer({
         session.accepting = false;
         session.closed = true;
         sockets.delete(websocket);
+        log(`frameless voice websocket closed: ${session.id}`);
       });
       websocketServer.emit('connection', websocket, request);
     });
