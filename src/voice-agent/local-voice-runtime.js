@@ -5,7 +5,11 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const voiceConfig = require('../voice-config');
-const { renderKokoroAudio, transcribeAudio } = require('./local-speech');
+const {
+  renderKokoroAudio,
+  streamKokoroAudio,
+  transcribeAudio,
+} = require('./local-speech');
 const { pcm16ToWav } = require('./voice-audio');
 
 function createLocalVoiceRuntime({
@@ -13,6 +17,7 @@ function createLocalVoiceRuntime({
   readConfig = voiceConfig.read,
   transcribe = transcribeAudio,
   render = renderKokoroAudio,
+  streamRender = streamKokoroAudio,
   allocatePath = (kind) => path.join(os.tmpdir(), `codex-local-voice-${kind}-${randomUUID()}.wav`),
   writeFile = fs.writeFile,
   readFile = fs.readFile,
@@ -59,8 +64,21 @@ function createLocalVoiceRuntime({
     }
   }
 
+  async function* streamSpeech(text) {
+    const config = readConfig(configFile);
+    yield* streamRender({
+      text,
+      modelId: config.kokoro_model,
+      voice: config.kokoro_voice,
+      dtype: config.kokoro_dtype,
+      device: config.kokoro_device,
+      speed: config.kokoro_speed,
+    });
+  }
+
   return {
     synthesizeSpeech,
+    streamSpeech,
     transcribePcm,
   };
 }

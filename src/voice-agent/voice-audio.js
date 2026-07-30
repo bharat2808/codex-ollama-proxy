@@ -3,6 +3,7 @@
 const { spawn } = require('node:child_process');
 const dgram = require('node:dgram');
 const { randomInt } = require('node:crypto');
+const { once } = require('node:events');
 const { RtpPacket } = require('werift');
 const { resolveLocalCommand } = require('./local-command');
 
@@ -271,8 +272,84 @@ async function createFfmpegRtpPlayer({
     await currentJob;
   }
 
+  async function playAudioStream(chunks) {
+    if (!chunks || typeof chunks[Symbol.asyncIterator] !== 'function') {
+      throw new Error('synthesized audio stream must be async iterable');
+    }
+    if (currentJob) await currentJob;
+    const iterator = chunks[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    if (first.done) return;
+    const sampleRate = first.value && first.value.sampleRate;
+    if (!Number.isInteger(sampleRate) || sampleRate <= 0) {
+      throw new Error('synthesized PCM sampleRate must be a positive integer');
+    }
+
+    const stderrChunks = [];
+    sourceTimestamp = null;
+    jobTimestamp = timestamp;
+    const command = spawnProcess === spawn
+      ? resolveLocalCommand(ffmpegCommand)
+      : ffmpegCommand;
+    const child = spawnProcess(command, [
+      '-hide_banner', '-loglevel', 'error',
+      '-re',
+      '-f', 'f32le',
+      '-ac', '1',
+      '-ar', String(sampleRate),
+      '-i', 'pipe:0',
+      '-ac', '2',
+      '-ar', '48000',
+      '-c:a', 'libopus',
+      '-application', 'voip',
+      '-frame_duration', '20',
+      '-payload_type', String(payloadType),
+      '-f', 'rtp',
+      `rtp://127.0.0.1:${port}?pkt_size=1200`,
+    ], {
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
+    child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+    const exited = childExit(child, 'ffmpeg streaming RTP player', stderrChunks);
+
+    async function writeChunk(chunk) {
+      if (
+        !chunk
+        || !Buffer.isBuffer(chunk.pcm)
+        || chunk.pcm.length % 4 !== 0
+        || chunk.sampleRate !== sampleRate
+      ) {
+        throw new Error('synthesized audio chunks must be float32 PCM at one sample rate');
+      }
+      if (!child.stdin.write(chunk.pcm)) await once(child.stdin, 'drain');
+    }
+
+    const writing = (async () => {
+      try {
+        await writeChunk(first.value);
+        for (;;) {
+          const next = await iterator.next();
+          if (next.done) break;
+          await writeChunk(next.value);
+        }
+        child.stdin.end();
+      } catch (error) {
+        child.stdin.destroy(error);
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+        throw error;
+      }
+    })();
+    const job = Promise.all([writing, exited]).then(() => {});
+    const running = job.finally(() => {
+      if (currentJob === running) currentJob = null;
+    });
+    currentJob = running;
+    await currentJob;
+  }
+
   return {
     playAudio,
+    playAudioStream,
     async close() {
       if (currentJob) await currentJob.catch(() => {});
       await new Promise((resolve) => receiver.close(resolve));

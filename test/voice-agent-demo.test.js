@@ -13,6 +13,7 @@ const {
   KokoroSpeaker,
   recordMicrophoneAudio,
   renderKokoroAudio,
+  streamKokoroAudio,
   transcribeAudio,
 } = require('../src/voice-agent/local-speech');
 const {
@@ -302,6 +303,65 @@ test('Kokoro rendering uses the local Node model and selected voice', async () =
       generationOptions: { voice: 'af_heart', speed: 1.1 },
     },
     { outputPath: '/tmp/spoken.wav' },
+  ]);
+});
+
+test('Kokoro streaming yields sentence PCM chunks before the complete text finishes', async () => {
+  const calls = [];
+  const chunks = [];
+  const secondSentence = {};
+  secondSentence.ready = new Promise((resolve) => {
+    secondSentence.release = resolve;
+  });
+  const stream = streamKokoroAudio({
+    text: 'First sentence. Second sentence.',
+    voice: 'af_heart',
+    speed: 1.1,
+    loadModel: async (modelId, options) => {
+      calls.push({ modelId, options });
+      return {
+        async *stream(sentences, generationOptions) {
+          calls.push({ generationOptions });
+          let index = 0;
+          for await (const sentence of sentences) {
+            if (index === 1) await secondSentence.ready;
+            yield {
+              text: sentence,
+              audio: {
+                audio: new Float32Array([index + 0.25]),
+                sampling_rate: 24000,
+              },
+            };
+            index += 1;
+          }
+        },
+      };
+    },
+  });
+
+  const first = await stream.next();
+  chunks.push(first.value);
+  assert.equal(first.done, false);
+  assert.equal(first.value.text, 'First sentence.');
+  assert.equal(first.value.sampleRate, 24000);
+  assert.equal(first.value.pcm.readFloatLE(0), 0.25);
+
+  secondSentence.release();
+  for await (const chunk of stream) chunks.push(chunk);
+
+  assert.deepEqual(chunks.map((chunk) => chunk.text), [
+    'First sentence.',
+    'Second sentence.',
+  ]);
+  assert.equal(chunks[1].pcm.readFloatLE(0), 1.25);
+  assert.deepEqual(calls, [
+    {
+      modelId: 'onnx-community/Kokoro-82M-v1.0-ONNX',
+      options: { dtype: 'q8', device: 'cpu' },
+    },
+    {
+      generationOptions: { voice: 'af_heart', speed: 1.1 },
+    },
   ]);
 });
 

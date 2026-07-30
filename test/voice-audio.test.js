@@ -29,6 +29,16 @@ function sinePcm(sampleRate, durationMs, frequency = 440, amplitude = 8000) {
   return buffer;
 }
 
+function sineFloat32Pcm(sampleRate, durationMs, frequency = 440, amplitude = 0.5) {
+  const samples = Math.round(sampleRate * durationMs / 1000);
+  const buffer = Buffer.alloc(samples * 4);
+  for (let index = 0; index < samples; index += 1) {
+    const value = amplitude * Math.sin(2 * Math.PI * frequency * index / sampleRate);
+    buffer.writeFloatLE(value, index * 4);
+  }
+  return buffer;
+}
+
 test('PCM speech segmenter emits one utterance after sustained trailing silence', async () => {
   const { PcmSpeechSegmenter } = loadVoiceAudio();
   const utterances = [];
@@ -100,6 +110,58 @@ test('ffmpeg RTP bridge packetizes WAV output and decodes it back to 16 kHz PCM'
     assert.ok(decoded.length > 0);
     assert.ok(pcmRms(Buffer.concat(decoded)) > 1000);
   } finally {
+    await player.close();
+    await decoder.close();
+  }
+});
+
+test('ffmpeg RTP bridge plays the first Kokoro PCM chunk before later synthesis completes', async () => {
+  const {
+    createFfmpegRtpDecoder,
+    createFfmpegRtpPlayer,
+    pcmRms,
+  } = loadVoiceAudio();
+  const decoded = [];
+  const decoder = await createFfmpegRtpDecoder({
+    onPcm: (chunk) => decoded.push(Buffer.from(chunk)),
+  });
+  const player = await createFfmpegRtpPlayer({
+    track: {
+      writeRtp(packet) {
+        decoder.pushRtp(packet);
+      },
+    },
+  });
+  let releaseSecond;
+  const secondReady = new Promise((resolve) => {
+    releaseSecond = resolve;
+  });
+
+  try {
+    async function* chunks() {
+      yield {
+        pcm: sineFloat32Pcm(24000, 300),
+        sampleRate: 24000,
+      };
+      await secondReady;
+      yield {
+        pcm: sineFloat32Pcm(24000, 300, 660),
+        sampleRate: 24000,
+      };
+    }
+
+    const playback = player.playAudioStream(chunks());
+    const deadline = Date.now() + 3000;
+    while (decoded.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(decoded.length > 0, 'expected RTP playback before the second PCM chunk');
+
+    releaseSecond();
+    await playback;
+    assert.ok(pcmRms(Buffer.concat(decoded)) > 1000);
+  } finally {
+    releaseSecond();
     await player.close();
     await decoder.close();
   }

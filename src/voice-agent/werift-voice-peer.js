@@ -72,6 +72,7 @@ async function createWeriftVoicePeer({
     answerSdp: peerConnection.localDescription.sdp,
     outputTrack,
     playAudio: player.playAudio,
+    playAudioStream: player.playAudioStream,
     sendDataEvent(event) {
       pendingDataEvents.push(JSON.stringify(event));
       flushDataEvents();

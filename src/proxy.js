@@ -2000,6 +2000,7 @@ const realtimeVoiceServer = createRealtimeVoiceServer({
   createPeer: createWeriftVoicePeer,
   transcribePcm: localVoiceRuntime.transcribePcm,
   synthesizeSpeech: localVoiceRuntime.synthesizeSpeech,
+  streamSpeech: localVoiceRuntime.streamSpeech,
   log,
 });
 const framelessVoiceServer = createFramelessVoiceServer({

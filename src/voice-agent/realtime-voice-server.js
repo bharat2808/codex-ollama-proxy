@@ -126,6 +126,7 @@ function createRealtimeVoiceServer({
   synthesizeSpeech = async () => {
     throw new Error('local voice synthesis is not configured');
   },
+  streamSpeech = null,
   sidebandJoinTimeoutMs = 30000,
   log = () => {},
 } = {}) {
@@ -232,14 +233,24 @@ function createRealtimeVoiceServer({
   async function speakCallText(call, text) {
     if (call.closed) return;
     log(`realtime ${call.protocol} synthesis started: ${Buffer.byteLength(text, 'utf8')} text bytes`);
-    const audio = await synthesizeSpeech(text, call);
-    if (call.closed) return;
-    if (!call.peer || typeof call.peer.playAudio !== 'function') {
-      throw new Error('local WebRTC peer cannot play synthesized audio');
+    if (
+      typeof streamSpeech === 'function'
+      && call.peer
+      && typeof call.peer.playAudioStream === 'function'
+    ) {
+      await call.peer.playAudioStream(streamSpeech(text, call));
+      if (call.closed) return;
+      log(`realtime ${call.protocol} streaming synthesis playback completed`);
+    } else {
+      const audio = await synthesizeSpeech(text, call);
+      if (call.closed) return;
+      if (!call.peer || typeof call.peer.playAudio !== 'function') {
+        throw new Error('local WebRTC peer cannot play synthesized audio');
+      }
+      await call.peer.playAudio(audio);
+      if (call.closed) return;
+      log(`realtime ${call.protocol} synthesis playback completed`);
     }
-    await call.peer.playAudio(audio);
-    if (call.closed) return;
-    log(`realtime ${call.protocol} synthesis playback completed`);
     if (call.protocol === 'frameless') {
       sendCallEvent(call, {
         type: 'output_transcript.added',

@@ -227,6 +227,84 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
   }
 });
 
+test('Codex V3 plays the first Kokoro sentence before later synthesis completes', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  const played = [];
+  let releaseSecond;
+  const secondReady = new Promise((resolve) => {
+    releaseSecond = resolve;
+  });
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    streamSpeech: async function* (text) {
+      assert.equal(text, 'First sentence. Second sentence.');
+      yield { text: 'First sentence.', pcm: Buffer.from('first'), sampleRate: 24000 };
+      await secondReady;
+      yield { text: 'Second sentence.', pcm: Buffer.from('second'), sampleRate: 24000 };
+    },
+    synthesizeSpeech: async () => {
+      throw new Error('whole-message synthesis must not run');
+    },
+    createPeer: async () => ({
+      answerSdp: 'v=0\r\na=setup:active\r\n',
+      async playAudioStream(chunks) {
+        for await (const chunk of chunks) played.push(chunk.pcm.toString());
+      },
+      sendDataEvent() {},
+      close() {},
+    }),
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    sideband.send(JSON.stringify({
+      type: 'delegation.context.append',
+      channel: 'speakable',
+      content: [{
+        type: 'input_text',
+        text: 'First sentence. Second sentence.',
+      }],
+    }));
+    await waitFor(() => played.length === 1, 'expected the first sentence to start playing');
+    assert.deepEqual(played, ['first']);
+    assert.equal(
+      events.some((event) => event.type === 'turn.done' && event.turn.role === 'assistant'),
+      false,
+    );
+
+    releaseSecond();
+    await waitFor(
+      () => events.some((event) => (
+        event.type === 'turn.done' && event.turn.role === 'assistant'
+      )),
+      'expected assistant completion after streamed playback',
+    );
+    assert.deepEqual(played, ['first', 'second']);
+
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releaseSecond();
+    await voice.close();
+    await close(server);
+  }
+});
+
 test('Codex V3 announces the live session to the browser and sideband', async () => {
   const { createRealtimeVoiceServer } = loadRealtimeVoice();
   const browserEvents = [];
@@ -739,7 +817,7 @@ test('Codex handoff commentary and final output are synthesized and played over 
   }
 });
 
-test('Werift peer accepts a Codex-style audio and oai-events WebRTC offer', async () => {
+test('Werift peer accepts a Codex-style offer and streams Kokoro PCM over WebRTC', async () => {
   let createWeriftVoicePeer;
   try {
     ({ createWeriftVoicePeer } = require('../src/voice-agent/werift-voice-peer'));
@@ -778,11 +856,13 @@ test('Werift peer accepts a Codex-style audio and oai-events WebRTC offer', asyn
   const expectedOpusPayloadType = Number(
     client.localDescription.sdp.match(/^a=rtpmap:(\d+) opus\/48000\/2$/mi)[1],
   );
-  const pcm = Buffer.alloc(16000 / 5 * 2);
-  for (let offset = 0; offset < pcm.length; offset += 2) {
-    pcm.writeInt16LE(offset % 400 < 200 ? 4000 : -4000, offset);
+  const pcm = Buffer.alloc(24000 / 5 * 4);
+  for (let offset = 0; offset < pcm.length; offset += 4) {
+    pcm.writeFloatLE(offset % 800 < 400 ? 0.5 : -0.5, offset);
   }
-  await peer.playAudio(pcm16ToWav(pcm));
+  await peer.playAudioStream((async function* () {
+    yield { pcm, sampleRate: 24000 };
+  })());
   while (receivedAudio.length === 0) await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(remoteTracks.length, 1);
