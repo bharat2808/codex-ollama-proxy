@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
+const { resolveLocalCommand } = require('./local-command');
 
 const execFileAsync = promisify(execFile);
 const kokoroModels = new Map();
@@ -18,7 +19,10 @@ async function transcribeAudio({
 }) {
   if (!audioPath) throw new Error('audioPath is required');
   if (!modelPath) throw new Error('modelPath is required');
-  const result = await run(whisperCommand, [
+  const command = run === execFileAsync
+    ? resolveLocalCommand(whisperCommand)
+    : whisperCommand;
+  const result = await run(command, [
     '--model', modelPath,
     '--file', audioPath,
     '--no-timestamps',

@@ -126,6 +126,37 @@ test('voice enable points Codex WebRTC call creation and sideband traffic at the
   }
 });
 
+test('voice enable routes Codex handoffs through the configured active preset with OpenAI auth', () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(f.codexConfig, 'sandbox_mode = "danger-full-access"\n', 'utf8');
+    fs.writeFileSync(path.join(f.runtimeDir, 'proxy-models.toml'), [
+      'active_preset = "local-voice"',
+      'default_model = "local-model"',
+      'models = ["local-model"]',
+      'upstream_url = "http://127.0.0.1:11434/v1"',
+      '',
+    ].join('\n'), 'utf8');
+
+    const result = f.run([
+      'voice',
+      '--enable',
+      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-start',
+    ]);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const config = fs.readFileSync(f.codexConfig, 'utf8');
+    assert.match(config, /^model_provider = "codex-universal-proxy"$/m);
+    assert.match(config, /^\[model_providers\.codex-universal-proxy\]$/m);
+    assert.match(config, /^base_url = "http:\/\/127\.0\.0\.1:11436\/v1\/"$/m);
+    assert.match(config, /^wire_api = "responses"$/m);
+    assert.match(config, /^requires_openai_auth = true$/m);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('voice disable restores pre-existing Codex Realtime endpoints without disturbing later user edits', () => {
   const f = fixture();
   try {

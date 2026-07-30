@@ -406,6 +406,10 @@ The proxy uses Codex's existing `generate_image` tool. It does not inspect ordin
 Local voice is configured separately from provider presets. Configure Whisper
 and Kokoro, then enable routing for Codex's built-in Voice Chat button:
 
+The local transport requires `ffmpeg`, `whisper-cli`, and a whisper.cpp model.
+On macOS, Homebrew-installed commands are discovered even when the background
+service has launchd's restricted `PATH`.
+
 ```bash
 codex-universal-proxy voice \
   --whisper-command whisper-cli \
@@ -430,6 +434,18 @@ realtime_conversation = true
 Codex appends its `/realtime/calls` path to the first URL and uses the second
 for the Realtime sideband connection. Restart Codex after enabling or
 disabling voice so the app-server reloads the transport configuration.
+
+The built-in button then uses this pipeline:
+
+```text
+WebRTC microphone -> ffmpeg/Opus -> Whisper -> Codex handoff
+  -> active preset /v1/responses -> Codex tools
+  -> Kokoro -> ffmpeg/Opus -> WebRTC speaker
+```
+
+Voice handoff turns receive an extra developer instruction asking the selected
+model to speak briefly before tools and to always provide a concise spoken
+result afterward. Normal Responses requests are unchanged.
 
 Inspect or change the speech configuration:
 

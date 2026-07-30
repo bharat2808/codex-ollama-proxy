@@ -1188,9 +1188,19 @@ async function voiceCmd(flags) {
     console.log('Restart Codex so the Voice Chat transport reloads.');
   }
 
-  if (!flags.noStart && next.voice_enabled && !flags.disable) {
-    const activePreset = readRouteValue(readRouteConfig(), 'active_preset', '');
-    if (activePreset) {
+  const activePreset = next.voice_enabled && !flags.disable
+    ? readRouteValue(readRouteConfig(), 'active_preset', '')
+    : '';
+  if (activePreset) {
+    // Realtime handoffs are routed back through the current Codex session.
+    // Point that session at the proxy so the handoff reaches the active
+    // preset's Responses endpoint and retains Codex's normal tool loop.
+    switchMode('ollama', {
+      noBackup: true,
+      noRefresh: true,
+      noStart: true,
+    });
+    if (!flags.noStart) {
       await startPresetServer(presets.readPreset(RUNTIME_DIR, activePreset), { replace: true });
     }
   }

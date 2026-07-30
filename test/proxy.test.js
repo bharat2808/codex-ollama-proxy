@@ -15,6 +15,7 @@ const {
   imageOutputCapabilities,
   imageOutputSupport,
 } = require('../src/proxy');
+const { VOICE_TURN_INSTRUCTIONS } = require('../src/voice-agent/voice-agent-session');
 
 const LOCAL_UPSTREAM = { baseUrl: new URL('http://127.0.0.1:11434/v1') };
 const IMAGE_SIGNATURES = {
@@ -88,6 +89,80 @@ test('native image-output requests do not forward or inject function tools', () 
 
   assert.deepEqual(body.tools, []);
   assert.equal(body.tool_choice, undefined);
+});
+
+test('voice handoff requests receive spoken-turn guidance before provider translation', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'local-model',
+    input: [{
+      type: 'message',
+      role: 'user',
+      content: [{
+        type: 'input_text',
+        text: '<realtime_delegation>\nPlease inspect the repository.\n</realtime_delegation>',
+      }],
+    }],
+  };
+
+  translateRequestBody(body);
+
+  const guidance = body.input.filter((item) => (
+    item
+    && item.type === 'message'
+    && item.role === 'developer'
+    && item.content?.some((part) => part.text === VOICE_TURN_INSTRUCTIONS)
+  ));
+  assert.equal(guidance.length, 1);
+});
+
+test('ordinary Responses requests do not receive voice guidance', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'local-model',
+    input: 'Please inspect the repository.',
+  };
+
+  translateRequestBody(body);
+
+  assert.equal(body.input, 'Please inspect the repository.');
+});
+
+test('a typed turn after a historical voice handoff does not receive voice guidance', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'local-model',
+    input: [
+      {
+        type: 'message',
+        role: 'user',
+        content: [{
+          type: 'input_text',
+          text: '<realtime_delegation><input>old voice turn</input></realtime_delegation>',
+        }],
+      },
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'Old response.' }],
+      },
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'This is a normal typed turn.' }],
+      },
+    ],
+  };
+
+  translateRequestBody(body);
+
+  assert.equal(
+    body.input.some((item) => (
+      item.role === 'developer'
+      && JSON.stringify(item).includes(VOICE_TURN_INSTRUCTIONS)
+    )),
+    false,
+  );
 });
 
 test('image generation tools are removed when Imagine is disabled', () => {

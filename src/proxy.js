@@ -13,16 +13,22 @@ const imagine = require('./imagine');
 const inlineImageCache = require('./inline-image-cache');
 const generatedImageCache = require('./generated-image-cache');
 const nativeImageGeneration = require('./native-image-generation');
+const voiceConfig = require('./voice-config');
 const { createOllamaCloudPuller } = require('./ollama-cloud-pull');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
 const { normalizeOpenAiReasoningRequest } = require('./model-catalog/reasoning-request-normalization');
+const { createLocalVoiceRuntime } = require('./voice-agent/local-voice-runtime');
+const { createRealtimeVoiceServer } = require('./voice-agent/realtime-voice-server');
+const { VOICE_TURN_INSTRUCTIONS } = require('./voice-agent/voice-agent-session');
+const { createWeriftVoicePeer } = require('./voice-agent/werift-voice-peer');
 
 // proxy-models.toml drives per-request model auto-routing.
 // Loaded once at startup; editable without restart by re-running apply script.
 const CODEX_DIR = codexDir();
 const RUNTIME_DIR = branding.resolveRuntimeDirectory(CODEX_DIR);
 const PROXY_MODELS_PATH = path.join(RUNTIME_DIR, 'proxy-models.toml');
+const VOICE_CONFIG_PATH = path.join(RUNTIME_DIR, 'voice.toml');
 const UPSTREAM_BODY_LOG = path.join(RUNTIME_DIR, 'upstream-bodies.jsonl');
 const INLINE_IMAGE_CACHE_DIR = path.join(CODEX_DIR, 'attachments', branding.ATTACHMENT_DIRNAME);
 // dedupe_large_input defaults to false: stripping repeated developer context
@@ -842,8 +848,34 @@ function normalizeXaiReasoningInput(body) {
   return changed;
 }
 
+function inputContainsText(value, needle) {
+  if (typeof value === 'string') return value.includes(needle);
+  if (Array.isArray(value)) return value.some((item) => inputContainsText(item, needle));
+  if (!value || typeof value !== 'object') return false;
+  return Object.values(value).some((item) => inputContainsText(item, needle));
+}
+
+function injectVoiceTurnInstructions(body) {
+  if (!Array.isArray(body && body.input)) return false;
+  const activeUserMessage = body.input.findLast((item) => (
+    item && item.type === 'message' && item.role === 'user'
+  ));
+  if (!inputContainsText(activeUserMessage, '<realtime_delegation>')) return false;
+  if (inputContainsText(body.input, VOICE_TURN_INSTRUCTIONS)) return false;
+  body.input.unshift({
+    type: 'message',
+    role: 'developer',
+    content: [{
+      type: 'input_text',
+      text: VOICE_TURN_INSTRUCTIONS,
+    }],
+  });
+  return true;
+}
+
 function translateRequestBody(body) {
   if (!body || typeof body !== 'object') return body;
+  injectVoiceTurnInstructions(body);
   if (ROUTE_CFG.dedupe_large_input) {
     const removed = dedupeLargeInputBlocks(body, ROUTE_CFG.duplicate_input_min_chars);
     if (removed.blocks > 0) {
@@ -1945,7 +1977,19 @@ async function decodeRequestBody(body, contentEncoding) {
   }
 }
 
+const localVoiceRuntime = createLocalVoiceRuntime({
+  configFile: VOICE_CONFIG_PATH,
+});
+const realtimeVoiceServer = createRealtimeVoiceServer({
+  enabled: () => voiceConfig.read(VOICE_CONFIG_PATH).voice_enabled,
+  createPeer: createWeriftVoicePeer,
+  transcribePcm: localVoiceRuntime.transcribePcm,
+  synthesizeSpeech: localVoiceRuntime.synthesizeSpeech,
+  log,
+});
+
 const server = http.createServer((clientReq, clientRes) => {
+  if (realtimeVoiceServer.handleRequest(clientReq, clientRes)) return;
   const isResponses = clientReq.method === 'POST' && clientReq.url.endsWith('/responses');
   const chunks = [];
   clientReq.on('data', (c) => chunks.push(c));
@@ -2181,6 +2225,12 @@ const server = http.createServer((clientReq, clientRes) => {
     upstreamReq.end();
   });
   clientReq.on('error', (e) => log('client error: ' + e.message));
+});
+realtimeVoiceServer.attach(server);
+server.on('close', () => {
+  realtimeVoiceServer.close().catch((error) => {
+    debugLog('realtime voice shutdown failed: ' + error.message);
+  });
 });
 
 // Best-effort startup check that the configured default_model / image_model
