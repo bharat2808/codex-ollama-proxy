@@ -8,6 +8,7 @@ const path = require('node:path');
 const branding = require('../branding');
 const launcherState = require('../launcher-state');
 const runtimePaths = require('../runtime-paths');
+const voiceConfig = require('../voice-config');
 const { JsonLineRpcClient } = require('./json-line-rpc');
 const {
   KokoroSpeaker,
@@ -25,8 +26,12 @@ function parseVoiceArgs(argv) {
     '--thread': 'threadId',
     '--audio': 'audioPath',
     '--whisper-model': 'whisperModel',
+    '--whisper-command': 'whisperCommand',
     '--voice': 'voice',
+    '--kokoro-model': 'kokoroModel',
     '--kokoro-dtype': 'kokoroDtype',
+    '--kokoro-device': 'kokoroDevice',
+    '--kokoro-speed': 'kokoroSpeed',
     '--audio-device': 'audioDevice',
     '--cwd': 'cwd',
     '--codex-command': 'codexCommand',
@@ -42,6 +47,31 @@ function parseVoiceArgs(argv) {
   return values;
 }
 
+function resolveVoiceOptions(options = {}, dependencies = {}) {
+  const configFile = dependencies.configFile || path.join(
+    branding.resolveRuntimeDirectory(runtimePaths.codexDir()),
+    'voice.toml',
+  );
+  const saved = voiceConfig.read(configFile);
+  const configured = {
+    whisperCommand: saved.whisper_command,
+    whisperModel: saved.whisper_model,
+    kokoroModel: saved.kokoro_model,
+    voice: saved.kokoro_voice,
+    kokoroDtype: saved.kokoro_dtype,
+    kokoroDevice: saved.kokoro_device,
+    kokoroSpeed: saved.kokoro_speed,
+  };
+  const resolved = {};
+  for (const [key, fallback] of Object.entries(configured)) {
+    resolved[key] = options[key] === undefined ? fallback : options[key];
+  }
+  if (typeof resolved.kokoroSpeed === 'string') {
+    resolved.kokoroSpeed = Number(resolved.kokoroSpeed);
+  }
+  return resolved;
+}
+
 async function runVoiceDemo(options, dependencies = {}) {
   const rpc = dependencies.rpc;
   if (!rpc) throw new Error('rpc is required');
@@ -50,12 +80,16 @@ async function runVoiceDemo(options, dependencies = {}) {
     renderOptions: {
       voice: options.voice || 'af_heart',
       dtype: options.kokoroDtype || 'q8',
+      device: options.kokoroDevice || 'cpu',
+      modelId: options.kokoroModel || 'onnx-community/Kokoro-82M-v1.0-ONNX',
+      speed: options.kokoroSpeed || 1,
     },
   });
   const log = dependencies.log || console.log;
   const transcript = await transcribe({
     audioPath: options.audioPath,
     modelPath: options.whisperModel,
+    whisperCommand: options.whisperCommand || 'whisper-cli',
   });
   log(`transcript=${transcript}`);
 
@@ -133,9 +167,10 @@ function startAppServer(command = 'codex', options = {}) {
 function usage() {
   return [
     'Usage:',
-    '  codex-voice-demo --whisper-model MODEL [--audio FILE] [--audio-device :0]',
+    '  codex-voice-demo [--whisper-model MODEL] [--audio FILE] [--audio-device :0]',
     '                   [--thread ID] [--cwd PATH] [--voice af_heart] [--kokoro-dtype q8]',
     '',
+    'Speech defaults come from codex-universal-proxy voice configuration.',
     'When --audio is omitted, recording starts immediately and stops when Enter is pressed.',
   ].join('\n');
 }
@@ -145,7 +180,8 @@ async function main(argv = process.argv.slice(2)) {
     console.log(usage());
     return;
   }
-  const options = parseVoiceArgs(argv);
+  const parsed = parseVoiceArgs(argv);
+  const options = { ...parsed, ...resolveVoiceOptions(parsed) };
   if (!options.whisperModel) throw new Error('--whisper-model is required');
   let recordedAudio = null;
   if (!options.audioPath) {
@@ -171,6 +207,7 @@ module.exports = {
   appServerArgs,
   main,
   parseVoiceArgs,
+  resolveVoiceOptions,
   runVoiceDemo,
   startAppServer,
   usage,

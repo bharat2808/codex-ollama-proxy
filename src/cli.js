@@ -7,6 +7,8 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const presets = require('./presets');
 const imagineConfig = require('./imagine-config');
+const voiceConfig = require('./voice-config');
+const codexRealtimeConfig = require('./codex-realtime-config');
 const launcherState = require('./launcher-state');
 const runtimePaths = require('./runtime-paths');
 const branding = require('./branding');
@@ -19,6 +21,8 @@ const runtimeMigration = branding.migrateRuntimeDirectory(CODEX_DIR);
 const RUNTIME_DIR = runtimeMigration.runtimeDir;
 const ROUTE_CONFIG = path.join(RUNTIME_DIR, 'proxy-models.toml');
 const IMAGINE_CONFIG = path.join(RUNTIME_DIR, 'imagine.toml');
+const VOICE_CONFIG = path.join(RUNTIME_DIR, 'voice.toml');
+const CODEX_CONFIG = path.join(CODEX_DIR, 'config.toml');
 const LAUNCHER_STATE = path.join(RUNTIME_DIR, 'launcher-state.json');
 const DEFAULT_ROUTE_CONFIG = path.join(PACKAGE_DIR, 'config', 'proxy-models.default.toml');
 const DEFAULT_MODEL_CATALOG = path.join(PACKAGE_DIR, 'config', 'model-catalogs', 'codex-universal-models.default.json');
@@ -70,7 +74,11 @@ function usage() {
   codex-universal-proxy imagine [--quality fast|balanced|quality]
   codex-universal-proxy imagine [--enhance|--no-enhance] [--aspect-ratio RATIO]
   codex-universal-proxy imagine --status
-  codex-universal-proxy imagine --doctor`);
+  codex-universal-proxy imagine --doctor
+  codex-universal-proxy voice [--enable|--disable] [--whisper-command COMMAND] [--whisper-model PATH]
+  codex-universal-proxy voice [--kokoro-model MODEL] [--kokoro-voice VOICE]
+                              [--kokoro-dtype DTYPE] [--kokoro-device DEVICE] [--kokoro-speed SPEED]
+  codex-universal-proxy voice --status`);
 }
 
 function die(message) {
@@ -101,6 +109,54 @@ function configuredProxyPort() {
   if (process.env.PROXY_PORT !== undefined) return parseProxyPort(process.env.PROXY_PORT);
   const state = launcherState.read(LAUNCHER_STATE);
   return state ? state.proxy_port : launcherState.DEFAULT_PROXY_PORT;
+}
+
+function realtimeProxyBaseUrl(proxyPort = configuredProxyPort()) {
+  return `http://127.0.0.1:${parseProxyPort(proxyPort)}/v1`;
+}
+
+function ownsVoiceRouting(config) {
+  return Boolean(
+    config.managed_realtime_base_url
+    && (config.voice_enabled || config.routing_state !== 'disabled'),
+  );
+}
+
+function completeVoiceDisable(current) {
+  if (!ownsVoiceRouting(current)) return current;
+  const pending = {
+    ...current,
+    voice_enabled: false,
+    routing_state: 'disabling',
+  };
+  voiceConfig.write(VOICE_CONFIG, pending);
+  const routing = codexRealtimeConfig.disable(CODEX_CONFIG, pending);
+  const completed = {
+    ...pending,
+    ...routing,
+    voice_enabled: false,
+    routing_state: 'disabled',
+  };
+  voiceConfig.write(VOICE_CONFIG, completed);
+  return completed;
+}
+
+function reapplyEnabledVoiceRouting(proxyPort = configuredProxyPort()) {
+  voiceConfig.ensure(VOICE_CONFIG);
+  const current = voiceConfig.read(VOICE_CONFIG);
+  if (current.routing_state === 'disabling') {
+    return completeVoiceDisable(current);
+  }
+  if (!current.voice_enabled && current.routing_state !== 'enabling') return current;
+  const baseUrl = realtimeProxyBaseUrl(proxyPort);
+  const routing = current.routing_state === 'enabling'
+    ? codexRealtimeConfig.enable(CODEX_CONFIG, baseUrl, current)
+    : codexRealtimeConfig.reapply(CODEX_CONFIG, baseUrl, current);
+  return voiceConfig.update(VOICE_CONFIG, {
+    ...routing,
+    voice_enabled: true,
+    routing_state: 'enabled',
+  });
 }
 
 function launcherRuntimeOverrides(proxyPort) {
@@ -241,6 +297,7 @@ function init(options = {}) {
     fs.copyFileSync(MODEL_CATALOG, MODEL_CATALOG_COPY);
   }
   imagineConfig.ensure(IMAGINE_CONFIG);
+  voiceConfig.ensure(VOICE_CONFIG);
   if (!fs.existsSync(ROUTE_CONFIG) || options.force) {
     fs.copyFileSync(DEFAULT_ROUTE_CONFIG, ROUTE_CONFIG);
     console.log(`created=${ROUTE_CONFIG}`);
@@ -256,6 +313,7 @@ function init(options = {}) {
     console.log(`catalog_exists=${MODEL_CATALOG}`);
   }
   fs.chmodSync(ROUTE_CONFIG, 0o600);
+  fs.chmodSync(VOICE_CONFIG, 0o600);
 }
 
 // Redact secret values in a TOML string so status() never leaks API keys.
@@ -702,6 +760,7 @@ function install() {
   init();
   stopLegacyPlatformServices();
   const state = launcherStateForInstall();
+  reapplyEnabledVoiceRouting(state.proxy_port);
   if (SERVICE_PLATFORM === 'darwin') {
     fs.mkdirSync(path.dirname(PLIST), { recursive: true });
     fs.writeFileSync(PLIST, renderPlist(), 'utf8');
@@ -756,6 +815,9 @@ function install() {
 }
 
 function uninstall() {
+  voiceConfig.ensure(VOICE_CONFIG);
+  const currentVoice = voiceConfig.read(VOICE_CONFIG);
+  completeVoiceDisable(currentVoice);
   stopPlatformService();
   stopLegacyPlatformServices();
   let serviceFile = PLIST;
@@ -1039,6 +1101,101 @@ async function imagineCmd(flags) {
   }
 }
 
+async function voiceCmd(flags) {
+  voiceConfig.ensure(VOICE_CONFIG);
+  const current = voiceConfig.read(VOICE_CONFIG);
+  if (flags.status) {
+    console.log('Local voice configuration:');
+    for (const field of voiceConfig.PUBLIC_FIELDS) {
+      console.log(`  ${field} = ${JSON.stringify(current[field])}`);
+    }
+    const routed = current.voice_enabled && current.managed_realtime_base_url
+      ? current.managed_realtime_base_url
+      : '(not routed)';
+    console.log(`  codex_realtime_base_url = ${JSON.stringify(routed)}`);
+    return;
+  }
+  if (flags.enable && flags.disable) {
+    die('Error: --enable and --disable cannot be used together.');
+  }
+  for (const [flag, display] of [
+    ['whisperCommand', '--whisper-command'],
+    ['whisperModel', '--whisper-model'],
+    ['kokoroModel', '--kokoro-model'],
+    ['kokoroVoice', '--kokoro-voice'],
+    ['kokoroDtype', '--kokoro-dtype'],
+    ['kokoroDevice', '--kokoro-device'],
+    ['kokoroSpeed', '--kokoro-speed'],
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(flags, flag) && flags[flag] === undefined) {
+      die(`Error: ${display} requires a value.`);
+    }
+  }
+
+  const updates = {};
+  if (flags.whisperCommand !== undefined) updates.whisper_command = String(flags.whisperCommand);
+  if (flags.whisperModel !== undefined) updates.whisper_model = String(flags.whisperModel);
+  if (flags.kokoroModel !== undefined) updates.kokoro_model = String(flags.kokoroModel);
+  if (flags.kokoroVoice !== undefined) updates.kokoro_voice = String(flags.kokoroVoice);
+  if (flags.kokoroDtype !== undefined) updates.kokoro_dtype = String(flags.kokoroDtype);
+  if (flags.kokoroDevice !== undefined) updates.kokoro_device = String(flags.kokoroDevice);
+  if (flags.kokoroSpeed !== undefined) {
+    const speed = Number(flags.kokoroSpeed);
+    if (!Number.isFinite(speed) || speed <= 0) {
+      die('Error: --kokoro-speed must be a positive number.');
+    }
+    updates.kokoro_speed = speed;
+  }
+
+  let next = { ...current, ...updates };
+  let codexChanged = false;
+  if (flags.enable) {
+    if (!next.whisper_model) {
+      die('Error: --enable requires a configured Whisper model. Pass --whisper-model PATH.');
+    }
+    const baseUrl = realtimeProxyBaseUrl();
+    const restore = ownsVoiceRouting(current)
+      ? {}
+      : codexRealtimeConfig.capture(CODEX_CONFIG);
+    const pending = {
+      ...next,
+      ...restore,
+      voice_enabled: true,
+      routing_state: 'enabling',
+      managed_realtime_base_url: baseUrl,
+    };
+    voiceConfig.write(VOICE_CONFIG, pending);
+    const routing = codexRealtimeConfig.enable(CODEX_CONFIG, baseUrl, pending);
+    next = {
+      ...pending,
+      ...routing,
+      voice_enabled: true,
+      routing_state: 'enabled',
+    };
+    codexChanged = true;
+  } else if (flags.disable) {
+    if (ownsVoiceRouting(current)) {
+      next = completeVoiceDisable({ ...current, ...updates });
+      codexChanged = true;
+    } else {
+      next = { ...next, voice_enabled: false, routing_state: 'disabled' };
+    }
+  }
+  voiceConfig.write(VOICE_CONFIG, next);
+  console.log(`updated=${VOICE_CONFIG}`);
+  if (codexChanged) {
+    console.log(`codex_config_updated=${CODEX_CONFIG}`);
+    console.log('Restart Codex so the Voice Chat transport reloads.');
+  }
+
+  if (!flags.noStart && next.voice_enabled && !flags.disable) {
+    const activePreset = readRouteValue(readRouteConfig(), 'active_preset', '');
+    if (activePreset) {
+      await startPresetServer(presets.readPreset(RUNTIME_DIR, activePreset), { replace: true });
+    }
+  }
+}
+
 function readImagineConfig() {
   const cfg = imagineConfig.read(IMAGINE_CONFIG);
   cfg.default_model = readRouteValue(readRouteConfig(), 'default_model', null);
@@ -1060,6 +1217,7 @@ async function main() {
   if (command === 'install') return install();
   if (command === 'uninstall') return uninstall();
   if (command === 'imagine') return await imagineCmd(parseFlags(process.argv.slice(2)).flags);
+  if (command === 'voice') return await voiceCmd(parseFlags(process.argv.slice(2)).flags);
   if (command === 'restart') return await restart();
   usage();
   process.exit(1);

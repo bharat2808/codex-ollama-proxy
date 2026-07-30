@@ -401,6 +401,60 @@ codex-universal-proxy imagine --doctor
 
 The proxy uses Codex's existing `generate_image` tool. It does not inspect ordinary prompts and automatically turn them into image requests.
 
+## Local Voice Configuration
+
+Local voice is configured separately from provider presets. Configure Whisper
+and Kokoro, then enable routing for Codex's built-in Voice Chat button:
+
+```bash
+codex-universal-proxy voice \
+  --whisper-command whisper-cli \
+  --whisper-model "/absolute/path/to/ggml-base.en.bin" \
+  --kokoro-voice af_heart \
+  --kokoro-dtype q8
+
+codex-universal-proxy voice --enable
+```
+
+Enabling voice writes these user-level Codex settings using the active proxy
+port:
+
+```toml
+experimental_realtime_webrtc_call_base_url = "http://127.0.0.1:11436/v1"
+experimental_realtime_ws_base_url = "http://127.0.0.1:11436/v1"
+
+[features]
+realtime_conversation = true
+```
+
+Codex appends its `/realtime/calls` path to the first URL and uses the second
+for the Realtime sideband connection. Restart Codex after enabling or
+disabling voice so the app-server reloads the transport configuration.
+
+Inspect or change the speech configuration:
+
+```bash
+codex-universal-proxy voice --status
+codex-universal-proxy voice --kokoro-model "onnx-community/Kokoro-82M-v1.0-ONNX"
+codex-universal-proxy voice --kokoro-device cpu --kokoro-speed 1.1
+```
+
+Disable local routing:
+
+```bash
+codex-universal-proxy voice --disable
+```
+
+The proxy remembers pre-existing Realtime endpoint and feature values and
+restores them when disabling voice. If you edit an endpoint manually after
+enabling voice, disable will leave that later edit untouched. Routing state is
+written before Codex configuration changes and recovered during installation
+if an enable or disable operation is interrupted.
+
+The same public settings can be edited in
+`~/.codex/codex-universal-proxy/voice.toml`. Use the CLI for enable and disable
+so the managed restoration fields remain consistent.
+
 ## Advanced Preset Options
 
 Presets can also save proxy compatibility options:
@@ -517,6 +571,7 @@ Runtime configuration and logs are stored under:
 ```text
 ~/.codex/codex-universal-proxy/proxy-models.toml
 ~/.codex/codex-universal-proxy/imagine.toml
+~/.codex/codex-universal-proxy/voice.toml
 ~/.codex/codex-universal-proxy/proxy.log
 ```
 

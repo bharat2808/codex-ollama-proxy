@@ -2,6 +2,9 @@
 
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const test = require('node:test');
 
@@ -20,9 +23,43 @@ const {
 const {
   appServerArgs,
   parseVoiceArgs,
+  resolveVoiceOptions,
   runVoiceDemo,
   startAppServer,
 } = require('../src/voice-agent/voice-demo');
+
+test('voice demo uses saved Whisper and Kokoro settings while explicit options win', () => {
+  assert.equal(typeof resolveVoiceOptions, 'function');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-voice-demo-config-'));
+  const configFile = path.join(root, 'voice.toml');
+  fs.writeFileSync(configFile, [
+    'voice_enabled = true',
+    'whisper_command = "/opt/whisper"',
+    'whisper_model = "/models/whisper.bin"',
+    'kokoro_model = "local/kokoro"',
+    'kokoro_voice = "bf_emma"',
+    'kokoro_dtype = "fp32"',
+    'kokoro_device = "cpu"',
+    'kokoro_speed = 1.2',
+    '',
+  ].join('\n'), 'utf8');
+
+  try {
+    assert.deepEqual(resolveVoiceOptions({
+      voice: 'af_heart',
+    }, { configFile }), {
+      whisperCommand: '/opt/whisper',
+      whisperModel: '/models/whisper.bin',
+      kokoroModel: 'local/kokoro',
+      voice: 'af_heart',
+      kokoroDtype: 'fp32',
+      kokoroDevice: 'cpu',
+      kokoroSpeed: 1.2,
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('voice turns add spoken-behavior guidance without replacing the user transcript', () => {
   const params = buildVoiceTurnParams('thread-123', 'Check the build and fix it.');
