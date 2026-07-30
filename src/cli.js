@@ -1156,6 +1156,9 @@ async function voiceCmd(flags) {
     if (!next.whisper_model) {
       die('Error: --enable requires a configured Whisper model. Pass --whisper-model PATH.');
     }
+    if (!readRouteValue(readRouteConfig(), 'voice_model', '')) {
+      die('Error: --enable active preset requires voice_model.');
+    }
     const baseUrl = realtimeProxyBaseUrl();
     const restore = ownsVoiceRouting(current)
       ? {}

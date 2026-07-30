@@ -42,39 +42,6 @@ test('local voice runtime passes current Whisper configuration and cleans up its
   assert.deepEqual(removed, ['/tmp/input.wav']);
 });
 
-test('local voice runtime renders Kokoro with current configuration and returns WAV bytes', async () => {
-  const calls = [];
-  const runtime = createLocalVoiceRuntime({
-    configFile: '/config/voice.toml',
-    readConfig() {
-      return {
-        kokoro_model: 'local/kokoro',
-        kokoro_voice: 'bf_emma',
-        kokoro_dtype: 'fp32',
-        kokoro_device: 'cpu',
-        kokoro_speed: 1.2,
-      };
-    },
-    allocatePath: () => '/tmp/output.wav',
-    render: async (options) => calls.push(options),
-    readFile: async () => Buffer.from('wav-data'),
-    unlink: async () => {},
-  });
-
-  const audio = await runtime.synthesizeSpeech('I will check that.');
-
-  assert.equal(audio.toString(), 'wav-data');
-  assert.deepEqual(calls, [{
-    text: 'I will check that.',
-    outputPath: '/tmp/output.wav',
-    modelId: 'local/kokoro',
-    voice: 'bf_emma',
-    dtype: 'fp32',
-    device: 'cpu',
-    speed: 1.2,
-  }]);
-});
-
 test('local voice runtime streams Kokoro sentence PCM using current configuration', async () => {
   const calls = [];
   const runtime = createLocalVoiceRuntime({

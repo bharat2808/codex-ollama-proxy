@@ -42,6 +42,7 @@ test('voice coordinator returns delegation from its only tool call', async () =>
     requestResponse: async () => ({
       output: [{
         type: 'function_call',
+        call_id: 'call-delegate',
         name: 'delegate_to_codex',
         arguments: JSON.stringify({
           request: 'Inspect the repository and fix the failing tests.',
@@ -63,6 +64,7 @@ test('voice coordinator preserves spoken text that accompanies a delegation tool
       output: [
         {
           type: 'function_call',
+          call_id: 'call-delegate',
           name: 'delegate_to_codex',
           arguments: JSON.stringify({
             request: 'Inspect the repository and report the test failures.',
@@ -149,7 +151,7 @@ test('voice coordinator retains delegated work so the model can classify later f
   );
 });
 
-test('voice coordinator preserves legacy delegation when the preset has no voice model', async () => {
+test('voice coordinator rejects a turn when the preset has no voice model', async () => {
   let requests = 0;
   const coordinate = createVoiceCoordinator({
     getModel: () => '',
@@ -159,28 +161,37 @@ test('voice coordinator preserves legacy delegation when the preset has no voice
     },
   });
 
-  assert.deepEqual(await coordinate('inspect the repository', {}), {
-    action: 'delegate',
-    input: 'inspect the repository',
-  });
+  await assert.rejects(
+    coordinate('inspect the repository', {}),
+    /voice model is not configured/u,
+  );
   assert.equal(requests, 0);
 });
 
-test('voice coordinator delegates safely when its model request fails', async () => {
-  const messages = [];
+test('voice coordinator surfaces model request failures instead of guessing delegation', async () => {
   const coordinate = createVoiceCoordinator({
     getModel: () => 'qwen3:8b',
     requestResponse: async () => {
       throw new Error('model unavailable');
     },
-    log: (message) => messages.push(message),
   });
 
-  assert.deepEqual(await coordinate('inspect the repository', {}), {
-    action: 'delegate',
-    input: 'inspect the repository',
+  await assert.rejects(
+    coordinate('inspect the repository', {}),
+    /model unavailable/u,
+  );
+});
+
+test('voice coordinator rejects a model response that neither speaks nor delegates', async () => {
+  const coordinate = createVoiceCoordinator({
+    getModel: () => 'qwen3:8b',
+    requestResponse: async () => ({ output: [] }),
   });
-  assert.match(messages[0], /model unavailable/u);
+
+  await assert.rejects(
+    coordinate('inspect the repository', {}),
+    /neither speech nor delegation/u,
+  );
 });
 
 test('voice coordinator streams complete phrases before the model response finishes', async () => {

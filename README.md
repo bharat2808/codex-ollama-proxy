@@ -403,7 +403,7 @@ The proxy uses Codex's existing `generate_image` tool. It does not inspect ordin
 
 ## Local Voice Configuration
 
-The active provider preset owns the optional conversational `voice_model`.
+The active provider preset owns the conversational `voice_model`.
 Whisper and Kokoro remain in the separate speech configuration.
 
 To let a lightweight model handle conversation and decide when Codex work is
@@ -420,9 +420,8 @@ codex-universal-proxy preset add local-voice \
 The voice model receives one tool, `delegate_to_codex`. Plain model text is
 spoken directly through Kokoro. When the model includes a brief acknowledgement
 with a tool call, Kokoro speaks it before the handoff. Calling the tool hands
-the request to the preset's normal Codex model and tool loop. Presets without
-`voice_model` preserve the previous behavior and delegate every completed
-transcript.
+the request to the preset's normal Codex model and tool loop. Voice cannot be
+enabled until the active preset has a `voice_model`.
 
 Configure Whisper and Kokoro, then enable routing for Codex's built-in Voice
 Chat button:
@@ -452,9 +451,10 @@ experimental_realtime_ws_base_url = "http://127.0.0.1:11436/v1"
 realtime_conversation = true
 ```
 
-Codex appends its `/realtime/calls` path to the first URL and uses the second
-for the Realtime sideband connection. Restart Codex after enabling or
-disabling voice so the app-server reloads the transport configuration.
+Codex V3 posts the WebRTC offer to `/live` under the first URL, then connects
+the sideband to the call-specific path returned in the response. Restart Codex
+after enabling or disabling voice so the app-server reloads the transport
+configuration.
 
 The built-in button then uses this pipeline:
 

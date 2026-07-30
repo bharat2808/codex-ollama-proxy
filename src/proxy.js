@@ -19,10 +19,11 @@ const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
 const { normalizeOpenAiReasoningRequest } = require('./model-catalog/reasoning-request-normalization');
 const { createLocalVoiceRuntime } = require('./voice-agent/local-voice-runtime');
-const { createFramelessVoiceServer } = require('./voice-agent/frameless-voice-server');
 const { createRealtimeVoiceServer } = require('./voice-agent/realtime-voice-server');
-const { createVoiceCoordinator } = require('./voice-agent/voice-coordinator');
-const { VOICE_TURN_INSTRUCTIONS } = require('./voice-agent/voice-agent-session');
+const {
+  createVoiceCoordinator,
+  VOICE_TURN_INSTRUCTIONS,
+} = require('./voice-agent/voice-coordinator');
 const { createWeriftVoicePeer } = require('./voice-agent/werift-voice-peer');
 
 // proxy-models.toml drives per-request model auto-routing.
@@ -69,7 +70,7 @@ function loadRouteConfig() {
     const minChars = parseInt(process.env.PROXY_DEDUPE_MIN_CHARS, 10);
     if (Number.isFinite(minChars) && minChars >= 0) ROUTE_CFG.duplicate_input_min_chars = minChars;
   }
-  log('route config: text=' + ROUTE_CFG.default_model + ' voice=' + (ROUTE_CFG.voice_model || '(delegate-only)') + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
+  log('route config: text=' + ROUTE_CFG.default_model + ' voice=' + (ROUTE_CFG.voice_model || '(not configured)') + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
 }
 
 function getUpstream() {
@@ -2008,22 +2009,13 @@ const coordinateVoiceTranscript = createVoiceCoordinator({
     await ensureCloudModelForRequest(upstream, body);
     return upstreamLib.streamResponse(upstream, body, options);
   },
-  log,
 });
 const realtimeVoiceServer = createRealtimeVoiceServer({
   enabled: () => voiceConfig.read(VOICE_CONFIG_PATH).voice_enabled,
   createPeer: createWeriftVoicePeer,
   transcribePcm: localVoiceRuntime.transcribePcm,
   coordinateTranscript: coordinateVoiceTranscript,
-  synthesizeSpeech: localVoiceRuntime.synthesizeSpeech,
   streamSpeech: localVoiceRuntime.streamSpeech,
-  log,
-});
-const framelessVoiceServer = createFramelessVoiceServer({
-  enabled: () => voiceConfig.read(VOICE_CONFIG_PATH).voice_enabled,
-  transcribePcm: localVoiceRuntime.transcribePcm,
-  coordinateTranscript: coordinateVoiceTranscript,
-  synthesizeSpeech: localVoiceRuntime.synthesizeSpeech,
   log,
 });
 
@@ -2266,13 +2258,9 @@ const server = http.createServer((clientReq, clientRes) => {
   clientReq.on('error', (e) => log('client error: ' + e.message));
 });
 realtimeVoiceServer.attach(server);
-framelessVoiceServer.attach(server);
 server.on('close', () => {
   realtimeVoiceServer.close().catch((error) => {
     debugLog('realtime voice shutdown failed: ' + error.message);
-  });
-  framelessVoiceServer.close().catch((error) => {
-    debugLog('frameless voice shutdown failed: ' + error.message);
   });
 });
 

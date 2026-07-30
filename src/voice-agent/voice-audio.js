@@ -245,52 +245,6 @@ async function createFfmpegRtpPlayer({
     track.writeRtp(packet);
   });
 
-  async function playAudio(wav) {
-    if (!Buffer.isBuffer(wav)) throw new Error('synthesized audio must be a WAV Buffer');
-    if (currentJob) await currentJob;
-    const generation = playbackGeneration;
-    const stderrChunks = [];
-    sourceTimestamp = null;
-    jobTimestamp = timestamp;
-    const command = spawnProcess === spawn
-      ? resolveLocalCommand(ffmpegCommand)
-      : ffmpegCommand;
-    const child = spawnProcess(command, [
-      '-hide_banner', '-loglevel', 'error',
-      '-re',
-      '-i', 'pipe:0',
-      '-ac', '2',
-      '-ar', '48000',
-      '-c:a', 'libopus',
-      '-application', 'voip',
-      '-frame_duration', '20',
-      '-payload_type', String(payloadType),
-      '-f', 'rtp',
-      `rtp://127.0.0.1:${port}?pkt_size=1200`,
-    ], {
-      stdio: ['pipe', 'ignore', 'pipe'],
-    });
-    child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
-    activeChild = child;
-    const job = childExit(child, 'ffmpeg RTP player', stderrChunks);
-    const running = job.finally(() => {
-      if (currentJob === running) currentJob = null;
-      if (activeChild === child) activeChild = null;
-    });
-    currentJob = running;
-    if (generation !== playbackGeneration) {
-      child.kill('SIGTERM');
-      await currentJob.catch(() => {});
-      return;
-    }
-    child.stdin.end(wav);
-    try {
-      await currentJob;
-    } catch (error) {
-      if (generation === playbackGeneration) throw error;
-    }
-  }
-
   async function playAudioStream(chunks) {
     if (!chunks || typeof chunks[Symbol.asyncIterator] !== 'function') {
       throw new Error('synthesized audio stream must be async iterable');
@@ -411,7 +365,6 @@ async function createFfmpegRtpPlayer({
   }
 
   return {
-    playAudio,
     playAudioStream,
     stopAudio,
     async close() {

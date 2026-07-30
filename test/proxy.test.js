@@ -15,7 +15,7 @@ const {
   imageOutputCapabilities,
   imageOutputSupport,
 } = require('../src/proxy');
-const { VOICE_TURN_INSTRUCTIONS } = require('../src/voice-agent/voice-agent-session');
+const { VOICE_TURN_INSTRUCTIONS } = require('../src/voice-agent/voice-coordinator');
 
 const LOCAL_UPSTREAM = { baseUrl: new URL('http://127.0.0.1:11434/v1') };
 const IMAGE_SIGNATURES = {

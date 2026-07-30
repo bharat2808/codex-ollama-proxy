@@ -130,7 +130,7 @@ function normalizePreset(name, text) {
   }
   // image_model is a derived shorthand: if not explicitly set, mirror
   // default_model so a single --model/--text-model is enough (matches `switch
-  // ollama --model`). voice_model remains optional.
+  // ollama --model`). voice_model is validated when local voice is enabled.
   if (!values.models.includes(values.default_model)) die(`Error: preset ${name} default_model must occur in models.`);
   if (values.voice_model && !values.models.includes(values.voice_model)) die(`Error: preset ${name} voice_model must occur in models.`);
   if (values.image_model && !values.models.includes(values.image_model)) die(`Error: preset ${name} image_model must occur in models.`);
@@ -151,8 +151,8 @@ function readPreset(runtimeDir, name) {
 // Map CLI flags -> preset config keys. Booleans use paired --flag/--no-flag
 // forms; a toggle is only stored when one of the pair is passed (undeclared
 // toggles keep the template default at apply time). Required keys (upstream_url,
-// default_model) are always stored; voice_model and image_model are always
-// stored, with an empty voice_model preserving delegate-only behavior.
+  // default_model) are always stored; voice_model and image_model are always
+  // stored so enabling local voice can validate the active preset.
 function flagsToValues(flags) {
   const values = {};
 

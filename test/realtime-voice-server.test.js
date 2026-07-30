@@ -20,6 +20,24 @@ function loadRealtimeVoice() {
   }
 }
 
+function createVoiceServer(options = {}) {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  return createRealtimeVoiceServer({
+    coordinateTranscript: async (transcript) => ({
+      action: 'delegate',
+      input: transcript,
+    }),
+    streamSpeech: async function* (text) {
+      yield { pcm: Buffer.from(`audio:${text}`), sampleRate: 24000 };
+    },
+    ...options,
+  });
+}
+
+async function collectAudioStream(chunks, output = []) {
+  for await (const chunk of chunks) output.push(chunk.pcm.toString());
+}
+
 function listen(server) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -71,83 +89,12 @@ async function waitFor(check, message) {
   }
 }
 
-test('Codex multipart realtime call creation returns the local WebRTC answer and call location', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
-  const offers = [];
-  const voice = createRealtimeVoiceServer({
-    enabled: () => true,
-    createPeer: async (offer) => {
-      offers.push(offer);
-      return {
-        answerSdp: 'v=0\r\na=setup:active\r\n',
-        close() {},
-      };
-    },
-  });
-  const server = http.createServer((request, response) => {
-    if (!voice.handleRequest(request, response)) {
-      response.writeHead(404);
-      response.end('not found');
-    }
-  });
-  voice.attach(server);
-  const port = await listen(server);
-
-  try {
-    const boundary = 'codex-realtime-call-boundary';
-    const offerSdp = 'v=0\r\na=setup:actpass\r\n';
-    const session = {
-      type: 'realtime',
-      instructions: 'Speak naturally.',
-      output_modalities: ['audio'],
-    };
-    const body = [
-      `--${boundary}`,
-      'Content-Disposition: form-data; name="sdp"',
-      'Content-Type: application/sdp',
-      '',
-      offerSdp,
-      `--${boundary}`,
-      'Content-Disposition: form-data; name="session"',
-      'Content-Type: application/json',
-      '',
-      JSON.stringify(session),
-      `--${boundary}--`,
-      '',
-    ].join('\r\n');
-
-    const response = await fetch(
-      `http://127.0.0.1:${port}/v1/realtime/calls?intent=quicksilver&architecture=avas`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': `multipart/form-data; boundary=${boundary}`,
-          'content-length': String(Buffer.byteLength(body)),
-        },
-        body,
-      },
-    );
-
-    assert.equal(response.status, 201);
-    assert.equal(response.headers.get('content-type'), 'application/sdp');
-    assert.match(response.headers.get('location'), /^\/v1\/realtime\/calls\/call_[a-f0-9-]+$/u);
-    assert.equal(await response.text(), 'v=0\r\na=setup:active\r\n');
-    assert.equal(offers.length, 1);
-    assert.equal(offers[0].offerSdp, offerSdp);
-    assert.deepEqual(offers[0].session, session);
-  } finally {
-    await voice.close();
-    await close(server);
-  }
-});
-
 test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerOptions;
   const spoken = [];
   const played = [];
   const browserEvents = [];
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async () => 'inspect the repository',
     coordinateTranscript: async (transcript) => ({
@@ -155,16 +102,16 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
       input: transcript,
       preface: 'I’ll ask Codex to inspect it.',
     }),
-    synthesizeSpeech: async (text) => {
+    streamSpeech: async function* (text) {
       spoken.push(text);
-      return Buffer.from(`audio:${text}`);
+      yield { pcm: Buffer.from(`audio:${text}`), sampleRate: 24000 };
     },
     createPeer: async (options) => {
       peerOptions = options;
       return {
         answerSdp: 'v=0\r\na=setup:active\r\n',
-        async playAudio(audio) {
-          played.push(audio.toString('utf8'));
+        async playAudioStream(chunks) {
+          await collectAudioStream(chunks, played);
         },
         sendDataEvent(event) {
           browserEvents.push(event);
@@ -235,24 +182,22 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
 });
 
 test('Codex V3 WebRTC speaks a direct coordinator response without delegating', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerOptions;
   const played = [];
   const directResponse = `Hello from the preset voice model. ${'x'.repeat(501)}`;
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async () => 'hello there',
     coordinateTranscript: async () => ({
       action: 'speak',
       text: directResponse,
     }),
-    synthesizeSpeech: async (text) => Buffer.from(`audio:${text}`),
     createPeer: async (options) => {
       peerOptions = options;
       return {
         answerSdp: 'v=0\r\na=setup:active\r\n',
-        async playAudio(audio) {
-          played.push(audio.toString('utf8'));
+        async playAudioStream(chunks) {
+          await collectAudioStream(chunks, played);
         },
         sendDataEvent() {},
         close() {},
@@ -296,13 +241,12 @@ test('Codex V3 WebRTC speaks a direct coordinator response without delegating', 
 });
 
 test('Codex V3 WebRTC publishes the transcript before coordinator inference completes', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerOptions;
   let resolveDecision;
   const decision = new Promise((resolve) => {
     resolveDecision = resolve;
   });
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async () => 'inspect the repository',
     coordinateTranscript: async () => decision,
@@ -355,7 +299,6 @@ test('Codex V3 WebRTC publishes the transcript before coordinator inference comp
 });
 
 test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overtake it', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerOptions;
   let firstSignal;
   let releaseFirst;
@@ -363,7 +306,7 @@ test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overt
   const firstDecision = new Promise((resolve) => {
     releaseFirst = resolve;
   });
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async (pcm) => pcm.toString(),
     coordinateTranscript: async (transcript, context) => {
@@ -438,26 +381,27 @@ test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overt
 });
 
 test('Codex V3 retains muted stale delegation results for the next voice decision', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerOptions;
   const histories = [];
   const spoken = [];
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async (pcm) => pcm.toString(),
     coordinateTranscript: async (transcript, context) => {
       histories.push(structuredClone(context.voiceCoordinatorHistory));
       return { action: 'delegate', input: transcript };
     },
-    synthesizeSpeech: async (text) => {
+    streamSpeech: async function* (text) {
       spoken.push(text);
-      return Buffer.from(`audio:${text}`);
+      yield { pcm: Buffer.from(`audio:${text}`), sampleRate: 24000 };
     },
     createPeer: async (options) => {
       peerOptions = options;
       return {
         answerSdp: 'v=0\r\na=setup:active\r\n',
-        async playAudio() {},
+        async playAudioStream(chunks) {
+          await collectAudioStream(chunks);
+        },
         async stopAudio() {},
         sendDataEvent() {},
         close() {},
@@ -519,7 +463,6 @@ test('Codex V3 retains muted stale delegation results for the next voice decisio
 });
 
 test('Codex V3 does not lose a handoff update that arrives during coordinator inference', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerOptions;
   let releaseFirst;
   let markFirstStarted;
@@ -531,7 +474,7 @@ test('Codex V3 does not lose a handoff update that arrives during coordinator in
   });
   const histories = [];
   const spoken = [];
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async (pcm) => pcm.toString(),
     coordinateTranscript: async (transcript, context) => {
@@ -543,15 +486,17 @@ test('Codex V3 does not lose a handoff update that arrives during coordinator in
       histories.push(structuredClone(context.voiceCoordinatorHistory));
       return { action: 'delegate', input: transcript };
     },
-    synthesizeSpeech: async (text) => {
+    streamSpeech: async function* (text) {
       spoken.push(text);
-      return Buffer.from(`audio:${text}`);
+      yield { pcm: Buffer.from(`audio:${text}`), sampleRate: 24000 };
     },
     createPeer: async (options) => {
       peerOptions = options;
       return {
         answerSdp: 'v=0\r\na=setup:active\r\n',
-        async playAudio() {},
+        async playAudioStream(chunks) {
+          await collectAudioStream(chunks);
+        },
         sendDataEvent() {},
         close() {},
       };
@@ -605,14 +550,13 @@ test('Codex V3 does not lose a handoff update that arrives during coordinator in
 });
 
 test('Codex V3 WebRTC plays streamed coordinator phrases before inference completes', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerOptions;
   let releaseDecision;
   const decisionGate = new Promise((resolve) => {
     releaseDecision = resolve;
   });
   const played = [];
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async () => 'hello',
     coordinateTranscript: async (_transcript, context) => {
@@ -625,13 +569,15 @@ test('Codex V3 WebRTC plays streamed coordinator phrases before inference comple
         streamed: true,
       };
     },
-    synthesizeSpeech: async (text) => Buffer.from(text),
+    streamSpeech: async function* (text) {
+      yield { pcm: Buffer.from(text), sampleRate: 24000 };
+    },
     createPeer: async (options) => {
       peerOptions = options;
       return {
         answerSdp: 'v=0\r\na=setup:active\r\n',
-        async playAudio(audio) {
-          played.push(audio.toString());
+        async playAudioStream(chunks) {
+          await collectAudioStream(chunks, played);
         },
         async stopAudio() {},
         sendDataEvent() {},
@@ -690,22 +636,18 @@ test('Codex V3 WebRTC plays streamed coordinator phrases before inference comple
 });
 
 test('Codex V3 plays the first Kokoro sentence before later synthesis completes', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   const played = [];
   let releaseSecond;
   const secondReady = new Promise((resolve) => {
     releaseSecond = resolve;
   });
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     streamSpeech: async function* (text) {
       assert.equal(text, 'First sentence. Second sentence.');
       yield { text: 'First sentence.', pcm: Buffer.from('first'), sampleRate: 24000 };
       await secondReady;
       yield { text: 'Second sentence.', pcm: Buffer.from('second'), sampleRate: 24000 };
-    },
-    synthesizeSpeech: async () => {
-      throw new Error('whole-message synthesis must not run');
     },
     createPeer: async () => ({
       answerSdp: 'v=0\r\na=setup:active\r\n',
@@ -768,9 +710,8 @@ test('Codex V3 plays the first Kokoro sentence before later synthesis completes'
 });
 
 test('Codex V3 announces the live session to the browser and sideband', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   const browserEvents = [];
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     createPeer: async () => ({
       answerSdp: 'v=0\r\na=setup:active\r\n',
@@ -823,8 +764,7 @@ test('Codex V3 announces the live session to the browser and sideband', async ()
 });
 
 test('Codex V3 sideband startup survives a browser event delivery failure', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     createPeer: async () => ({
       answerSdp: 'v=0\r\na=setup:active\r\n',
@@ -867,23 +807,24 @@ test('Codex V3 sideband startup survives a browser event delivery failure', asyn
 });
 
 test('Codex V3 WebRTC bounds context and queued Kokoro output', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let finishSynthesis;
   const synthesisStarted = new Promise((resolve) => {
     finishSynthesis = resolve;
   });
   let synthesisCount = 0;
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async () => '',
-    synthesizeSpeech: async () => {
+    streamSpeech: async function* () {
       synthesisCount += 1;
       await synthesisStarted;
-      return Buffer.from('audio');
+      yield { pcm: Buffer.from('audio'), sampleRate: 24000 };
     },
     createPeer: async () => ({
       answerSdp: 'v=0\r\na=setup:active\r\n',
-      async playAudio() {},
+      async playAudioStream(chunks) {
+        await collectAudioStream(chunks);
+      },
       close() {},
     }),
   });
@@ -935,25 +876,29 @@ test('Codex V3 WebRTC bounds context and queued Kokoro output', async () => {
 });
 
 test('Codex V3 WebRTC cancels queued Kokoro output when sideband disconnects', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let releaseSynthesis;
   const synthesisGate = new Promise((resolve) => {
     releaseSynthesis = resolve;
   });
   let synthesisCount = 0;
   let playbackCount = 0;
-  const voice = createRealtimeVoiceServer({
+  let stopped = false;
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async () => '',
-    synthesizeSpeech: async () => {
+    streamSpeech: async function* () {
       synthesisCount += 1;
       await synthesisGate;
-      return Buffer.from('audio');
+      yield { pcm: Buffer.from('audio'), sampleRate: 24000 };
     },
     createPeer: async () => ({
       answerSdp: 'v=0\r\na=setup:active\r\n',
-      async playAudio() {
-        playbackCount += 1;
+      async playAudioStream(chunks) {
+        await collectAudioStream(chunks);
+        if (!stopped) playbackCount += 1;
+      },
+      stopAudio() {
+        stopped = true;
       },
       close() {},
     }),
@@ -999,14 +944,14 @@ test('Codex V3 WebRTC cancels queued Kokoro output when sideband disconnects', a
 });
 
 test('Codex V3 WebRTC closes oversized sideband messages without crashing', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async () => '',
-    synthesizeSpeech: async () => Buffer.from('audio'),
     createPeer: async () => ({
       answerSdp: 'v=0\r\na=setup:active\r\n',
-      async playAudio() {},
+      async playAudioStream(chunks) {
+        await collectAudioStream(chunks);
+      },
       close() {},
     }),
   });
@@ -1035,66 +980,9 @@ test('Codex V3 WebRTC closes oversized sideband messages without crashing', asyn
   }
 });
 
-test('Codex sideband joins the returned call id and initializes the realtime session', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
-  let peerCloseCount = 0;
-  const voice = createRealtimeVoiceServer({
-    enabled: () => true,
-    createPeer: async () => ({
-      answerSdp: 'v=0\r\na=setup:active\r\n',
-      close() {
-        peerCloseCount += 1;
-      },
-    }),
-  });
-  const server = http.createServer((request, response) => {
-    if (!voice.handleRequest(request, response)) {
-      response.writeHead(404);
-      response.end('not found');
-    }
-  });
-  voice.attach(server);
-  const port = await listen(server);
-
-  try {
-    const offer = await fetch(`http://127.0.0.1:${port}/v1/realtime/calls`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/sdp' },
-      body: 'v=0\r\na=setup:actpass\r\n',
-    });
-    assert.equal(offer.status, 201);
-    const callId = offer.headers.get('location').split('/').at(-1);
-    const sideband = new WebSocket(
-      `ws://127.0.0.1:${port}/v1/realtime?intent=quicksilver&call_id=${callId}`,
-    );
-    await once(sideband, 'open');
-    sideband.send(JSON.stringify({
-      type: 'session.update',
-      session: {
-        type: 'quicksilver',
-        instructions: 'Codex voice session',
-      },
-    }));
-    const [payload] = await once(sideband, 'message');
-    const event = JSON.parse(payload.toString('utf8'));
-
-    assert.equal(event.type, 'session.updated');
-    assert.equal(event.session.id, `sess_${callId}`);
-    assert.equal(event.session.instructions, 'Codex voice session');
-    sideband.close();
-    await once(sideband, 'close');
-    while (voice.calls.size !== 0) await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(peerCloseCount, 1);
-  } finally {
-    await voice.close();
-    await close(server);
-  }
-});
-
 test('abandoned realtime calls expire when their sideband never connects', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
   let peerCloseCount = 0;
-  const voice = createRealtimeVoiceServer({
+  const voice = createVoiceServer({
     enabled: () => true,
     sidebandJoinTimeoutMs: 20,
     createPeer: async () => ({
@@ -1111,198 +999,13 @@ test('abandoned realtime calls expire when their sideband never connects', async
   const port = await listen(server);
 
   try {
-    const offer = await fetch(`http://127.0.0.1:${port}/v1/realtime/calls`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/sdp' },
-      body: 'v=0\r\na=setup:actpass\r\n',
-    });
+    const offer = await createV3Call(port);
     assert.equal(offer.status, 201);
     assert.equal(voice.calls.size, 1);
     while (voice.calls.size !== 0) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     assert.equal(peerCloseCount, 1);
-  } finally {
-    await voice.close();
-    await close(server);
-  }
-});
-
-test('a completed local speech segment is transcribed and handed off to the normal Codex turn', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
-  let peerOptions;
-  const voice = createRealtimeVoiceServer({
-    enabled: () => true,
-    transcribePcm: async (pcm) => {
-      assert.deepEqual(pcm, Buffer.from([1, 2, 3, 4]));
-      return 'list the files in this project';
-    },
-    createPeer: async (options) => {
-      peerOptions = options;
-      return {
-        answerSdp: 'v=0\r\na=setup:active\r\n',
-        close() {},
-      };
-    },
-  });
-  const server = http.createServer((request, response) => {
-    if (!voice.handleRequest(request, response)) {
-      response.writeHead(404);
-      response.end('not found');
-    }
-  });
-  voice.attach(server);
-  const port = await listen(server);
-
-  try {
-    const offer = await fetch(`http://127.0.0.1:${port}/v1/realtime/calls`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/sdp' },
-      body: 'v=0\r\na=setup:actpass\r\n',
-    });
-    const callId = offer.headers.get('location').split('/').at(-1);
-    const sideband = new WebSocket(`ws://127.0.0.1:${port}/v1/realtime?call_id=${callId}`);
-    await once(sideband, 'open');
-    sideband.send(JSON.stringify({
-      type: 'session.update',
-      session: { type: 'quicksilver', instructions: 'Codex voice session' },
-    }));
-    await once(sideband, 'message');
-
-    const events = [];
-    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
-    await peerOptions.onSpeech(Buffer.from([1, 2, 3, 4]));
-    while (events.length < 3) await once(sideband, 'message');
-
-    assert.deepEqual(events.map((event) => event.type), [
-      'conversation.input_transcript.delta',
-      'conversation.item.input_audio_transcription.completed',
-      'conversation.handoff.requested',
-    ]);
-    assert.equal(events[0].delta, 'list the files in this project');
-    assert.equal(events[1].transcript, 'list the files in this project');
-    assert.equal(events[2].input_transcript, 'list the files in this project');
-    assert.match(events[2].handoff_id, /^handoff_[a-f0-9-]+$/u);
-    assert.match(events[2].item_id, /^item_[a-f0-9-]+$/u);
-    sideband.close();
-    await once(sideband, 'close');
-  } finally {
-    await voice.close();
-    await close(server);
-  }
-});
-
-test('Codex handoff commentary and final output are synthesized and played over WebRTC', async () => {
-  const { createRealtimeVoiceServer } = loadRealtimeVoice();
-  let peerOptions;
-  const spoken = [];
-  const played = [];
-  const voice = createRealtimeVoiceServer({
-    enabled: () => true,
-    transcribePcm: async () => 'inspect the files',
-    synthesizeSpeech: async (text) => {
-      spoken.push(text);
-      return Buffer.from(`audio:${text}`);
-    },
-    createPeer: async (options) => {
-      peerOptions = options;
-      return {
-        answerSdp: 'v=0\r\na=setup:active\r\n',
-        async playAudio(audio) {
-          played.push(audio.toString('utf8'));
-        },
-        close() {},
-      };
-    },
-  });
-  const server = http.createServer((request, response) => {
-    if (!voice.handleRequest(request, response)) {
-      response.writeHead(404);
-      response.end('not found');
-    }
-  });
-  voice.attach(server);
-  const port = await listen(server);
-
-  try {
-    const offer = await fetch(`http://127.0.0.1:${port}/v1/realtime/calls`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/sdp' },
-      body: 'v=0\r\na=setup:actpass\r\n',
-    });
-    const callId = offer.headers.get('location').split('/').at(-1);
-    const sideband = new WebSocket(`ws://127.0.0.1:${port}/v1/realtime?call_id=${callId}`);
-    await once(sideband, 'open');
-    sideband.send(JSON.stringify({
-      type: 'session.update',
-      session: { type: 'quicksilver', instructions: 'Codex voice session' },
-    }));
-    await once(sideband, 'message');
-
-    const handoffEvents = [];
-    sideband.on('message', (payload) => {
-      handoffEvents.push(JSON.parse(payload.toString('utf8')));
-    });
-    await peerOptions.onSpeech(Buffer.from([1, 2, 3, 4]));
-    await waitFor(
-      () => handoffEvents.some((event) => event.type === 'conversation.handoff.requested'),
-      'expected a handoff before handoff output',
-    );
-    const handoffId = handoffEvents.find(
-      (event) => event.type === 'conversation.handoff.requested',
-    ).handoff_id;
-
-    sideband.send(JSON.stringify({
-      type: 'conversation.handoff.append',
-      handoff_id: handoffId,
-      output_text: 'I will inspect the files now.',
-    }));
-    sideband.send(JSON.stringify({
-      type: 'conversation.item.create',
-      item: {
-        type: 'function_call_output',
-        call_id: handoffId,
-        output: '"Agent Final Message":\n\nThere are twelve files.',
-      },
-    }));
-
-    const outputEvents = [];
-    sideband.on('message', (payload) => {
-      outputEvents.push(JSON.parse(payload.toString('utf8')));
-    });
-    while (outputEvents.filter((event) => (
-      event.type === 'response.output_audio_transcript.done'
-    )).length < 2) {
-      await once(sideband, 'message');
-    }
-
-    assert.deepEqual(spoken, [
-      'I will inspect the files now.',
-      'There are twelve files.',
-    ]);
-    assert.deepEqual(played, [
-      'audio:I will inspect the files now.',
-      'audio:There are twelve files.',
-    ]);
-
-    peerOptions.onSpeechStart();
-    sideband.send(JSON.stringify({
-      type: 'conversation.handoff.append',
-      handoff_id: handoffId,
-      output_text: 'This stale result must be ignored.',
-    }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.deepEqual(spoken, [
-      'I will inspect the files now.',
-      'There are twelve files.',
-    ]);
-    assert.deepEqual(
-      outputEvents.filter((event) => event.type === 'response.output_audio_transcript.done')
-        .map((event) => event.transcript),
-      spoken,
-    );
-    sideband.close();
-    await once(sideband, 'close');
   } finally {
     await voice.close();
     await close(server);

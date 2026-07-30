@@ -19,16 +19,6 @@ function pcm(samples, amplitude) {
   return buffer;
 }
 
-function sinePcm(sampleRate, durationMs, frequency = 440, amplitude = 8000) {
-  const samples = Math.round(sampleRate * durationMs / 1000);
-  const buffer = Buffer.alloc(samples * 2);
-  for (let index = 0; index < samples; index += 1) {
-    const value = Math.round(amplitude * Math.sin(2 * Math.PI * frequency * index / sampleRate));
-    buffer.writeInt16LE(value, index * 2);
-  }
-  return buffer;
-}
-
 function sineFloat32Pcm(sampleRate, durationMs, frequency = 440, amplitude = 0.5) {
   const samples = Math.round(sampleRate * durationMs / 1000);
   const buffer = Buffer.alloc(samples * 4);
@@ -96,44 +86,6 @@ test('Whisper WAV encoding writes mono 16-bit PCM with the correct sizes', () =>
   assert.equal(wav.subarray(36, 40).toString('ascii'), 'data');
   assert.equal(wav.readUInt32LE(40), samples.length);
   assert.deepEqual(wav.subarray(44), samples);
-});
-
-test('ffmpeg RTP bridge packetizes WAV output and decodes it back to 16 kHz PCM', async () => {
-  const {
-    createFfmpegRtpDecoder,
-    createFfmpegRtpPlayer,
-    pcm16ToWav,
-    pcmRms,
-  } = loadVoiceAudio();
-  const decoded = [];
-  const decoder = await createFfmpegRtpDecoder({
-    onPcm: (chunk) => decoded.push(Buffer.from(chunk)),
-  });
-  const player = await createFfmpegRtpPlayer({
-    track: {
-      writeRtp(packet) {
-        decoder.pushRtp(packet);
-      },
-    },
-  });
-
-  try {
-    const wav = pcm16ToWav(sinePcm(24000, 400), {
-      sampleRate: 24000,
-      channels: 1,
-    });
-    await player.playAudio(wav);
-    const deadline = Date.now() + 3000;
-    while (decoded.length === 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-
-    assert.ok(decoded.length > 0);
-    assert.ok(pcmRms(Buffer.concat(decoded)) > 1000);
-  } finally {
-    await player.close();
-    await decoder.close();
-  }
 });
 
 test('ffmpeg RTP bridge plays the first Kokoro PCM chunk before later synthesis completes', async () => {

@@ -1,9 +1,0 @@
-#!/usr/bin/env node
-'use strict';
-
-const { main } = require('../src/voice-agent/voice-demo');
-
-main().catch((error) => {
-  console.error(`codex-voice-demo: ${error.message}`);
-  process.exitCode = 1;
-});

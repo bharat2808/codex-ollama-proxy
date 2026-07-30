@@ -14,6 +14,12 @@ function fixture() {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-voice-config-'));
   const runtimeDir = path.join(codexHome, 'codex-universal-proxy');
   fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(path.join(runtimeDir, 'proxy-models.toml'), [
+    'models = ["local-model", "voice-model"]',
+    'default_model = "local-model"',
+    'voice_model = "voice-model"',
+    '',
+  ].join('\n'), 'utf8');
 
   function run(args) {
     return spawnSync(process.execPath, [CLI, ...args], {
@@ -126,6 +132,33 @@ test('voice enable points Codex WebRTC call creation and sideband traffic at the
   }
 });
 
+test('voice enable requires a voice model in the active preset', () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(f.codexConfig, 'sandbox_mode = "danger-full-access"\n', 'utf8');
+    fs.writeFileSync(path.join(f.runtimeDir, 'proxy-models.toml'), [
+      'active_preset = "local-voice"',
+      'models = ["local-model"]',
+      'default_model = "local-model"',
+      'voice_model = ""',
+      '',
+    ].join('\n'), 'utf8');
+
+    const result = f.run([
+      'voice',
+      '--enable',
+      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-start',
+    ]);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /active preset requires voice_model/u);
+    assert.doesNotMatch(fs.readFileSync(f.codexConfig, 'utf8'), /experimental_realtime_/u);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('voice enable routes Codex handoffs through the configured active preset with OpenAI auth', () => {
   const f = fixture();
   try {
@@ -133,7 +166,8 @@ test('voice enable routes Codex handoffs through the configured active preset wi
     fs.writeFileSync(path.join(f.runtimeDir, 'proxy-models.toml'), [
       'active_preset = "local-voice"',
       'default_model = "local-model"',
-      'models = ["local-model"]',
+      'voice_model = "voice-model"',
+      'models = ["local-model", "voice-model"]',
       'upstream_url = "http://127.0.0.1:11434/v1"',
       '',
     ].join('\n'), 'utf8');
@@ -164,7 +198,8 @@ test('switch openai releases proxy-owned model and voice routing without changin
     fs.writeFileSync(path.join(f.runtimeDir, 'proxy-models.toml'), [
       'active_preset = "local-voice"',
       'default_model = "local-model"',
-      'models = ["local-model"]',
+      'voice_model = "voice-model"',
+      'models = ["local-model", "voice-model"]',
       'upstream_url = "http://127.0.0.1:11434/v1"',
       '',
     ].join('\n'), 'utf8');
