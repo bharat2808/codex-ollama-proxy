@@ -1998,10 +1998,15 @@ const localVoiceRuntime = createLocalVoiceRuntime({
 });
 const coordinateVoiceTranscript = createVoiceCoordinator({
   getModel: () => ROUTE_CFG.voice_model,
-  requestResponse: async (body) => {
+  requestResponse: async (body, options) => {
     const upstream = getUpstream();
     await ensureCloudModelForRequest(upstream, body);
-    return upstreamLib.requestJson(upstream, body);
+    return upstreamLib.requestJson(upstream, body, options);
+  },
+  streamResponse: async (body, options) => {
+    const upstream = getUpstream();
+    await ensureCloudModelForRequest(upstream, body);
+    return upstreamLib.streamResponse(upstream, body, options);
   },
   log,
 });

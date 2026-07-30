@@ -25,6 +25,7 @@ class PcmSpeechSegmenter {
     minimumSpeechMs = 200,
     trailingSilenceMs = 600,
     maximumSpeechMs = 30000,
+    onSpeechStart = () => {},
     onSpeech,
   } = {}) {
     if (typeof onSpeech !== 'function') throw new Error('onSpeech is required');
@@ -33,6 +34,7 @@ class PcmSpeechSegmenter {
     this.minimumSpeechSamples = Math.round(sampleRate * minimumSpeechMs / 1000);
     this.trailingSilenceSamples = Math.round(sampleRate * trailingSilenceMs / 1000);
     this.maximumSpeechSamples = Math.round(sampleRate * maximumSpeechMs / 1000);
+    this.onSpeechStart = onSpeechStart;
     this.onSpeech = onSpeech;
     this.reset();
   }
@@ -63,6 +65,7 @@ class PcmSpeechSegmenter {
     if (!this.started) {
       if (!isSpeech) return;
       this.started = true;
+      this.onSpeechStart();
     }
 
     this.chunks.push(pcm);
@@ -217,6 +220,10 @@ async function createFfmpegRtpPlayer({
   let timestamp = randomInt(0x100000000);
   const ssrc = randomInt(1, 0x100000000);
   let currentJob = null;
+  let activeChild = null;
+  let activeIterator = null;
+  let activeCancel = null;
+  let playbackGeneration = 0;
   let sourceTimestamp = null;
   let jobTimestamp = timestamp;
 
@@ -241,6 +248,7 @@ async function createFfmpegRtpPlayer({
   async function playAudio(wav) {
     if (!Buffer.isBuffer(wav)) throw new Error('synthesized audio must be a WAV Buffer');
     if (currentJob) await currentJob;
+    const generation = playbackGeneration;
     const stderrChunks = [];
     sourceTimestamp = null;
     jobTimestamp = timestamp;
@@ -263,13 +271,24 @@ async function createFfmpegRtpPlayer({
       stdio: ['pipe', 'ignore', 'pipe'],
     });
     child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+    activeChild = child;
     const job = childExit(child, 'ffmpeg RTP player', stderrChunks);
     const running = job.finally(() => {
       if (currentJob === running) currentJob = null;
+      if (activeChild === child) activeChild = null;
     });
     currentJob = running;
+    if (generation !== playbackGeneration) {
+      child.kill('SIGTERM');
+      await currentJob.catch(() => {});
+      return;
+    }
     child.stdin.end(wav);
-    await currentJob;
+    try {
+      await currentJob;
+    } catch (error) {
+      if (generation === playbackGeneration) throw error;
+    }
   }
 
   async function playAudioStream(chunks) {
@@ -277,9 +296,27 @@ async function createFfmpegRtpPlayer({
       throw new Error('synthesized audio stream must be async iterable');
     }
     if (currentJob) await currentJob;
+    const generation = playbackGeneration;
     const iterator = chunks[Symbol.asyncIterator]();
-    const first = await iterator.next();
-    if (first.done) return;
+    let cancelPlayback;
+    const cancelled = new Promise((resolve) => {
+      cancelPlayback = resolve;
+    });
+    activeCancel = cancelPlayback;
+    activeIterator = iterator;
+    const nextChunk = () => Promise.race([
+      iterator.next(),
+      cancelled.then(() => ({ done: true, cancelled: true })),
+    ]);
+    const first = await nextChunk();
+    if (first.done || generation !== playbackGeneration) {
+      if (activeIterator === iterator) activeIterator = null;
+      if (activeCancel === cancelPlayback) activeCancel = null;
+      if (typeof iterator.return === 'function') {
+        Promise.resolve(iterator.return()).catch(() => {});
+      }
+      return;
+    }
     const sampleRate = first.value && first.value.sampleRate;
     if (!Number.isInteger(sampleRate) || sampleRate <= 0) {
       throw new Error('synthesized PCM sampleRate must be a positive integer');
@@ -310,6 +347,7 @@ async function createFfmpegRtpPlayer({
       stdio: ['pipe', 'ignore', 'pipe'],
     });
     child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+    activeChild = child;
     const exited = childExit(child, 'ffmpeg streaming RTP player', stderrChunks);
 
     async function writeChunk(chunk) {
@@ -328,8 +366,8 @@ async function createFfmpegRtpPlayer({
       try {
         await writeChunk(first.value);
         for (;;) {
-          const next = await iterator.next();
-          if (next.done) break;
+          const next = await nextChunk();
+          if (next.done || generation !== playbackGeneration) break;
           await writeChunk(next.value);
         }
         child.stdin.end();
@@ -342,16 +380,42 @@ async function createFfmpegRtpPlayer({
     const job = Promise.all([writing, exited]).then(() => {});
     const running = job.finally(() => {
       if (currentJob === running) currentJob = null;
+      if (activeChild === child) activeChild = null;
+      if (activeIterator === iterator) activeIterator = null;
+      if (activeCancel === cancelPlayback) activeCancel = null;
     });
     currentJob = running;
-    await currentJob;
+    try {
+      await currentJob;
+    } catch (error) {
+      if (generation === playbackGeneration) throw error;
+    }
+  }
+
+  async function stopAudio() {
+    playbackGeneration += 1;
+    const cancel = activeCancel;
+    activeCancel = null;
+    if (cancel) cancel();
+    const iterator = activeIterator;
+    activeIterator = null;
+    if (iterator && typeof iterator.return === 'function') {
+      Promise.resolve(iterator.return()).catch(() => {});
+    }
+    const child = activeChild;
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.stdin.destroy();
+      child.kill('SIGTERM');
+    }
+    if (currentJob) await currentJob.catch(() => {});
   }
 
   return {
     playAudio,
     playAudioStream,
+    stopAudio,
     async close() {
-      if (currentJob) await currentJob.catch(() => {});
+      await stopAudio();
       await new Promise((resolve) => receiver.close(resolve));
     },
   };

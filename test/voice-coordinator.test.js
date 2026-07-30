@@ -120,3 +120,54 @@ test('voice coordinator delegates safely when its model request fails', async ()
   });
   assert.match(messages[0], /model unavailable/u);
 });
+
+test('voice coordinator streams complete phrases before the model response finishes', async () => {
+  const phrases = [];
+  let releaseResponse;
+  let deltaDelivered;
+  const firstDelta = new Promise((resolve) => {
+    deltaDelivered = resolve;
+  });
+  const responseGate = new Promise((resolve) => {
+    releaseResponse = resolve;
+  });
+  const coordinate = createVoiceCoordinator({
+    getModel: () => 'qwen3:8b',
+    requestResponse: async () => {
+      throw new Error('non-streaming request must not run');
+    },
+    streamResponse: async (_body, { onTextDelta }) => {
+      await onTextDelta('I can help with that. ');
+      deltaDelivered();
+      await responseGate;
+      await onTextDelta('What would you like next?');
+      return {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          content: [{
+            type: 'output_text',
+            text: 'I can help with that. What would you like next?',
+          }],
+        }],
+      };
+    },
+  });
+
+  const resultPromise = coordinate('hello', {
+    onSpeechPhrase: async (text) => phrases.push(text),
+  });
+  await firstDelta;
+  assert.deepEqual(phrases, ['I can help with that.']);
+
+  releaseResponse();
+  assert.deepEqual(await resultPromise, {
+    action: 'speak',
+    text: 'I can help with that. What would you like next?',
+    streamed: true,
+  });
+  assert.deepEqual(phrases, [
+    'I can help with that.',
+    'What would you like next?',
+  ]);
+});

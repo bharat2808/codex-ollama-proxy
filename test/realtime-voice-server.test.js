@@ -354,6 +354,174 @@ test('Codex V3 WebRTC publishes the transcript before coordinator inference comp
   }
 });
 
+test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overtake it', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  let peerOptions;
+  let firstSignal;
+  let releaseFirst;
+  let stopCount = 0;
+  const firstDecision = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    transcribePcm: async (pcm) => pcm.toString(),
+    coordinateTranscript: async (transcript, context) => {
+      if (transcript === 'first') {
+        firstSignal = context.signal;
+        return firstDecision;
+      }
+      return { action: 'delegate', input: transcript };
+    },
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async stopAudio() {
+          stopCount += 1;
+        },
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    peerOptions.onSpeechStart();
+    const first = peerOptions.onSpeech(Buffer.from('first'));
+    await waitFor(() => Boolean(firstSignal), 'expected the first coordinator request');
+    peerOptions.onSpeechStart();
+    const second = peerOptions.onSpeech(Buffer.from('second'));
+    await waitFor(
+      () => events.some((event) => (
+        event.type === 'delegation.created'
+        && event.item.content[0].text === 'second'
+      )),
+      'expected the second turn to overtake the stale turn',
+    );
+
+    assert.equal(firstSignal.aborted, true);
+    assert.equal(stopCount, 2);
+    releaseFirst({ action: 'delegate', input: 'first' });
+    await Promise.all([first, second]);
+    assert.equal(
+      events.some((event) => (
+        event.type === 'delegation.created'
+        && event.item.content[0].text === 'first'
+      )),
+      false,
+    );
+
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releaseFirst({ action: 'delegate', input: 'first' });
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 WebRTC plays streamed coordinator phrases before inference completes', async () => {
+  const { createRealtimeVoiceServer } = loadRealtimeVoice();
+  let peerOptions;
+  let releaseDecision;
+  const decisionGate = new Promise((resolve) => {
+    releaseDecision = resolve;
+  });
+  const played = [];
+  const voice = createRealtimeVoiceServer({
+    enabled: () => true,
+    transcribePcm: async () => 'hello',
+    coordinateTranscript: async (_transcript, context) => {
+      await context.onSpeechPhrase('First phrase.');
+      await decisionGate;
+      await context.onSpeechPhrase('Second phrase.');
+      return {
+        action: 'speak',
+        text: 'First phrase. Second phrase.',
+        streamed: true,
+      };
+    },
+    synthesizeSpeech: async (text) => Buffer.from(text),
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async playAudio(audio) {
+          played.push(audio.toString());
+        },
+        async stopAudio() {},
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    peerOptions.onSpeechStart();
+    const speech = peerOptions.onSpeech(Buffer.from('voice'));
+    await waitFor(() => played.length === 1, 'expected first model phrase playback');
+    assert.deepEqual(played, ['First phrase.']);
+    assert.equal(
+      events.some((event) => event.type === 'turn.done' && event.turn.role === 'assistant'),
+      false,
+    );
+
+    releaseDecision();
+    await speech;
+    await waitFor(
+      () => events.some((event) => (
+        event.type === 'turn.done' && event.turn.role === 'assistant'
+      )),
+      'expected one completed assistant turn',
+    );
+    assert.deepEqual(played, ['First phrase.', 'Second phrase.']);
+    assert.equal(
+      events.filter((event) => event.type === 'output_transcript.added').length,
+      1,
+    );
+
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releaseDecision();
+    await voice.close();
+    await close(server);
+  }
+});
+
 test('Codex V3 plays the first Kokoro sentence before later synthesis completes', async () => {
   const { createRealtimeVoiceServer } = loadRealtimeVoice();
   const played = [];

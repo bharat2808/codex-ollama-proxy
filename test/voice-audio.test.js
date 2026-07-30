@@ -61,6 +61,27 @@ test('PCM speech segmenter emits one utterance after sustained trailing silence'
   assert.ok(utterances[0].includes(pcm(16, 3000)));
 });
 
+test('PCM speech segmenter reports each speech onset before the utterance completes', async () => {
+  const { PcmSpeechSegmenter } = loadVoiceAudio();
+  const events = [];
+  const segmenter = new PcmSpeechSegmenter({
+    sampleRate: 16000,
+    speechThreshold: 500,
+    minimumSpeechMs: 100,
+    trailingSilenceMs: 100,
+    onSpeechStart: () => events.push('start'),
+    onSpeech: async () => events.push('complete'),
+  });
+
+  await segmenter.push(pcm(1600, 3000));
+  assert.deepEqual(events, ['start']);
+  await segmenter.push(pcm(1600, 0));
+  assert.deepEqual(events, ['start', 'complete']);
+  await segmenter.push(pcm(1600, 3000));
+
+  assert.deepEqual(events, ['start', 'complete', 'start']);
+});
+
 test('Whisper WAV encoding writes mono 16-bit PCM with the correct sizes', () => {
   const { pcm16ToWav } = loadVoiceAudio();
   const samples = pcm(320, 1234);
@@ -164,5 +185,55 @@ test('ffmpeg RTP bridge plays the first Kokoro PCM chunk before later synthesis 
     releaseSecond();
     await player.close();
     await decoder.close();
+  }
+});
+
+test('ffmpeg RTP bridge stops streamed playback while synthesis is still pending', async () => {
+  const {
+    createFfmpegRtpPlayer,
+  } = loadVoiceAudio();
+  const player = await createFfmpegRtpPlayer({
+    track: {
+      writeRtp() {},
+    },
+  });
+  let releaseSynthesis;
+  const synthesisGate = new Promise((resolve) => {
+    releaseSynthesis = resolve;
+  });
+
+  try {
+    async function* chunks() {
+      yield {
+        pcm: sineFloat32Pcm(24000, 300),
+        sampleRate: 24000,
+      };
+      await synthesisGate;
+      yield {
+        pcm: sineFloat32Pcm(24000, 300, 660),
+        sampleRate: 24000,
+      };
+    }
+
+    const playback = player.playAudioStream(chunks());
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    let timeout;
+    try {
+      await Promise.race([
+        player.stopAudio(),
+        new Promise((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('playback interruption timed out')),
+            500,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
+    await playback;
+  } finally {
+    releaseSynthesis();
+    await player.close();
   }
 });

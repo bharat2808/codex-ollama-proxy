@@ -48,7 +48,9 @@ function authHeaders(upstream) {
   return upstream && upstream.apiKey ? { authorization: 'Bearer ' + upstream.apiKey } : {};
 }
 
-function requestJson(upstream, body) {
+function requestJson(upstream, body, {
+  signal,
+} = {}) {
   return new Promise((resolve, reject) => {
     const url = responsesUrl(upstream);
     const payload = JSON.stringify(body);
@@ -58,6 +60,7 @@ function requestJson(upstream, body) {
       port: url.port || undefined,
       path: url.pathname + url.search,
       method: 'POST',
+      signal,
       headers: Object.assign({
         'content-type': 'application/json',
         'content-length': Buffer.byteLength(payload),
@@ -82,6 +85,92 @@ function requestJson(upstream, body) {
   });
 }
 
+function streamResponse(upstream, body, {
+  signal,
+  onEvent = () => {},
+  onTextDelta = () => {},
+} = {}) {
+  return new Promise((resolve, reject) => {
+    const url = responsesUrl(upstream);
+    const payload = JSON.stringify({ ...body, stream: true });
+    const req = transport(url).request({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      port: url.port || undefined,
+      path: url.pathname + url.search,
+      method: 'POST',
+      signal,
+      headers: Object.assign({
+        accept: 'text/event-stream',
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+      }, authHeaders(upstream)),
+    }, async (res) => {
+      try {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          let errorBody = '';
+          res.setEncoding('utf8');
+          for await (const chunk of res) errorBody += chunk;
+          let parsed = null;
+          try { parsed = JSON.parse(errorBody); } catch {}
+          const message = parsed && parsed.error
+            ? parsed.error
+            : (errorBody || res.statusMessage);
+          throw new Error(
+            'HTTP ' + res.statusCode + ': '
+            + (typeof message === 'object' ? JSON.stringify(message) : message),
+          );
+        }
+
+        const contentType = String(res.headers['content-type'] || '').toLowerCase();
+        let pending = '';
+        let completedResponse = null;
+        let jsonBody = '';
+        res.setEncoding('utf8');
+        for await (const chunk of res) {
+          if (!contentType.includes('text/event-stream')) {
+            jsonBody += chunk;
+            continue;
+          }
+          pending += chunk.replace(/\r\n/gu, '\n');
+          for (;;) {
+            const boundary = pending.indexOf('\n\n');
+            if (boundary < 0) break;
+            const block = pending.slice(0, boundary);
+            pending = pending.slice(boundary + 2);
+            const data = block
+              .split('\n')
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart())
+              .join('\n');
+            if (!data || data === '[DONE]') continue;
+            const event = JSON.parse(data);
+            await onEvent(event);
+            if (event.type === 'response.output_text.delta') {
+              await onTextDelta(String(event.delta || ''));
+            }
+            if (event.type === 'response.completed' && event.response) {
+              completedResponse = event.response;
+            }
+          }
+        }
+        if (!contentType.includes('text/event-stream')) {
+          resolve(JSON.parse(jsonBody));
+          return;
+        }
+        if (!completedResponse) {
+          throw new Error('stream ended before response.completed');
+        }
+        resolve(completedResponse);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
 function displayUrl(upstream) {
   const url = upstream && upstream.baseUrl ? upstream.baseUrl : normalizeBaseUrl();
   return url.href.replace(/\/$/u, '');
@@ -93,6 +182,7 @@ module.exports = {
   createUpstream,
   displayUrl,
   requestJson,
+  streamResponse,
   responsesUrl,
   transport,
   urlForClientPath,

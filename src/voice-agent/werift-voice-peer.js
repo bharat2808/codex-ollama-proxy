@@ -13,6 +13,7 @@ const {
 
 async function createWeriftVoicePeer({
   offerSdp,
+  onSpeechStart = () => {},
   onSpeech,
   onClose = () => {},
 } = {}) {
@@ -49,6 +50,7 @@ async function createWeriftVoicePeer({
   peerConnection.onTrack.subscribe((track) => {
     if (track.kind !== 'audio' || inputSubscription) return;
     const segmenter = new PcmSpeechSegmenter({
+      onSpeechStart,
       onSpeech,
     });
     const decoder = createFfmpegRtpDecoder({
@@ -73,6 +75,7 @@ async function createWeriftVoicePeer({
     outputTrack,
     playAudio: player.playAudio,
     playAudioStream: player.playAudioStream,
+    stopAudio: player.stopAudio,
     sendDataEvent(event) {
       pendingDataEvents.push(JSON.stringify(event));
       flushDataEvents();

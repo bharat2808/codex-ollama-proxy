@@ -63,9 +63,58 @@ function speechFrom(response) {
     .trim();
 }
 
+function createPhraseEmitter(onPhrase, {
+  minimumCharacters = 16,
+  maximumCharacters = 120,
+} = {}) {
+  let pending = '';
+  let emitted = 0;
+
+  async function emit(text) {
+    const phrase = text.trim();
+    if (!phrase) return;
+    emitted += 1;
+    await onPhrase(phrase);
+  }
+
+  async function push(delta) {
+    pending += String(delta || '');
+    for (;;) {
+      const punctuation = pending.match(/^([\s\S]*?[.!?](?:["')\]]+)?)(?=\s|$)/u);
+      if (punctuation && punctuation[1].trim().length >= minimumCharacters) {
+        await emit(punctuation[1]);
+        pending = pending.slice(punctuation[1].length).trimStart();
+        continue;
+      }
+      if (pending.length >= maximumCharacters) {
+        const breakAt = pending.lastIndexOf(' ', maximumCharacters);
+        const length = breakAt > minimumCharacters ? breakAt : maximumCharacters;
+        await emit(pending.slice(0, length));
+        pending = pending.slice(length).trimStart();
+        continue;
+      }
+      break;
+    }
+  }
+
+  async function flush() {
+    await emit(pending);
+    pending = '';
+  }
+
+  return {
+    push,
+    flush,
+    get emitted() {
+      return emitted;
+    },
+  };
+}
+
 function createVoiceCoordinator({
   getModel,
   requestResponse,
+  streamResponse,
   log = () => {},
 } = {}) {
   if (typeof getModel !== 'function') throw new Error('voice coordinator getModel is required');
@@ -85,15 +134,31 @@ function createVoiceCoordinator({
     };
 
     try {
-      const response = await requestResponse({
+      const request = {
         model,
         instructions: COORDINATOR_INSTRUCTIONS,
         input: [...history, userItem],
         tools: [DELEGATE_TOOL],
         tool_choice: 'auto',
         reasoning: { effort: 'none' },
-        stream: false,
-      });
+        stream: typeof context.onSpeechPhrase === 'function',
+      };
+      let phraseEmitter = null;
+      let response;
+      if (
+        request.stream
+        && typeof streamResponse === 'function'
+      ) {
+        phraseEmitter = createPhraseEmitter(context.onSpeechPhrase);
+        response = await streamResponse(request, {
+          signal: context.signal,
+          onTextDelta: phraseEmitter.push,
+        });
+        await phraseEmitter.flush();
+      } else {
+        request.stream = false;
+        response = await requestResponse(request, { signal: context.signal });
+      }
       const delegated = delegationFrom(response, input);
       if (delegated) {
         const preface = speechFrom(response);
@@ -101,6 +166,7 @@ function createVoiceCoordinator({
           action: 'delegate',
           input: delegated,
           ...(preface ? { preface } : {}),
+          ...(phraseEmitter && phraseEmitter.emitted ? { streamed: true } : {}),
         };
       }
 
@@ -115,8 +181,13 @@ function createVoiceCoordinator({
         userItem,
         assistantItem,
       ].slice(-MAX_HISTORY_ITEMS);
-      return { action: 'speak', text };
+      return {
+        action: 'speak',
+        text,
+        ...(phraseEmitter && phraseEmitter.emitted ? { streamed: true } : {}),
+      };
     } catch (error) {
+      if (context.signal && context.signal.aborted) throw error;
       log(`voice coordinator failed; delegating to Codex: ${error.message}`);
       return { action: 'delegate', input };
     }
@@ -127,5 +198,6 @@ module.exports = {
   COORDINATOR_INSTRUCTIONS,
   DELEGATE_TOOL,
   DELEGATE_TOOL_NAME,
+  createPhraseEmitter,
   createVoiceCoordinator,
 };
