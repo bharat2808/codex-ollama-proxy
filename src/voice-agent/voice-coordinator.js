@@ -160,11 +160,17 @@ function createVoiceCoordinator({
       role: 'user',
       content: [{ type: 'input_text', text: input }],
     };
+    const inputHistory = context.inputAlreadyInHistory
+      ? history
+      : appendVoiceCoordinatorHistory(history, userItem);
+    // Publish the accepted user turn before inference starts so an abort cannot
+    // erase it from the next coordinator request.
+    context.voiceCoordinatorHistory = inputHistory;
 
     const request = {
       model,
       instructions: COORDINATOR_INSTRUCTIONS,
-      input: [...history, userItem],
+      input: inputHistory,
       tools: [DELEGATE_TOOL],
       tool_choice: 'auto',
       reasoning: { effort: 'none' },
@@ -195,8 +201,7 @@ function createVoiceCoordinator({
         }),
       };
       context.voiceCoordinatorHistory = appendVoiceCoordinatorHistory(
-        history,
-        userItem,
+        inputHistory,
         ...outputItems(response),
         accepted,
       );
@@ -217,8 +222,7 @@ function createVoiceCoordinator({
       content: [{ type: 'output_text', text }],
     };
     context.voiceCoordinatorHistory = appendVoiceCoordinatorHistory(
-      history,
-      userItem,
+      inputHistory,
       assistantItem,
     );
     return {

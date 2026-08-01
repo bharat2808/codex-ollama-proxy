@@ -457,6 +457,106 @@ test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overt
   }
 });
 
+test('Codex V3 closes interrupted assistant output and retains it before the next user turn', async () => {
+  let peerOptions;
+  let releaseFirst;
+  let firstPhraseSent;
+  const phraseSent = new Promise((resolve) => {
+    firstPhraseSent = resolve;
+  });
+  const firstGate = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const histories = [];
+  const voice = createVoiceServer({
+    enabled: () => true,
+    transcribePcm: async (pcm) => pcm.toString(),
+    coordinateTranscript: async (transcript, context) => {
+      if (transcript === 'first request') {
+        await context.onSpeechPhrase('Partial answer.');
+        firstPhraseSent();
+        await firstGate;
+        return { action: 'speak', text: 'Partial answer.', streamed: true };
+      }
+      histories.push(structuredClone(context.voiceCoordinatorHistory));
+      return { action: 'delegate', input: transcript };
+    },
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async playAudioStream(chunks) {
+          await collectAudioStream(chunks);
+        },
+        async stopAudio() {},
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    const first = peerOptions.onSpeech(Buffer.from('first request'));
+    await phraseSent;
+    peerOptions.onSpeechStart();
+    await peerOptions.onSpeech(Buffer.from('second request'));
+    await waitFor(
+      () => events.some((event) => (
+        event.type === 'turn.done'
+        && event.turn.role === 'assistant'
+        && event.turn.status === 'interrupted'
+      )),
+      'expected the interrupted assistant turn to be finalized',
+    );
+
+    const interrupted = events.find((event) => (
+      event.type === 'turn.done'
+      && event.turn.role === 'assistant'
+      && event.turn.status === 'interrupted'
+    ));
+    assert.equal(interrupted.turn.transcript, 'Partial answer.');
+    assert.deepEqual(histories[0], [
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: 'first request' }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'Partial answer.' }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: 'second request' }],
+      },
+    ]);
+
+    releaseFirst();
+    await first;
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releaseFirst();
+    await voice.close();
+    await close(server);
+  }
+});
+
 test('Codex V3 WebRTC ignores Whisper noise without cancelling an active handoff', async () => {
   let peerOptions;
   let firstSignal;
@@ -688,13 +788,23 @@ test('Codex V3 retains muted stale delegation results for the next voice decisio
 
     await peerOptions.onSpeech(Buffer.from('what did it find'));
 
-    assert.deepEqual(histories.at(-1), [{
-      role: 'developer',
-      content: [{
-        type: 'input_text',
-        text: 'Codex handoff update: The repository has three failing tests.',
-      }],
-    }]);
+    assert.deepEqual(histories.at(-1), [
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: 'inspect the repository' }],
+      },
+      {
+        role: 'developer',
+        content: [{
+          type: 'input_text',
+          text: 'Codex handoff update: The repository has three failing tests.',
+        }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: 'what did it find' }],
+      },
+    ]);
     sideband.close();
     await once(sideband, 'close');
   } finally {
@@ -774,13 +884,23 @@ test('Codex V3 does not lose a handoff update that arrives during coordinator in
     await first;
     await peerOptions.onSpeech(Buffer.from('second request'));
 
-    assert.deepEqual(histories[0], [{
-      role: 'developer',
-      content: [{
-        type: 'input_text',
-        text: 'Codex handoff update: Codex is halfway through the task.',
-      }],
-    }]);
+    assert.deepEqual(histories[0], [
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: 'first request' }],
+      },
+      {
+        role: 'developer',
+        content: [{
+          type: 'input_text',
+          text: 'Codex handoff update: Codex is halfway through the task.',
+        }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: 'second request' }],
+      },
+    ]);
     sideband.close();
     await once(sideband, 'close');
   } finally {
@@ -872,7 +992,7 @@ test('Codex V3 WebRTC plays streamed coordinator phrases before inference comple
       events
         .filter((event) => event.type === 'output_transcript.added')
         .map((event) => event.item.text),
-      ['First phrase.', 'Second phrase.'],
+      ['First phrase.', ' Second phrase.'],
     );
 
     sideband.close();

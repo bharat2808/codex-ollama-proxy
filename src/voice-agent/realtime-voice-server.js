@@ -166,6 +166,7 @@ function createRealtimeVoiceServer({
 
   function beginCallTurn(call) {
     if (call.activeController && !call.activeController.signal.aborted) {
+      finishAssistantTurn(call, call.generation, { status: 'interrupted', remember: true });
       call.activeController.abort();
       log(`live voice coordinator cancelled by verified speech: ${call.id}`);
     }
@@ -182,6 +183,7 @@ function createRealtimeVoiceServer({
 
   function interruptCallResponse(call, source = 'manual') {
     if (!call || call.closed) return false;
+    finishAssistantTurn(call, call.generation, { status: 'interrupted', remember: true });
     if (call.activeController && !call.activeController.signal.aborted) {
       call.activeController.abort();
     }
@@ -286,18 +288,58 @@ function createRealtimeVoiceServer({
 
   function sendSpeechTranscript(call, text, generation) {
     if (!isCurrentTurn(call, generation)) return;
+    const phrase = String(text || '');
+    if (!phrase) return;
+    if (!call.activeAssistantTurn || call.activeAssistantTurn.generation !== generation) {
+      call.activeAssistantTurn = {
+        id: `turn_${randomUUID()}`,
+        generation,
+        transcript: '',
+      };
+    }
+    const separator = call.activeAssistantTurn.transcript && !/^\s/u.test(phrase) ? ' ' : '';
+    const delta = separator + phrase;
+    call.activeAssistantTurn.transcript += delta;
     sendCallEvent(call, {
       type: 'output_transcript.added',
-      item: { id: `output_${randomUUID()}`, type: 'output_transcript', text },
+      item: { id: `output_${randomUUID()}`, type: 'output_transcript', text: delta },
     });
   }
 
-  function sendSpeechDone(call, text, generation) {
+  function finishAssistantTurn(call, generation, {
+    text,
+    status = 'completed',
+    remember = false,
+  } = {}) {
     if (!isCurrentTurn(call, generation)) return;
+    const active = call.activeAssistantTurn?.generation === generation
+      ? call.activeAssistantTurn
+      : null;
+    const transcript = String(text || active?.transcript || '').trim();
+    if (!transcript) return;
+    call.activeAssistantTurn = null;
     sendCallEvent(call, {
       type: 'turn.done',
-      turn: { id: `turn_${randomUUID()}`, role: 'assistant', transcript: text },
+      turn: {
+        id: active?.id || `turn_${randomUUID()}`,
+        role: 'assistant',
+        transcript,
+        ...(status === 'completed' ? {} : { status }),
+      },
     });
+    if (remember && !active?.historyCommitted) {
+      call.voiceCoordinatorHistory = appendVoiceCoordinatorHistory(
+        call.voiceCoordinatorHistory,
+        {
+          role: 'assistant',
+          content: [{ type: 'output_text', text: transcript }],
+        },
+      );
+    }
+  }
+
+  function sendSpeechDone(call, text, generation) {
+    finishAssistantTurn(call, generation, { text });
   }
 
   function sendSpeechEvents(call, text, generation) {
@@ -395,10 +437,18 @@ function createRealtimeVoiceServer({
       turn: { id: `turn_${randomUUID()}`, role: 'user', transcript },
     });
 
+    call.voiceCoordinatorHistory = appendVoiceCoordinatorHistory(
+      call.voiceCoordinatorHistory,
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: transcript }],
+      },
+    );
     const initialHistory = call.voiceCoordinatorHistory;
     const context = {
       signal: controller.signal,
       voiceCoordinatorHistory: initialHistory,
+      inputAlreadyInHistory: true,
       onSpeechPhrase: (text) => {
         sendSpeechTranscript(call, text, generation);
         return enqueueSpeech(
@@ -425,6 +475,9 @@ function createRealtimeVoiceServer({
       initialHistory,
       context.voiceCoordinatorHistory,
     );
+    if (call.activeAssistantTurn?.generation === generation) {
+      call.activeAssistantTurn.historyCommitted = true;
+    }
 
     if (decision.action === 'speak') {
       if (decision.streamed) {
@@ -481,6 +534,7 @@ function createRealtimeVoiceServer({
         generation: 0,
         activeController: null,
         activeDelegationId: null,
+        activeAssistantTurn: null,
         audioReset: Promise.resolve(),
         speechCandidateActive: false,
         speechCandidateDone: Promise.resolve(),
@@ -647,17 +701,11 @@ function createRealtimeVoiceServer({
         }
         if (accepted && !call.speechCandidateActive) {
           const generation = call.generation;
-          sendCallEvent(call, {
-            type: 'output_transcript.added',
-            item: { id: `output_${randomUUID()}`, type: 'output_transcript', text },
-          });
+          sendSpeechTranscript(call, text, generation);
           enqueueSpeech(call, text, MAX_CONTEXT_BYTES, { generation, emitEvents: false })
             .finally(() => {
               if (!isCurrentTurn(call, generation)) return;
-              sendCallEvent(call, {
-                type: 'turn.done',
-                turn: { id: `turn_${randomUUID()}`, role: 'assistant', transcript: text },
-              });
+              sendSpeechDone(call, text, generation);
             });
         } else if (text) {
           sendCallEvent(call, {

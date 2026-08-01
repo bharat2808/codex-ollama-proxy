@@ -297,3 +297,30 @@ test('voice coordinator does not force incomplete long deltas into speech', asyn
   assert.equal(result.text, complete);
   assert.deepEqual(phrases, [complete]);
 });
+
+test('voice coordinator does not duplicate an input already committed by the voice server', async () => {
+  let providerInput;
+  const committedUser = {
+    role: 'user',
+    content: [{ type: 'input_text', text: 'keep this turn' }],
+  };
+  const coordinate = createVoiceCoordinator({
+    getModel: () => 'qwen3:8b',
+    requestResponse: async (body) => {
+      providerInput = body.input;
+      return { output_text: 'Kept.' };
+    },
+  });
+  const context = {
+    inputAlreadyInHistory: true,
+    voiceCoordinatorHistory: [committedUser],
+  };
+
+  await coordinate('keep this turn', context);
+
+  assert.deepEqual(providerInput, [committedUser]);
+  assert.equal(
+    context.voiceCoordinatorHistory.filter((item) => item.role === 'user').length,
+    1,
+  );
+});
