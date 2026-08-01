@@ -449,7 +449,9 @@ function createRealtimeVoiceServer({
           return;
         }
         const text = contextText(event);
-        if (text && Buffer.byteLength(text, 'utf8') <= MAX_CONTEXT_BYTES) {
+        const textBytes = Buffer.byteLength(text, 'utf8');
+        const accepted = text && textBytes <= MAX_CONTEXT_BYTES;
+        if (accepted) {
           call.voiceCoordinatorHistory = rememberVoiceCoordinatorUpdate(
             call.voiceCoordinatorHistory,
             text,
@@ -462,7 +464,26 @@ function createRealtimeVoiceServer({
         ) {
           return;
         }
-        if (text) enqueueSpeech(call, text);
+        if (accepted) {
+          const generation = call.generation;
+          sendCallEvent(call, {
+            type: 'output_transcript.added',
+            item: { id: `output_${randomUUID()}`, type: 'output_transcript', text },
+          });
+          enqueueSpeech(call, text, MAX_CONTEXT_BYTES, { generation, emitEvents: false })
+            .finally(() => {
+              if (!isCurrentTurn(call, generation)) return;
+              sendCallEvent(call, {
+                type: 'turn.done',
+                turn: { id: `turn_${randomUUID()}`, role: 'assistant', transcript: text },
+              });
+            });
+        } else if (text) {
+          sendCallEvent(call, {
+            type: 'error',
+            error: { message: `voice text exceeds ${MAX_CONTEXT_BYTES} bytes` },
+          });
+        }
       });
       websocket.once('close', () => {
         if (call.sideband === websocket) call.sideband = null;

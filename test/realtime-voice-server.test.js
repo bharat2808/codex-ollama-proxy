@@ -1012,6 +1012,82 @@ test('abandoned realtime calls expire when their sideband never connects', async
   }
 });
 
+test('Codex V3 WebRTC streams sideband transcripts before synthesis finishes', async () => {
+  let releaseSynthesis;
+  const synthesisGate = new Promise((resolve) => {
+    releaseSynthesis = resolve;
+  });
+  let synthesisCount = 0;
+  const voice = createVoiceServer({
+    enabled: () => true,
+    transcribePcm: async () => '',
+    streamSpeech: async function* (text) {
+      synthesisCount += 1;
+      await synthesisGate;
+      yield { pcm: Buffer.from(`audio:${text}`), sampleRate: 24000 };
+    },
+    createPeer: async () => ({
+      answerSdp: 'v=0\r\na=setup:active\r\n',
+      async playAudioStream(chunks) {
+        await collectAudioStream(chunks);
+      },
+      close() {},
+    }),
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    sideband.send(JSON.stringify({
+      type: 'delegation.context.append',
+      channel: 'speakable',
+      content: [{ type: 'input_text', text: 'Codex is inspecting the repository.' }],
+    }));
+
+    await waitFor(
+      () => events.some((event) => (
+        event.type === 'output_transcript.added'
+        && event.item.text === 'Codex is inspecting the repository.'
+      )),
+      'expected transcript before synthesis completed',
+    );
+    assert.equal(
+      events.some((event) => event.type === 'turn.done' && event.turn.role === 'assistant'),
+      false,
+    );
+    assert.equal(synthesisCount, 1);
+
+    releaseSynthesis();
+    await waitFor(
+      () => events.some((event) => (
+        event.type === 'turn.done' && event.turn.role === 'assistant'
+      )),
+      'expected turn completion after synthesis',
+    );
+
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releaseSynthesis();
+    await voice.close();
+    await close(server);
+  }
+});
+
 test('Werift peer accepts a Codex-style offer and streams Kokoro PCM over WebRTC', async () => {
   let createWeriftVoicePeer;
   try {
