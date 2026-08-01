@@ -6,6 +6,7 @@ const {
   appendVoiceCoordinatorHistory,
   rememberVoiceCoordinatorUpdate,
 } = require('./voice-coordinator');
+const { markdownToPlainText } = require('./markdown-to-plain-text');
 
 const MAX_CALL_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_WS_PAYLOAD_BYTES = 1024 * 1024;
@@ -305,8 +306,14 @@ function createRealtimeVoiceServer({
     if (!call.peer || typeof call.peer.playAudioStream !== 'function') {
       throw new Error('local WebRTC peer cannot stream synthesized audio');
     }
-    log(`live voice synthesis started: ${Buffer.byteLength(text, 'utf8')} text bytes`);
-    await call.peer.playAudioStream(streamSpeech(text, call));
+    const speechText = markdownToPlainText(text);
+    log(
+      `live voice synthesis started: ${Buffer.byteLength(speechText, 'utf8')} speech bytes`
+      + ` (${Buffer.byteLength(text, 'utf8')} display bytes)`,
+    );
+    if (speechText) {
+      await call.peer.playAudioStream(streamSpeech(speechText, call));
+    }
     if (!isCurrentTurn(call, generation)) return;
     log('live voice streaming synthesis playback completed');
     if (emitEvents) sendSpeechEvents(call, text, generation);

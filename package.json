@@ -65,6 +65,7 @@
   "dependencies": {
     "google-auth-library": "^10.9.1",
     "kokoro-js": "^1.2.1",
+    "remove-markdown": "^0.6.4",
     "werift": "^0.24.2",
     "ws": "^8.21.1"
   },

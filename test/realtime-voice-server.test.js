@@ -250,7 +250,8 @@ test('Codex V3 WebRTC publishes delegation before acknowledgement playback finis
 test('Codex V3 WebRTC speaks a direct coordinator response without delegating', async () => {
   let peerOptions;
   const played = [];
-  const directResponse = `Hello from the preset voice model. ${'x'.repeat(501)}`;
+  const directResponse = `**Hello** from the [preset voice model](https://example.test). ${'x'.repeat(501)}`;
+  const spokenResponse = `Hello from the preset voice model. ${'x'.repeat(501)}`;
   const voice = createVoiceServer({
     enabled: () => true,
     transcribePcm: async () => 'hello there',
@@ -296,7 +297,17 @@ test('Codex V3 WebRTC speaks a direct coordinator response without delegating', 
       'expected a direct coordinator response',
     );
 
-    assert.deepEqual(played, [`audio:${directResponse}`]);
+    assert.deepEqual(played, [`audio:${spokenResponse}`]);
+    assert.equal(
+      events.find((event) => event.type === 'output_transcript.added').item.text,
+      directResponse,
+    );
+    assert.equal(
+      events.find((event) => (
+        event.type === 'turn.done' && event.turn.role === 'assistant'
+      )).turn.transcript,
+      directResponse,
+    );
     assert.equal(events.some((event) => event.type === 'delegation.created'), false);
     sideband.close();
     await once(sideband, 'close');
