@@ -277,16 +277,25 @@ function createRealtimeVoiceServer({
     }
   }
 
-  function sendSpeechEvents(call, text, generation) {
+  function sendSpeechTranscript(call, text, generation) {
     if (!isCurrentTurn(call, generation)) return;
     sendCallEvent(call, {
       type: 'output_transcript.added',
       item: { id: `output_${randomUUID()}`, type: 'output_transcript', text },
     });
+  }
+
+  function sendSpeechDone(call, text, generation) {
+    if (!isCurrentTurn(call, generation)) return;
     sendCallEvent(call, {
       type: 'turn.done',
       turn: { id: `turn_${randomUUID()}`, role: 'assistant', transcript: text },
     });
+  }
+
+  function sendSpeechEvents(call, text, generation) {
+    sendSpeechTranscript(call, text, generation);
+    sendSpeechDone(call, text, generation);
   }
 
   async function speakText(call, text, { generation, emitEvents = true }) {
@@ -375,12 +384,15 @@ function createRealtimeVoiceServer({
     const context = {
       signal: controller.signal,
       voiceCoordinatorHistory: initialHistory,
-      onSpeechPhrase: (text) => enqueueSpeech(
-        call,
-        text,
-        MAX_DIRECT_RESPONSE_BYTES,
-        { generation, emitEvents: false },
-      ),
+      onSpeechPhrase: (text) => {
+        sendSpeechTranscript(call, text, generation);
+        return enqueueSpeech(
+          call,
+          text,
+          MAX_DIRECT_RESPONSE_BYTES,
+          { generation, emitEvents: false },
+        );
+      },
     };
     log(`live voice coordinator started: generation=${generation}`);
     let decision;
@@ -402,7 +414,7 @@ function createRealtimeVoiceServer({
     if (decision.action === 'speak') {
       if (decision.streamed) {
         await call.outputQueue;
-        sendSpeechEvents(call, decision.text, generation);
+        sendSpeechDone(call, decision.text, generation);
       } else {
         await enqueueSpeech(call, decision.text, MAX_DIRECT_RESPONSE_BYTES, { generation });
       }
@@ -428,7 +440,7 @@ function createRealtimeVoiceServer({
 
     if (decision.preface) {
       if (decision.streamed) {
-        sendSpeechEvents(call, decision.preface, generation);
+        sendSpeechDone(call, decision.preface, generation);
       } else {
         await enqueueSpeech(call, decision.preface, MAX_DIRECT_RESPONSE_BYTES, { generation });
       }

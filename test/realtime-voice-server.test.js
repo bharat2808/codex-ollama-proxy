@@ -837,6 +837,12 @@ test('Codex V3 WebRTC plays streamed coordinator phrases before inference comple
     const speech = peerOptions.onSpeech(Buffer.from('voice'));
     await waitFor(() => played.length === 1, 'expected first model phrase playback');
     assert.deepEqual(played, ['First phrase.']);
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === 'output_transcript.added')
+        .map((event) => event.item.text),
+      ['First phrase.'],
+    );
     assert.equal(
       events.some((event) => event.type === 'turn.done' && event.turn.role === 'assistant'),
       false,
@@ -851,9 +857,11 @@ test('Codex V3 WebRTC plays streamed coordinator phrases before inference comple
       'expected one completed assistant turn',
     );
     assert.deepEqual(played, ['First phrase.', 'Second phrase.']);
-    assert.equal(
-      events.filter((event) => event.type === 'output_transcript.added').length,
-      1,
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === 'output_transcript.added')
+        .map((event) => event.item.text),
+      ['First phrase.', 'Second phrase.'],
     );
 
     sideband.close();
