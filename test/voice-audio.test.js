@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
 const test = require('node:test');
 
 function loadVoiceAudio() {
@@ -224,6 +225,46 @@ test('ffmpeg RTP bridge stops streamed playback while synthesis is still pending
     await playback;
   } finally {
     releaseSynthesis();
+    await player.close();
+  }
+});
+
+test('ffmpeg RTP bridge keeps one encoder across consecutive speech phrases', async () => {
+  const { createFfmpegRtpPlayer } = loadVoiceAudio();
+  let spawnCount = 0;
+  const timestamps = [];
+  const player = await createFfmpegRtpPlayer({
+    track: {
+      writeRtp(packet) {
+        timestamps.push(packet.header.timestamp);
+      },
+    },
+    spawnProcess(command, args, options) {
+      spawnCount += 1;
+      return spawn(command, args, options);
+    },
+  });
+
+  async function* phrase(frequency) {
+    yield {
+      pcm: sineFloat32Pcm(24000, 120, frequency),
+      sampleRate: 24000,
+    };
+  }
+
+  try {
+    await player.playAudioStream(phrase(440));
+    await player.playAudioStream(phrase(660));
+    assert.equal(spawnCount, 1);
+    assert.ok(timestamps.length > 2);
+    for (let index = 1; index < timestamps.length; index += 1) {
+      assert.equal((timestamps[index] - timestamps[index - 1]) >>> 0, 960);
+    }
+
+    await player.stopAudio();
+    await player.playAudioStream(phrase(880));
+    assert.equal(spawnCount, 2);
+  } finally {
     await player.close();
   }
 });
