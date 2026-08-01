@@ -4,8 +4,21 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  appendVoiceCoordinatorHistory,
   createVoiceCoordinator,
 } = require('../src/voice-agent/voice-coordinator');
+
+test('voice coordinator retains the complete in-session history', () => {
+  const history = Array.from({ length: 20 }, (_, index) => ({
+    role: 'user',
+    content: [{ type: 'input_text', text: `turn ${index + 1}` }],
+  }));
+
+  assert.deepEqual(
+    appendVoiceCoordinatorHistory(history.slice(0, 19), history[19]),
+    history,
+  );
+});
 
 test('voice coordinator returns direct speech from the preset voice model', async () => {
   const requests = [];

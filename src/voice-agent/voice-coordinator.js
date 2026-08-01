@@ -1,8 +1,6 @@
 'use strict';
 
 const DELEGATE_TOOL_NAME = 'delegate_to_codex';
-const MAX_HISTORY_ITEMS = 12;
-
 const VOICE_TURN_INSTRUCTIONS = [
   'This is a spoken voice interaction.',
   'Before calling any tool, give one short natural spoken acknowledgement describing what you are about to do. Do not claim the work is complete.',
@@ -44,7 +42,7 @@ function appendVoiceCoordinatorHistory(history, ...items) {
   return [
     ...(Array.isArray(history) ? history : []),
     ...items.filter(Boolean),
-  ].slice(-MAX_HISTORY_ITEMS);
+  ];
 }
 
 function rememberVoiceCoordinatorUpdate(history, text) {
