@@ -151,8 +151,8 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
     assert.deepEqual(spoken, ['I’ll ask Codex to inspect it.']);
     assert.deepEqual(played, ['audio:I’ll ask Codex to inspect it.']);
     assert.ok(
-      events.findIndex((event) => event.type === 'output_transcript.added')
-      < events.findIndex((event) => event.type === 'delegation.created'),
+      events.findIndex((event) => event.type === 'delegation.created')
+      < events.findIndex((event) => event.type === 'output_transcript.added'),
     );
 
     sideband.send(JSON.stringify({
@@ -176,6 +176,72 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
     sideband.close();
     await once(sideband, 'close');
   } finally {
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 WebRTC publishes delegation before acknowledgement playback finishes', async () => {
+  let peerOptions;
+  let releasePlayback;
+  const playbackGate = new Promise((resolve) => {
+    releasePlayback = resolve;
+  });
+  const voice = createVoiceServer({
+    enabled: () => true,
+    transcribePcm: async () => 'inspect the repository',
+    coordinateTranscript: async () => ({
+      action: 'delegate',
+      input: 'inspect the repository',
+      preface: 'I’ll check that now.',
+    }),
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async playAudioStream(chunks) {
+          await collectAudioStream(chunks);
+          await playbackGate;
+        },
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    const speech = peerOptions.onSpeech(Buffer.from('voice'));
+    await waitFor(
+      () => events.some((event) => event.type === 'delegation.created'),
+      'expected delegation while acknowledgement playback is pending',
+    );
+    assert.equal(
+      events.some((event) => event.type === 'output_transcript.added'),
+      false,
+    );
+
+    releasePlayback();
+    await speech;
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releasePlayback();
     await voice.close();
     await close(server);
   }
@@ -375,6 +441,170 @@ test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overt
     await once(sideband, 'close');
   } finally {
     releaseFirst({ action: 'delegate', input: 'first' });
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 WebRTC ignores Whisper noise without cancelling an active handoff', async () => {
+  let peerOptions;
+  let firstSignal;
+  let releaseFirst;
+  let stopCount = 0;
+  const logs = [];
+  const firstDecision = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const coordinated = [];
+  const voice = createVoiceServer({
+    enabled: () => true,
+    transcribePcm: async (pcm) => pcm.toString(),
+    coordinateTranscript: async (transcript, context) => {
+      coordinated.push(transcript);
+      if (transcript === 'Can you look where the tree are working in?') {
+        firstSignal = context.signal;
+        return firstDecision;
+      }
+      return { action: 'delegate', input: transcript };
+    },
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async stopAudio() {
+          stopCount += 1;
+        },
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+    log: (message) => logs.push(message),
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    peerOptions.onSpeechStart();
+    const first = peerOptions.onSpeech(Buffer.from('Can you look where the tree are working in?'));
+    await waitFor(() => Boolean(firstSignal), 'expected the first coordinator request');
+
+    for (const noise of ['(audience laughing)', '(snoring)', '[BLANK_AUDIO]']) {
+      peerOptions.onSpeechStart();
+      await peerOptions.onSpeech(Buffer.from(noise));
+    }
+
+    assert.equal(firstSignal.aborted, false);
+    assert.deepEqual(coordinated, ['Can you look where the tree are working in?']);
+    assert.equal(stopCount, 4);
+    assert.equal(
+      events.some((event) => event.type === 'input_transcript.added'
+        && /audience laughing|snoring|BLANK_AUDIO/u.test(event.item.text)),
+      false,
+    );
+    assert.equal(
+      logs.filter((message) => message.includes('non-speech transcript ignored')).length,
+      3,
+    );
+
+    releaseFirst({ action: 'delegate', input: 'inspect the working directory' });
+    await first;
+    await waitFor(
+      () => events.some((event) => event.type === 'delegation.created'),
+      'expected the original handoff to survive noise',
+    );
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releaseFirst({ action: 'delegate', input: 'inspect the working directory' });
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('Codex V3 WebRTC holds a completed handoff until a speech candidate is classified', async () => {
+  let peerOptions;
+  let releaseFirst;
+  let releaseCandidate;
+  const firstDecision = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const candidateTranscript = new Promise((resolve) => {
+    releaseCandidate = resolve;
+  });
+  const voice = createVoiceServer({
+    enabled: () => true,
+    transcribePcm: async (pcm) => (
+      pcm.toString() === 'candidate' ? candidateTranscript : pcm.toString()
+    ),
+    coordinateTranscript: async (transcript) => (
+      transcript === 'first request'
+        ? firstDecision
+        : { action: 'delegate', input: transcript }
+    ),
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async stopAudio() {},
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    const sideband = new WebSocket(
+      `ws://127.0.0.1:${port}${offer.headers.get('location')}`,
+    );
+    const events = [];
+    sideband.on('message', (payload) => events.push(JSON.parse(payload.toString('utf8'))));
+    await once(sideband, 'open');
+
+    const first = peerOptions.onSpeech(Buffer.from('first request'));
+    await waitFor(
+      () => events.some((event) => event.type === 'input_transcript.added'),
+      'expected the first transcript',
+    );
+    peerOptions.onSpeechStart();
+    const candidate = peerOptions.onSpeech(Buffer.from('candidate'));
+    releaseFirst({ action: 'delegate', input: 'first request' });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(events.some((event) => event.type === 'delegation.created'), false);
+
+    releaseCandidate('(snoring)');
+    await Promise.all([first, candidate]);
+    await waitFor(
+      () => events.some((event) => event.type === 'delegation.created'),
+      'expected the handoff after noise classification',
+    );
+    sideband.close();
+    await once(sideband, 'close');
+  } finally {
+    releaseFirst({ action: 'delegate', input: 'first request' });
+    releaseCandidate('(snoring)');
     await voice.close();
     await close(server);
   }

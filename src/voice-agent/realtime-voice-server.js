@@ -12,6 +12,7 @@ const MAX_WS_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_CONTEXT_BYTES = 500;
 const MAX_DIRECT_RESPONSE_BYTES = 8 * 1024;
 const MAX_PENDING_OUTPUTS = 8;
+const NON_SPEECH_TRANSCRIPT = /^(?:(?:\[(?:blank[_ ]audio|inaudible|silence|music|applause|laughter|laughing|snoring)\])|(?:\((?:blank[_ ]audio|inaudible|silence|music|applause|audience laughing|laughter|laughing|snoring)\)))[\s.!?]*$/iu;
 
 function multipartBoundary(contentType) {
   const match = String(contentType || '').match(
@@ -99,6 +100,12 @@ function contextText(event) {
     : '';
 }
 
+function usableTranscript(value) {
+  const transcript = String(value || '').trim();
+  if (!transcript || NON_SPEECH_TRANSCRIPT.test(transcript)) return '';
+  return transcript;
+}
+
 function createRealtimeVoiceServer({
   enabled = () => false,
   createPeer,
@@ -141,22 +148,48 @@ function createRealtimeVoiceServer({
   }
 
   function beginCallTurn(call) {
-    if (call.activeController) call.activeController.abort();
+    if (call.activeController && !call.activeController.signal.aborted) {
+      call.activeController.abort();
+      log(`live voice coordinator cancelled by verified speech: ${call.id}`);
+    }
     call.generation += 1;
     call.activeController = new AbortController();
-    call.collectingTurn = {
+    const turn = {
       generation: call.generation,
       controller: call.activeController,
     };
     call.activeDelegationId = null;
     call.outputQueue = Promise.resolve();
+    return turn;
+  }
+
+  function noteSpeechStart(call) {
+    if (call.closed) return;
+    if (call.finishSpeechCandidate) call.finishSpeechCandidate();
+    call.speechCandidateActive = true;
+    call.speechCandidateDone = new Promise((resolve) => {
+      call.finishSpeechCandidate = resolve;
+    });
+    log(`live voice speech candidate detected: ${call.id}`);
     stopCallAudio(call);
-    return call.collectingTurn;
+  }
+
+  async function waitForSpeechCandidate(call) {
+    while (!call.closed && call.speechCandidateActive) {
+      await call.speechCandidateDone;
+    }
+  }
+
+  function finishSpeechCandidate(call) {
+    call.speechCandidateActive = false;
+    if (call.finishSpeechCandidate) call.finishSpeechCandidate();
+    call.finishSpeechCandidate = null;
   }
 
   function closeCall(call) {
     if (call.closing) return call.closing;
     call.closed = true;
+    finishSpeechCandidate(call);
     if (call.activeController) call.activeController.abort();
     stopCallAudio(call);
     calls.delete(call.id);
@@ -206,6 +239,8 @@ function createRealtimeVoiceServer({
   }
 
   async function speakText(call, text, { generation, emitEvents = true }) {
+    if (!isCurrentTurn(call, generation)) return;
+    await waitForSpeechCandidate(call);
     if (!isCurrentTurn(call, generation)) return;
     if (!call.peer || typeof call.peer.playAudioStream !== 'function') {
       throw new Error('local WebRTC peer cannot stream synthesized audio');
@@ -260,11 +295,21 @@ function createRealtimeVoiceServer({
     return job;
   }
 
-  async function transcribeSpeech(call, pcm, turn) {
-    const { generation, controller } = turn;
-    if (!isCurrentTurn(call, generation)) return;
-    const transcript = String(await transcribePcm(pcm, call) || '').trim();
-    if (!transcript || !isCurrentTurn(call, generation)) return;
+  async function transcribeSpeech(call, pcm) {
+    if (call.closed) return;
+    let rawTranscript;
+    try {
+      rawTranscript = String(await transcribePcm(pcm, call) || '').trim();
+    } finally {
+      finishSpeechCandidate(call);
+    }
+    if (call.closed) return;
+    const transcript = usableTranscript(rawTranscript);
+    if (!transcript) {
+      log(`live voice non-speech transcript ignored: ${Buffer.byteLength(rawTranscript, 'utf8')} text bytes`);
+      return;
+    }
+    const { generation, controller } = beginCallTurn(call);
     log(`live voice transcription completed: ${Buffer.byteLength(transcript, 'utf8')} text bytes`);
     sendCallEvent(call, {
       type: 'input_transcript.added',
@@ -286,8 +331,17 @@ function createRealtimeVoiceServer({
         { generation, emitEvents: false },
       ),
     };
-    const decision = await coordinateTranscript(transcript, context);
+    log(`live voice coordinator started: generation=${generation}`);
+    let decision;
+    try {
+      decision = await coordinateTranscript(transcript, context);
+    } catch (error) {
+      if (controller.signal.aborted || !isCurrentTurn(call, generation)) return;
+      throw error;
+    }
+    await waitForSpeechCandidate(call);
     if (!isCurrentTurn(call, generation)) return;
+    log(`live voice coordinator completed: generation=${generation} action=${decision.action}`);
     call.voiceCoordinatorHistory = preserveConcurrentCoordinatorUpdates(
       call,
       initialHistory,
@@ -304,14 +358,6 @@ function createRealtimeVoiceServer({
       return;
     }
 
-    if (decision.preface) {
-      if (decision.streamed) {
-        await call.outputQueue;
-        sendSpeechEvents(call, decision.preface, generation);
-      } else {
-        await enqueueSpeech(call, decision.preface, MAX_DIRECT_RESPONSE_BYTES, { generation });
-      }
-    }
     if (!isCurrentTurn(call, generation)) return;
     const delegationId = `delegation_${randomUUID()}`;
     call.activeDelegationId = delegationId;
@@ -324,6 +370,18 @@ function createRealtimeVoiceServer({
         content: [{ type: 'input_text', text: decision.input }],
       },
     });
+    log(
+      `live voice delegation created: generation=${generation}`
+      + ` sideband=${call.sideband && call.sideband.readyState === WebSocket.OPEN ? 'connected' : 'queued'}`,
+    );
+
+    if (decision.preface) {
+      if (decision.streamed) {
+        sendSpeechEvents(call, decision.preface, generation);
+      } else {
+        await enqueueSpeech(call, decision.preface, MAX_DIRECT_RESPONSE_BYTES, { generation });
+      }
+    }
   }
 
   async function createCall(request, response) {
@@ -343,9 +401,11 @@ function createRealtimeVoiceServer({
         sideband: null,
         outputQueue: Promise.resolve(),
         generation: 0,
-        collectingTurn: null,
         activeController: null,
         activeDelegationId: null,
+        speechCandidateActive: false,
+        speechCandidateDone: Promise.resolve(),
+        finishSpeechCandidate: null,
         voiceCoordinatorHistory: [],
       };
       call.peer = await createPeer({
@@ -354,14 +414,12 @@ function createRealtimeVoiceServer({
         session: parsed.session,
         headers: request.headers,
         onClose: () => closeCall(call),
-        onSpeechStart: () => beginCallTurn(call),
+        onSpeechStart: () => noteSpeechStart(call),
         onSpeech(pcm) {
-          const turn = call.collectingTurn || beginCallTurn(call);
-          call.collectingTurn = null;
-          const job = transcribeSpeech(call, pcm, turn);
+          const job = transcribeSpeech(call, pcm);
           return job
             .catch((error) => {
-              if (!isCurrentTurn(call, turn.generation) || turn.controller.signal.aborted) return;
+              if (call.closed || call.activeController?.signal.aborted) return;
               log(`live voice transcription failed: ${error.message}`);
               sendCallEvent(call, {
                 type: 'error',
@@ -464,7 +522,7 @@ function createRealtimeVoiceServer({
         ) {
           return;
         }
-        if (accepted) {
+        if (accepted && !call.speechCandidateActive) {
           const generation = call.generation;
           sendCallEvent(call, {
             type: 'output_transcript.added',
