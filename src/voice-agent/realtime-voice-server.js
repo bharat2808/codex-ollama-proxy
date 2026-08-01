@@ -81,6 +81,15 @@ function sendText(response, statusCode, message) {
   response.end(body);
 }
 
+function sendJson(response, statusCode, value) {
+  const body = JSON.stringify(value);
+  response.writeHead(statusCode, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': String(Buffer.byteLength(body)),
+  });
+  response.end(body);
+}
+
 function contextText(event) {
   if (
     event.type !== 'delegation.context.append'
@@ -108,6 +117,7 @@ function usableTranscript(value) {
 
 function createRealtimeVoiceServer({
   enabled = () => false,
+  getInterruptionMode = () => 'vad',
   createPeer,
   transcribePcm = async () => {
     throw new Error('local voice transcription is not configured');
@@ -163,6 +173,47 @@ function createRealtimeVoiceServer({
     return turn;
   }
 
+  function interruptCallResponse(call, source = 'manual') {
+    if (!call || call.closed) return false;
+    if (call.activeController && !call.activeController.signal.aborted) {
+      call.activeController.abort();
+    }
+    call.generation += 1;
+    call.activeController = null;
+    call.activeDelegationId = null;
+    call.outputQueue = Promise.resolve();
+    finishSpeechCandidate(call);
+    stopCallAudio(call);
+    log(`live voice response interrupted: ${call.id} source=${source}`);
+    return true;
+  }
+
+  function handleControlEvent(call, event, source) {
+    if (!event) return false;
+    if (event.type === 'response.cancel') {
+      interruptCallResponse(call, source);
+      return true;
+    }
+    if (call.interruptionMode !== 'manual') return false;
+    if (event.type === 'input_audio_buffer.start') {
+      interruptCallResponse(call, source);
+      if (typeof call.peer?.startInput === 'function') call.peer.startInput();
+      return true;
+    }
+    if (event.type === 'input_audio_buffer.commit') {
+      Promise.resolve(call.peer?.commitInput?.()).catch((error) => {
+        log(`live voice push-to-talk commit failed: ${error.message}`);
+      });
+      return true;
+    }
+    if (event.type === 'input_audio_buffer.clear') {
+      if (typeof call.peer?.cancelInput === 'function') call.peer.cancelInput();
+      finishSpeechCandidate(call);
+      return true;
+    }
+    return false;
+  }
+
   function noteSpeechStart(call) {
     if (call.closed) return;
     if (call.finishSpeechCandidate) call.finishSpeechCandidate();
@@ -170,8 +221,8 @@ function createRealtimeVoiceServer({
     call.speechCandidateDone = new Promise((resolve) => {
       call.finishSpeechCandidate = resolve;
     });
-    log(`live voice speech candidate detected: ${call.id}`);
-    stopCallAudio(call);
+    log(`live voice speech candidate detected: ${call.id} mode=${call.interruptionMode}`);
+    if (call.interruptionMode === 'vad') stopCallAudio(call);
   }
 
   async function waitForSpeechCandidate(call) {
@@ -407,6 +458,7 @@ function createRealtimeVoiceServer({
         speechCandidateDone: Promise.resolve(),
         finishSpeechCandidate: null,
         voiceCoordinatorHistory: [],
+        interruptionMode: getInterruptionMode() === 'manual' ? 'manual' : 'vad',
       };
       call.peer = await createPeer({
         callId,
@@ -414,6 +466,9 @@ function createRealtimeVoiceServer({
         session: parsed.session,
         headers: request.headers,
         onClose: () => closeCall(call),
+        inputMode: call.interruptionMode === 'manual' ? 'push-to-talk' : 'vad',
+        onDataEvent: (event) => handleControlEvent(call, event, 'webrtc'),
+        onSpeechEnd: () => finishSpeechCandidate(call),
         onSpeechStart: () => noteSpeechStart(call),
         onSpeech(pcm) {
           const job = transcribeSpeech(call, pcm);
@@ -439,6 +494,7 @@ function createRealtimeVoiceServer({
           instructions: typeof parsed.session.instructions === 'string'
             ? parsed.session.instructions
             : '',
+          interruption_mode: call.interruptionMode,
         },
       });
       log(`live voice WebRTC call created: ${callId}`);
@@ -461,9 +517,47 @@ function createRealtimeVoiceServer({
   }
 
   function handleRequest(request, response) {
+    let pathname;
+    try {
+      pathname = new URL(request.url, 'http://127.0.0.1').pathname;
+    } catch {
+      return false;
+    }
+    if (request.method === 'POST' && pathname === '/v1/live/interrupt') {
+      const activeCall = [...calls.values()].at(-1);
+      const interrupted = interruptCallResponse(activeCall, 'http') ? 1 : 0;
+      sendJson(response, interrupted ? 200 : 404, { interrupted });
+      return true;
+    }
+    const inputAction = pathname.match(/^\/v1\/live\/input\/(start|commit|cancel)$/u);
+    if (request.method === 'POST' && inputAction) {
+      const activeCall = [...calls.values()].at(-1);
+      if (!activeCall || activeCall.interruptionMode !== 'manual') {
+        sendJson(response, 409, { accepted: false });
+        return true;
+      }
+      if (inputAction[1] === 'start') {
+        handleControlEvent(activeCall, { type: 'input_audio_buffer.start' }, 'http');
+        log(`live voice push-to-talk recording started: ${activeCall.id}`);
+        sendJson(response, 200, { accepted: true, recording: true });
+        return true;
+      }
+      if (inputAction[1] === 'cancel') {
+        handleControlEvent(activeCall, { type: 'input_audio_buffer.clear' }, 'http');
+        sendJson(response, 200, { accepted: true, recording: false });
+        return true;
+      }
+      Promise.resolve(activeCall.peer?.commitInput?.())
+        .then(() => {
+          log(`live voice push-to-talk recording committed: ${activeCall.id}`);
+          sendJson(response, 200, { accepted: true, recording: false });
+        })
+        .catch((error) => sendJson(response, 500, { accepted: false, error: error.message }));
+      return true;
+    }
     if (
       request.method !== 'POST'
-      || new URL(request.url, 'http://127.0.0.1').pathname !== '/v1/live'
+      || pathname !== '/v1/live'
     ) {
       return false;
     }
@@ -506,6 +600,7 @@ function createRealtimeVoiceServer({
         } catch {
           return;
         }
+        if (handleControlEvent(call, event, 'sideband')) return;
         const text = contextText(event);
         const textBytes = Buffer.byteLength(text, 'utf8');
         const accepted = text && textBytes <= MAX_CONTEXT_BYTES;

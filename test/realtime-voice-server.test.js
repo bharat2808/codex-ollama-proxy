@@ -971,6 +971,7 @@ test('Codex V3 announces the live session to the browser and sideband', async ()
       session: {
         id: `sess_${callId}`,
         instructions: 'Codex V3 voice session',
+        interruption_mode: 'vad',
       },
     }]);
 
@@ -987,6 +988,70 @@ test('Codex V3 announces the live session to the browser and sideband', async ()
     assert.deepEqual(sidebandEvents, browserEvents);
     sideband.close();
     await once(sideband, 'close');
+  } finally {
+    await voice.close();
+    await close(server);
+  }
+});
+
+test('manual mode gates recording behind explicit push-to-talk start and commit', async () => {
+  let peerOptions;
+  let stopCount = 0;
+  let startCount = 0;
+  let commitCount = 0;
+  const voice = createVoiceServer({
+    enabled: () => true,
+    getInterruptionMode: () => 'manual',
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async stopAudio() {
+          stopCount += 1;
+        },
+        startInput() {
+          startCount += 1;
+        },
+        commitInput() {
+          commitCount += 1;
+        },
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    assert.equal(offer.status, 201);
+    peerOptions.onSpeechStart();
+    assert.equal(stopCount, 0);
+
+    const started = await fetch(`http://127.0.0.1:${port}/v1/live/input/start`, {
+      method: 'POST',
+    });
+    assert.equal(started.status, 200);
+    assert.deepEqual(await started.json(), { accepted: true, recording: true });
+    assert.equal(stopCount, 1);
+    assert.equal(startCount, 1);
+
+    const committed = await fetch(`http://127.0.0.1:${port}/v1/live/input/commit`, {
+      method: 'POST',
+    });
+    assert.equal(committed.status, 200);
+    assert.deepEqual(await committed.json(), { accepted: true, recording: false });
+    assert.equal(commitCount, 1);
+
+    peerOptions.onDataEvent({ type: 'response.cancel' });
+    assert.equal(stopCount, 2);
   } finally {
     await voice.close();
     await close(server);

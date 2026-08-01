@@ -478,6 +478,24 @@ codex-universal-proxy voice --kokoro-model "onnx-community/Kokoro-82M-v1.0-ONNX"
 codex-universal-proxy voice --kokoro-device cpu --kokoro-speed 1.1
 ```
 
+Choose how speech playback is interrupted:
+
+```bash
+# Automatic barge-in when VAD detects that you started speaking (default).
+codex-universal-proxy voice --interruption-mode vad
+
+# Hold Right Command to interrupt and record; release it to send the utterance.
+codex-universal-proxy voice --interruption-mode manual --interruption-key right-command
+codex-universal-proxy voice --interrupt
+```
+
+In manual mode microphone audio is discarded while Right Command is up. Key
+down interrupts current playback and starts a fresh buffer; key up commits that
+buffer to Whisper. The first activation asks for macOS Input Monitoring
+permission. `voice --interrupt` remains available as a playback-only fallback.
+General Codex tools remain in the delegated backend thread rather than running
+in the voice coordinator.
+
 Disable local routing:
 
 ```bash

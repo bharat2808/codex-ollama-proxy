@@ -6,6 +6,7 @@ const {
   RTCPeerConnection,
 } = require('werift');
 const {
+  PcmPushToTalkSegmenter,
   PcmSpeechSegmenter,
   createFfmpegRtpDecoder,
   createFfmpegRtpPlayer,
@@ -13,6 +14,9 @@ const {
 
 async function createWeriftVoicePeer({
   offerSdp,
+  inputMode = 'vad',
+  onDataEvent = () => {},
+  onSpeechEnd = () => {},
   onSpeechStart = () => {},
   onSpeech,
   onClose = () => {},
@@ -25,9 +29,11 @@ async function createWeriftVoicePeer({
   const outputStream = new MediaStream([outputTrack]);
   const pendingDataEvents = [];
   const decoders = [];
+  const inputSegmenters = [];
   let dataChannel = null;
   let inputSubscription = null;
   let connectionSubscription = null;
+  let inputActive = false;
   let closing = false;
 
   function flushDataEvents() {
@@ -39,6 +45,12 @@ async function createWeriftVoicePeer({
     if (channel.label !== 'oai-events') return;
     dataChannel = channel;
     channel.onopen = flushDataEvents;
+    channel.onmessage = (message) => {
+      try {
+        const raw = typeof message?.data === 'string' ? message.data : message;
+        onDataEvent(JSON.parse(String(raw)));
+      } catch {}
+    };
     channel.onclose = () => {
       if (!closing) onClose();
     };
@@ -49,10 +61,16 @@ async function createWeriftVoicePeer({
   });
   peerConnection.onTrack.subscribe((track) => {
     if (track.kind !== 'audio' || inputSubscription) return;
-    const segmenter = new PcmSpeechSegmenter({
+    const Segmenter = inputMode === 'push-to-talk'
+      ? PcmPushToTalkSegmenter
+      : PcmSpeechSegmenter;
+    const segmenter = new Segmenter({
+      onSpeechEnd,
       onSpeechStart,
       onSpeech,
     });
+    inputSegmenters.push(segmenter);
+    if (inputActive && typeof segmenter.start === 'function') segmenter.start();
     const decoder = createFfmpegRtpDecoder({
       onPcm(chunk) {
         segmenter.push(chunk).catch(() => {});
@@ -75,6 +93,24 @@ async function createWeriftVoicePeer({
     outputTrack,
     playAudioStream: player.playAudioStream,
     stopAudio: player.stopAudio,
+    startInput() {
+      inputActive = true;
+      for (const segmenter of inputSegmenters) {
+        if (typeof segmenter.start === 'function') segmenter.start();
+      }
+    },
+    commitInput() {
+      inputActive = false;
+      return Promise.all(inputSegmenters.map((segmenter) => (
+        typeof segmenter.commit === 'function' ? segmenter.commit() : undefined
+      )));
+    },
+    cancelInput() {
+      inputActive = false;
+      for (const segmenter of inputSegmenters) {
+        if (typeof segmenter.cancel === 'function') segmenter.cancel();
+      }
+    },
     sendDataEvent(event) {
       pendingDataEvents.push(JSON.stringify(event));
       flushDataEvents();

@@ -52,6 +52,8 @@ test('init creates a private voice configuration with local Whisper and Kokoro d
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const config = fs.readFileSync(f.voiceConfig, 'utf8');
     assert.match(config, /^voice_enabled = false$/m);
+    assert.match(config, /^interruption_mode = "vad"$/m);
+    assert.match(config, /^interruption_key = "right-command"$/m);
     assert.match(config, /^whisper_command = "whisper-cli"$/m);
     assert.match(config, /^whisper_model = ""$/m);
     assert.match(config, /^kokoro_model = "onnx-community\/Kokoro-82M-v1\.0-ONNX"$/m);
@@ -79,6 +81,8 @@ test('voice command updates speech settings and reports them without changing Co
       '--kokoro-dtype', 'fp32',
       '--kokoro-device', 'cpu',
       '--kokoro-speed', '1.15',
+      '--interruption-mode', 'manual',
+      '--interruption-key', 'right-command',
     ]);
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.doesNotMatch(fs.readFileSync(f.codexConfig, 'utf8'), /experimental_realtime_/u);
@@ -90,6 +94,30 @@ test('voice command updates speech settings and reports them without changing Co
     assert.match(status.stdout, /whisper_model = "\/models\/ggml-base\.en\.bin"/u);
     assert.match(status.stdout, /kokoro_voice = "bf_emma"/u);
     assert.match(status.stdout, /kokoro_speed = 1\.15/u);
+    assert.match(status.stdout, /interruption_mode = "manual"/u);
+    assert.match(status.stdout, /interruption_key = "right-command"/u);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('voice command rejects an unsupported interruption key', () => {
+  const f = fixture();
+  try {
+    const result = f.run(['voice', '--interruption-key', 'space']);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must be right-command or none/u);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('voice command rejects an unsupported interruption mode', () => {
+  const f = fixture();
+  try {
+    const result = f.run(['voice', '--interruption-mode', 'always']);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must be vad or manual/u);
   } finally {
     f.cleanup();
   }

@@ -25,6 +25,7 @@ const {
   VOICE_TURN_INSTRUCTIONS,
 } = require('./voice-agent/voice-coordinator');
 const { createWeriftVoicePeer } = require('./voice-agent/werift-voice-peer');
+const { startMacosInterruptionKey } = require('./voice-agent/macos-interruption-key');
 
 // proxy-models.toml drives per-request model auto-routing.
 // Loaded once at startup; editable without restart by re-running apply script.
@@ -2012,6 +2013,7 @@ const coordinateVoiceTranscript = createVoiceCoordinator({
 });
 const realtimeVoiceServer = createRealtimeVoiceServer({
   enabled: () => voiceConfig.read(VOICE_CONFIG_PATH).voice_enabled,
+  getInterruptionMode: () => voiceConfig.read(VOICE_CONFIG_PATH).interruption_mode,
   createPeer: createWeriftVoicePeer,
   transcribePcm: localVoiceRuntime.transcribePcm,
   coordinateTranscript: coordinateVoiceTranscript,
@@ -2258,7 +2260,12 @@ const server = http.createServer((clientReq, clientRes) => {
   clientReq.on('error', (e) => log('client error: ' + e.message));
 });
 realtimeVoiceServer.attach(server);
+let interruptionKeyHelper = null;
 server.on('close', () => {
+  if (interruptionKeyHelper && interruptionKeyHelper.exitCode === null) {
+    interruptionKeyHelper.kill('SIGTERM');
+  }
+  interruptionKeyHelper = null;
   realtimeVoiceServer.close().catch((error) => {
     debugLog('realtime voice shutdown failed: ' + error.message);
   });
@@ -2364,6 +2371,13 @@ function startServer(port = LISTEN_PORT) {
     throw error;
   });
   server.listen(port, '127.0.0.1', () => {
+    const listeningPort = server.address().port;
+    interruptionKeyHelper = startMacosInterruptionKey({
+      config: voiceConfig.read(VOICE_CONFIG_PATH),
+      port: listeningPort,
+      runtimeDir: RUNTIME_DIR,
+      log,
+    });
     log('listening on 127.0.0.1:' + port + ' -> ' + upstreamLib.displayUrl(getUpstream()));
     verifyConfiguredModels().catch((error) => {
       debugLog('model availability check failed: ' + error.message);

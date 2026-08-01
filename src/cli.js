@@ -78,6 +78,8 @@ function usage() {
   codex-universal-proxy voice [--enable|--disable] [--whisper-command COMMAND] [--whisper-model PATH]
   codex-universal-proxy voice [--kokoro-model MODEL] [--kokoro-voice VOICE]
                               [--kokoro-dtype DTYPE] [--kokoro-device DEVICE] [--kokoro-speed SPEED]
+                              [--interruption-mode vad|manual] [--interruption-key right-command|none]
+  codex-universal-proxy voice --interrupt
   codex-universal-proxy voice --status`);
 }
 
@@ -264,7 +266,7 @@ function parseFlags(argv) {
     const eq = arg.indexOf('=');
     const key = (eq >= 0 ? arg.slice(2, eq) : arg.slice(2)).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     if (eq >= 0) flags[key] = arg.slice(eq + 1);
-    else if (['force', 'auto-image', 'no-auto-image', 'persist-images', 'no-persist-images', 'dedupe-large-input', 'no-dedupe-large-input', 'verbose-tools', 'no-verbose-tools', 'log-upstream-body', 'no-log-upstream-body', 'enable-find-skill', 'no-enable-find-skill', 'stream-loop', 'no-stream-loop', 'imagine-enable', 'imagine-disable', 'imagine-enhance', 'imagine-no-enhance', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'status', 'no-refresh', 'no-backup', 'no-start', 'replace', 'no-replace', 'foreground'].includes(arg.slice(2))) flags[key] = true;
+    else if (['force', 'auto-image', 'no-auto-image', 'persist-images', 'no-persist-images', 'dedupe-large-input', 'no-dedupe-large-input', 'verbose-tools', 'no-verbose-tools', 'log-upstream-body', 'no-log-upstream-body', 'enable-find-skill', 'no-enable-find-skill', 'stream-loop', 'no-stream-loop', 'imagine-enable', 'imagine-disable', 'imagine-enhance', 'imagine-no-enhance', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'status', 'interrupt', 'no-refresh', 'no-backup', 'no-start', 'replace', 'no-replace', 'foreground'].includes(arg.slice(2))) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { flags, rest };
@@ -596,6 +598,33 @@ function probeJson(port, requestPath, timeoutMs = 750) {
   });
 }
 
+function postJson(port, requestPath, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path: requestPath,
+      method: 'POST',
+      timeout: timeoutMs,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let body = null;
+        try { body = JSON.parse(raw); } catch {}
+        resolve({ statusCode: res.statusCode || 0, body, raw });
+      });
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ statusCode: 0, body: null, raw: '', error: 'timeout' });
+    });
+    req.on('error', (error) => resolve({ statusCode: 0, body: null, raw: '', error: error.message }));
+    req.end();
+  });
+}
+
 function listeningPids(port) {
   if (SERVICE_PLATFORM === 'win32') {
     const result = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -917,6 +946,13 @@ async function serveCmd(flags = {}) {
       }),
       [proxyServer],
     );
+    function shutdown() {
+      try {
+        if (proxyServer && proxyServer.listening) proxyServer.close(() => {});
+      } catch {}
+    }
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
     return proxyServer;
   }
   if (!['chat-completion', 'google'].includes(flags.adaptor)) {
@@ -1107,6 +1143,14 @@ async function imagineCmd(flags) {
 async function voiceCmd(flags) {
   voiceConfig.ensure(VOICE_CONFIG);
   const current = voiceConfig.read(VOICE_CONFIG);
+  if (flags.interrupt) {
+    const result = await postJson(configuredProxyPort(), '/v1/live/interrupt');
+    if (result.statusCode !== 200) {
+      die(`Error: no active voice response was interrupted${result.error ? ` (${result.error})` : ''}.`);
+    }
+    console.log(`interrupted=${result.body?.interrupted || 0}`);
+    return;
+  }
   if (flags.status) {
     console.log('Local voice configuration:');
     for (const field of voiceConfig.PUBLIC_FIELDS) {
@@ -1129,6 +1173,8 @@ async function voiceCmd(flags) {
     ['kokoroDtype', '--kokoro-dtype'],
     ['kokoroDevice', '--kokoro-device'],
     ['kokoroSpeed', '--kokoro-speed'],
+    ['interruptionMode', '--interruption-mode'],
+    ['interruptionKey', '--interruption-key'],
   ]) {
     if (Object.prototype.hasOwnProperty.call(flags, flag) && flags[flag] === undefined) {
       die(`Error: ${display} requires a value.`);
@@ -1136,6 +1182,20 @@ async function voiceCmd(flags) {
   }
 
   const updates = {};
+  if (flags.interruptionMode !== undefined) {
+    const mode = String(flags.interruptionMode).toLowerCase();
+    if (!['vad', 'manual'].includes(mode)) {
+      die('Error: --interruption-mode must be vad or manual.');
+    }
+    updates.interruption_mode = mode;
+  }
+  if (flags.interruptionKey !== undefined) {
+    const key = String(flags.interruptionKey).toLowerCase();
+    if (!['right-command', 'none'].includes(key)) {
+      die('Error: --interruption-key must be right-command or none.');
+    }
+    updates.interruption_key = key;
+  }
   if (flags.whisperCommand !== undefined) updates.whisper_command = String(flags.whisperCommand);
   if (flags.whisperModel !== undefined) updates.whisper_model = String(flags.whisperModel);
   if (flags.kokoroModel !== undefined) updates.kokoro_model = String(flags.kokoroModel);

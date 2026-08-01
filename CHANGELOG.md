@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added configurable `vad` and `manual` voice interruption modes. On macOS,
+  manual mode uses Right Command as push-to-talk: key-down interrupts playback
+  and starts recording, key-up ends and commits the recording, and microphone
+  audio outside that interval is discarded.
+
 - Retain the complete voice coordinator history for the lifetime of a realtime
   call instead of dropping older entries after 12 history items.
 

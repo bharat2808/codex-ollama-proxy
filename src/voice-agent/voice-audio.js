@@ -86,6 +86,67 @@ class PcmSpeechSegmenter {
   }
 }
 
+class PcmPushToTalkSegmenter {
+  constructor({
+    sampleRate = 16000,
+    minimumSpeechMs = 100,
+    maximumSpeechMs = 30000,
+    onSpeechEnd = () => {},
+    onSpeechStart = () => {},
+    onSpeech,
+  } = {}) {
+    if (typeof onSpeech !== 'function') throw new Error('onSpeech is required');
+    this.minimumSamples = Math.round(sampleRate * minimumSpeechMs / 1000);
+    this.maximumSamples = Math.round(sampleRate * maximumSpeechMs / 1000);
+    this.onSpeechEnd = onSpeechEnd;
+    this.onSpeechStart = onSpeechStart;
+    this.onSpeech = onSpeech;
+    this.active = false;
+    this.chunks = [];
+    this.recordedSamples = 0;
+  }
+
+  start() {
+    this.cancel();
+    this.active = true;
+    this.onSpeechStart();
+  }
+
+  cancel() {
+    const wasActive = this.active;
+    this.active = false;
+    this.chunks = [];
+    this.recordedSamples = 0;
+    if (wasActive) this.onSpeechEnd();
+  }
+
+  async commit() {
+    if (!this.active) return;
+    const chunks = this.chunks;
+    const recordedSamples = this.recordedSamples;
+    this.active = false;
+    this.chunks = [];
+    this.recordedSamples = 0;
+    if (recordedSamples >= this.minimumSamples) {
+      await this.onSpeech(Buffer.concat(chunks));
+    } else {
+      this.onSpeechEnd();
+    }
+  }
+
+  async push(chunk) {
+    if (!this.active || !Buffer.isBuffer(chunk) || chunk.length < 2) return;
+    const evenLength = chunk.length - (chunk.length % 2);
+    const pcm = evenLength === chunk.length ? chunk : chunk.subarray(0, evenLength);
+    const remainingSamples = this.maximumSamples - this.recordedSamples;
+    if (remainingSamples <= 0) return;
+    const accepted = pcm.subarray(0, Math.min(pcm.length, remainingSamples * 2));
+    this.chunks.push(accepted);
+    this.recordedSamples += accepted.length / 2;
+    if (this.recordedSamples >= this.maximumSamples) await this.commit();
+  }
+}
+
 function pcm16ToWav(pcm, {
   sampleRate = 16000,
   channels = 1,
@@ -375,6 +436,7 @@ async function createFfmpegRtpPlayer({
 }
 
 module.exports = {
+  PcmPushToTalkSegmenter,
   PcmSpeechSegmenter,
   createFfmpegRtpDecoder,
   createFfmpegRtpPlayer,

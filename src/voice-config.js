@@ -6,6 +6,8 @@ const { randomUUID } = require('node:crypto');
 
 const DEFAULTS = {
   voice_enabled: false,
+  interruption_mode: 'vad',
+  interruption_key: 'right-command',
   routing_state: 'disabled',
   whisper_command: 'whisper-cli',
   whisper_model: '',
@@ -25,6 +27,8 @@ const DEFAULTS = {
 
 const PUBLIC_FIELDS = [
   'voice_enabled',
+  'interruption_mode',
+  'interruption_key',
   'whisper_command',
   'whisper_model',
   'kokoro_model',
@@ -35,6 +39,8 @@ const PUBLIC_FIELDS = [
 ];
 
 const STRING_FIELDS = [
+  'interruption_mode',
+  'interruption_key',
   'whisper_command',
   'whisper_model',
   'kokoro_model',
@@ -87,6 +93,8 @@ function render(raw = {}) {
   return [
     '# codex-universal-proxy local voice configuration',
     `voice_enabled = ${config.voice_enabled ? 'true' : 'false'}`,
+    `interruption_mode = "${escapeTomlString(config.interruption_mode)}"`,
+    `interruption_key = "${escapeTomlString(config.interruption_key)}"`,
     `whisper_command = "${escapeTomlString(config.whisper_command)}"`,
     `whisper_model = "${escapeTomlString(config.whisper_model)}"`,
     `kokoro_model = "${escapeTomlString(config.kokoro_model)}"`,

@@ -72,6 +72,44 @@ test('PCM speech segmenter reports each speech onset before the utterance comple
   assert.deepEqual(events, ['start', 'complete', 'start']);
 });
 
+test('push-to-talk records only between start and commit', async () => {
+  const { PcmPushToTalkSegmenter } = loadVoiceAudio();
+  const utterances = [];
+  const segmenter = new PcmPushToTalkSegmenter({
+    sampleRate: 16000,
+    minimumSpeechMs: 100,
+    onSpeech: async (audio) => utterances.push(audio),
+  });
+
+  await segmenter.push(pcm(3200, 1000));
+  segmenter.start();
+  await segmenter.push(pcm(3200, 2000));
+  await segmenter.commit();
+  await segmenter.push(pcm(3200, 3000));
+
+  assert.equal(utterances.length, 1);
+  assert.deepEqual(utterances[0], pcm(3200, 2000));
+});
+
+test('push-to-talk ends a too-short recording without sending it to Whisper', async () => {
+  const { PcmPushToTalkSegmenter } = loadVoiceAudio();
+  let ended = 0;
+  let utterances = 0;
+  const segmenter = new PcmPushToTalkSegmenter({
+    sampleRate: 16000,
+    minimumSpeechMs: 100,
+    onSpeechEnd: () => { ended += 1; },
+    onSpeech: async () => { utterances += 1; },
+  });
+
+  segmenter.start();
+  await segmenter.push(pcm(800, 2000));
+  await segmenter.commit();
+
+  assert.equal(utterances, 0);
+  assert.equal(ended, 1);
+});
+
 test('Whisper WAV encoding writes mono 16-bit PCM with the correct sizes', () => {
   const { pcm16ToWav } = loadVoiceAudio();
   const samples = pcm(320, 1234);
