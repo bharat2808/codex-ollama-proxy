@@ -1077,6 +1077,67 @@ test('manual mode gates recording behind explicit push-to-talk start and commit'
   }
 });
 
+test('replacement speech waits for the interrupted audio pipeline to reset', async () => {
+  let peerOptions;
+  let stopCount = 0;
+  let releaseSecondStop;
+  const secondStopGate = new Promise((resolve) => {
+    releaseSecondStop = resolve;
+  });
+  const played = [];
+  let transcription = 0;
+  const voice = createVoiceServer({
+    enabled: () => true,
+    getInterruptionMode: () => 'manual',
+    transcribePcm: async () => (++transcription === 1 ? 'first' : 'second'),
+    coordinateTranscript: async (text) => ({ action: 'speak', text: `${text} reply` }),
+    createPeer: async (options) => {
+      peerOptions = options;
+      return {
+        answerSdp: 'v=0\r\na=setup:active\r\n',
+        async playAudioStream(chunks) {
+          await collectAudioStream(chunks, played);
+        },
+        stopAudio() {
+          stopCount += 1;
+          return stopCount === 2 ? secondStopGate : Promise.resolve();
+        },
+        startInput() {},
+        sendDataEvent() {},
+        close() {},
+      };
+    },
+  });
+  const server = http.createServer((request, response) => {
+    if (!voice.handleRequest(request, response)) {
+      response.writeHead(404);
+      response.end('not found');
+    }
+  });
+  voice.attach(server);
+  const port = await listen(server);
+
+  try {
+    const offer = await createV3Call(port);
+    await fetch(`http://127.0.0.1:${port}/v1/live/input/start`, { method: 'POST' });
+    await peerOptions.onSpeech(Buffer.from('first'));
+    assert.deepEqual(played, ['audio:first reply']);
+
+    await fetch(`http://127.0.0.1:${port}/v1/live/input/start`, { method: 'POST' });
+    const replacement = peerOptions.onSpeech(Buffer.from('second'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(played, ['audio:first reply']);
+
+    releaseSecondStop();
+    await replacement;
+    assert.deepEqual(played, ['audio:first reply', 'audio:second reply']);
+  } finally {
+    releaseSecondStop();
+    await voice.close();
+    await close(server);
+  }
+});
+
 test('Codex V3 sideband startup survives a browser event delivery failure', async () => {
   const voice = createVoiceServer({
     enabled: () => true,

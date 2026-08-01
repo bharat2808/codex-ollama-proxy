@@ -285,6 +285,43 @@ async function createFfmpegRtpPlayer({
   let activeCancel = null;
   let encoder = null;
   let playbackGeneration = 0;
+  let packetTimer = null;
+  let lastPacketSentAt = 0;
+  const packetQueue = [];
+
+  function settleEncoderWaiters(active) {
+    for (const waiter of [...active.waiters]) {
+      if (active.emittedSamples < waiter.target) continue;
+      active.waiters.delete(waiter);
+      waiter.resolve();
+    }
+  }
+
+  function schedulePacket() {
+    if (packetTimer || packetQueue.length === 0) return;
+    const elapsed = Date.now() - lastPacketSentAt;
+    const delay = lastPacketSentAt === 0 ? 0 : Math.max(0, 20 - elapsed);
+    packetTimer = setTimeout(() => {
+      packetTimer = null;
+      const queued = packetQueue.shift();
+      if (!queued || queued.active !== encoder) {
+        schedulePacket();
+        return;
+      }
+      const { active, packet, relativeTimestamp } = queued;
+      packet.header.payloadType = payloadType;
+      packet.header.sequenceNumber = sequenceNumber;
+      packet.header.timestamp = (active.outputTimestamp + relativeTimestamp) >>> 0;
+      packet.header.ssrc = ssrc;
+      sequenceNumber = (sequenceNumber + 1) & 0xffff;
+      timestamp = (packet.header.timestamp + 960) >>> 0;
+      lastPacketSentAt = Date.now();
+      track.writeRtp(packet);
+      active.emittedSamples = Math.max(active.emittedSamples, relativeTimestamp + 960);
+      settleEncoderWaiters(active);
+      schedulePacket();
+    }, delay);
+  }
 
   receiver.on('message', (message) => {
     let packet;
@@ -295,23 +332,11 @@ async function createFfmpegRtpPlayer({
     }
     const active = encoder;
     if (!active) return;
-    if (active.sourceSsrc === null) active.sourceSsrc = packet.header.ssrc;
     if (packet.header.ssrc !== active.sourceSsrc) return;
     if (active.sourceTimestamp === null) active.sourceTimestamp = packet.header.timestamp;
     const relativeTimestamp = (packet.header.timestamp - active.sourceTimestamp) >>> 0;
-    packet.header.payloadType = payloadType;
-    packet.header.sequenceNumber = sequenceNumber;
-    packet.header.timestamp = (active.outputTimestamp + relativeTimestamp) >>> 0;
-    packet.header.ssrc = ssrc;
-    sequenceNumber = (sequenceNumber + 1) & 0xffff;
-    timestamp = (packet.header.timestamp + 960) >>> 0;
-    track.writeRtp(packet);
-    active.emittedSamples = Math.max(active.emittedSamples, relativeTimestamp + 960);
-    for (const waiter of [...active.waiters]) {
-      if (active.emittedSamples < waiter.target) continue;
-      active.waiters.delete(waiter);
-      waiter.resolve();
-    }
+    packetQueue.push({ active, packet, relativeTimestamp });
+    schedulePacket();
   });
 
   function finishEncoderWaiters(active, error = null) {
@@ -324,6 +349,7 @@ async function createFfmpegRtpPlayer({
 
   function startEncoder(sampleRate) {
     const stderrChunks = [];
+    const sourceSsrc = randomInt(1, 0x100000000);
     const command = spawnProcess === spawn
       ? resolveLocalCommand(ffmpegCommand)
       : ffmpegCommand;
@@ -341,6 +367,7 @@ async function createFfmpegRtpPlayer({
       '-application', 'voip',
       '-frame_duration', '20',
       '-payload_type', String(payloadType),
+      '-ssrc', String(sourceSsrc),
       '-flush_packets', '1',
       '-muxdelay', '0',
       '-f', 'rtp',
@@ -356,7 +383,7 @@ async function createFfmpegRtpPlayer({
       outputTimestamp: timestamp,
       queuedSamples: 0,
       sampleRate,
-      sourceSsrc: null,
+      sourceSsrc,
       sourceTimestamp: null,
       waiters: new Set(),
     };
@@ -389,6 +416,13 @@ async function createFfmpegRtpPlayer({
     const active = encoder;
     if (!active) return;
     encoder = null;
+    for (let index = packetQueue.length - 1; index >= 0; index -= 1) {
+      if (packetQueue[index].active === active) packetQueue.splice(index, 1);
+    }
+    if (packetQueue.length === 0 && packetTimer) {
+      clearTimeout(packetTimer);
+      packetTimer = null;
+    }
     active.intentionalStop = true;
     finishEncoderWaiters(active);
     active.child.stdin.destroy();
@@ -435,6 +469,17 @@ async function createFfmpegRtpPlayer({
     }
     let inputSamples = 0;
 
+    async function writePcm(buffer) {
+      if (generation !== playbackGeneration || active.intentionalStop) return false;
+      if (active.child.stdin.write(buffer)) return true;
+      const drained = await Promise.race([
+        once(active.child.stdin, 'drain').then(() => true),
+        cancelled.then(() => false),
+        active.exited.then(() => false),
+      ]);
+      return drained && generation === playbackGeneration && !active.intentionalStop;
+    }
+
     async function writeChunk(chunk) {
       if (
         !chunk
@@ -445,16 +490,16 @@ async function createFfmpegRtpPlayer({
         throw new Error('synthesized audio chunks must be float32 PCM at one sample rate');
       }
       inputSamples += chunk.pcm.length / 4;
-      if (!active.child.stdin.write(chunk.pcm)) await once(active.child.stdin, 'drain');
+      return writePcm(chunk.pcm);
     }
 
     const writing = (async () => {
       try {
-        await writeChunk(first.value);
+        if (!await writeChunk(first.value)) return null;
         for (;;) {
           const next = await nextChunk();
           if (next.done || generation !== playbackGeneration) break;
-          await writeChunk(next.value);
+          if (!await writeChunk(next.value)) return null;
         }
         if (generation !== playbackGeneration) return null;
         const frameSamples = Math.round(sampleRate / 50);
@@ -463,7 +508,7 @@ async function createFfmpegRtpPlayer({
           const paddingSamples = frameSamples - remainder;
           inputSamples += paddingSamples;
           const padding = Buffer.alloc(paddingSamples * 4);
-          if (!active.child.stdin.write(padding)) await once(active.child.stdin, 'drain');
+          if (!await writePcm(padding)) return null;
         }
         const outputSamples = Math.round(inputSamples * 48000 / sampleRate);
         const target = active.queuedSamples + outputSamples;
@@ -472,7 +517,7 @@ async function createFfmpegRtpPlayer({
         // ending the call-wide encoder and doubles as a boundary prebuffer.
         const drainFrames = 5;
         const drainAudio = Buffer.alloc(frameSamples * 4 * drainFrames);
-        if (!active.child.stdin.write(drainAudio)) await once(active.child.stdin, 'drain');
+        if (!await writePcm(drainAudio)) return null;
         active.queuedSamples = target + (960 * drainFrames);
         return target;
       } catch (error) {
@@ -500,6 +545,7 @@ async function createFfmpegRtpPlayer({
   }
 
   async function stopAudio() {
+    const interruptedJob = currentJob;
     playbackGeneration += 1;
     const cancel = activeCancel;
     activeCancel = null;
@@ -510,7 +556,7 @@ async function createFfmpegRtpPlayer({
       Promise.resolve(iterator.return()).catch(() => {});
     }
     await stopEncoder();
-    if (currentJob) await currentJob.catch(() => {});
+    if (interruptedJob) await interruptedJob.catch(() => {});
   }
 
   return {

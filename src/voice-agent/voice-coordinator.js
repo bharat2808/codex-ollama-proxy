@@ -95,7 +95,6 @@ function speechFrom(response) {
 
 function createPhraseEmitter(onPhrase, {
   minimumCharacters = 16,
-  maximumCharacters = 120,
 } = {}) {
   let pending = '';
   let emitted = 0;
@@ -111,16 +110,15 @@ function createPhraseEmitter(onPhrase, {
     pending += String(delta || '');
     for (;;) {
       const punctuation = pending.match(/^([\s\S]*?[.!?](?:["')\]]+)?)(?=\s|$)/u);
+      const newline = pending.indexOf('\n');
+      if (newline >= 0 && (!punctuation || newline < punctuation[1].length)) {
+        await emit(pending.slice(0, newline));
+        pending = pending.slice(newline + 1).trimStart();
+        continue;
+      }
       if (punctuation && punctuation[1].trim().length >= minimumCharacters) {
         await emit(punctuation[1]);
         pending = pending.slice(punctuation[1].length).trimStart();
-        continue;
-      }
-      if (pending.length >= maximumCharacters) {
-        const breakAt = pending.lastIndexOf(' ', maximumCharacters);
-        const length = breakAt > minimumCharacters ? breakAt : maximumCharacters;
-        await emit(pending.slice(0, length));
-        pending = pending.slice(length).trimStart();
         continue;
       }
       break;

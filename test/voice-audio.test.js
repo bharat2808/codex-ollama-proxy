@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
+const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
 const test = require('node:test');
 
 function loadVoiceAudio() {
@@ -233,10 +235,12 @@ test('ffmpeg RTP bridge keeps one encoder across consecutive speech phrases', as
   const { createFfmpegRtpPlayer } = loadVoiceAudio();
   let spawnCount = 0;
   const timestamps = [];
+  const packetTimes = [];
   const player = await createFfmpegRtpPlayer({
     track: {
       writeRtp(packet) {
         timestamps.push(packet.header.timestamp);
+        packetTimes.push(Date.now());
       },
     },
     spawnProcess(command, args, options) {
@@ -259,12 +263,124 @@ test('ffmpeg RTP bridge keeps one encoder across consecutive speech phrases', as
     assert.ok(timestamps.length > 2);
     for (let index = 1; index < timestamps.length; index += 1) {
       assert.equal((timestamps[index] - timestamps[index - 1]) >>> 0, 960);
+      assert.ok(
+        packetTimes[index] - packetTimes[index - 1] >= 10,
+        'RTP packets must be paced instead of emitted in bursts',
+      );
     }
 
     await player.stopAudio();
     await player.playAudioStream(phrase(880));
     assert.equal(spawnCount, 2);
   } finally {
+    await player.close();
+  }
+});
+
+test('ffmpeg RTP bridge cannot let a stale cancellation block replacement speech', async () => {
+  const { createFfmpegRtpPlayer } = loadVoiceAudio();
+  const player = await createFfmpegRtpPlayer({
+    track: {
+      writeRtp() {},
+    },
+  });
+  let releaseOld;
+  const oldGate = new Promise((resolve) => {
+    releaseOld = resolve;
+  });
+  let releaseReplacement;
+  const replacementGate = new Promise((resolve) => {
+    releaseReplacement = resolve;
+  });
+
+  async function within(promise, milliseconds, message) {
+    let timer;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), milliseconds);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function* oldSpeech() {
+    yield { pcm: sineFloat32Pcm(24000, 200), sampleRate: 24000 };
+    await oldGate;
+  }
+
+  async function* replacementSpeech() {
+    yield { pcm: sineFloat32Pcm(24000, 200, 660), sampleRate: 24000 };
+    await replacementGate;
+    yield { pcm: sineFloat32Pcm(24000, 100, 880), sampleRate: 24000 };
+  }
+
+  try {
+    const oldPlayback = player.playAudioStream(oldSpeech());
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const stopping = player.stopAudio();
+    const replacement = player.playAudioStream(replacementSpeech());
+
+    await within(
+      stopping,
+      500,
+      'stale stopAudio waited on replacement speech',
+    );
+    releaseOld();
+    releaseReplacement();
+    await oldPlayback;
+    await within(
+      replacement,
+      2000,
+      'replacement speech remained blocked after cancellation',
+    );
+  } finally {
+    releaseOld();
+    releaseReplacement();
+    await player.close();
+  }
+});
+
+test('ffmpeg RTP bridge cancellation releases an encoder stdin blocked on backpressure', async () => {
+  const { createFfmpegRtpPlayer } = loadVoiceAudio();
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.stdin = new PassThrough({ highWaterMark: 1 });
+  child.stderr = new PassThrough();
+  child.kill = (signal) => {
+    child.signalCode = signal;
+    queueMicrotask(() => child.emit('exit', null, signal));
+    return true;
+  };
+  const player = await createFfmpegRtpPlayer({
+    track: { writeRtp() {} },
+    spawnProcess: () => child,
+  });
+
+  async function* speech() {
+    yield { pcm: sineFloat32Pcm(24000, 200), sampleRate: 24000 };
+  }
+
+  let timer;
+  try {
+    const playback = player.playAudioStream(speech());
+    await new Promise((resolve) => setImmediate(resolve));
+    await Promise.race([
+      player.stopAudio(),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('backpressured playback cancellation timed out')),
+          500,
+        );
+      }),
+    ]);
+    await playback;
+  } finally {
+    clearTimeout(timer);
     await player.close();
   }
 });

@@ -257,3 +257,43 @@ test('voice coordinator streams complete phrases before the model response finis
     'What would you like next?',
   ]);
 });
+
+test('voice coordinator does not force incomplete long deltas into speech', async () => {
+  const phrases = [];
+  let inspectBufferedDelta;
+  const bufferedDelta = new Promise((resolve) => {
+    inspectBufferedDelta = resolve;
+  });
+  let releaseRemainder;
+  const remainderGate = new Promise((resolve) => {
+    releaseRemainder = resolve;
+  });
+  const incomplete = `This is one continuous thought ${'without a safe boundary '.repeat(7)}`;
+  const complete = `${incomplete}until this full line is completed.`;
+  const coordinate = createVoiceCoordinator({
+    getModel: () => 'qwen3:8b',
+    requestResponse: async () => {
+      throw new Error('non-streaming request must not run');
+    },
+    streamResponse: async (_body, { onTextDelta }) => {
+      await onTextDelta(incomplete);
+      inspectBufferedDelta();
+      await remainderGate;
+      await onTextDelta('until this full line is completed.\n');
+      return {
+        output_text: complete,
+      };
+    },
+  });
+
+  const resultPromise = coordinate('hello', {
+    onSpeechPhrase: async (text) => phrases.push(text),
+  });
+  await bufferedDelta;
+  assert.deepEqual(phrases, []);
+
+  releaseRemainder();
+  const result = await resultPromise;
+  assert.equal(result.text, complete);
+  assert.deepEqual(phrases, [complete]);
+});

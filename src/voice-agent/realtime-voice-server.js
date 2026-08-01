@@ -147,10 +147,16 @@ function createRealtimeVoiceServer({
   }
 
   function stopCallAudio(call) {
-    if (!call.peer || typeof call.peer.stopAudio !== 'function') return;
-    Promise.resolve(call.peer.stopAudio()).catch((error) => {
-      log(`live voice playback interruption failed: ${error.message}`);
-    });
+    if (!call.peer || typeof call.peer.stopAudio !== 'function') return Promise.resolve();
+    const previousReset = call.audioReset || Promise.resolve();
+    const stopping = Promise.resolve(call.peer.stopAudio()).catch((error) => {
+        log(`live voice playback interruption failed: ${error.message}`);
+      });
+    call.audioReset = Promise.all([
+      previousReset.catch(() => {}),
+      stopping,
+    ]).then(() => {});
+    return call.audioReset;
   }
 
   function preserveConcurrentCoordinatorUpdates(call, initialHistory, coordinatorHistory) {
@@ -302,6 +308,8 @@ function createRealtimeVoiceServer({
   async function speakText(call, text, { generation, emitEvents = true }) {
     if (!isCurrentTurn(call, generation)) return;
     await waitForSpeechCandidate(call);
+    if (!isCurrentTurn(call, generation)) return;
+    await call.audioReset;
     if (!isCurrentTurn(call, generation)) return;
     if (!call.peer || typeof call.peer.playAudioStream !== 'function') {
       throw new Error('local WebRTC peer cannot stream synthesized audio');
@@ -473,6 +481,7 @@ function createRealtimeVoiceServer({
         generation: 0,
         activeController: null,
         activeDelegationId: null,
+        audioReset: Promise.resolve(),
         speechCandidateActive: false,
         speechCandidateDone: Promise.resolve(),
         finishSpeechCandidate: null,
