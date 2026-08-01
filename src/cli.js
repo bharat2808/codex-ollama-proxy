@@ -1198,6 +1198,7 @@ async function voiceCmd(flags) {
     ? readRouteValue(readRouteConfig(), 'active_preset', '')
     : '';
   if (activePreset) {
+    const activeRoute = readRouteConfig();
     // Realtime handoffs are routed back through the current Codex session.
     // Point that session at the proxy so the handoff reaches the active
     // preset's Responses endpoint and retains Codex's normal tool loop.
@@ -1206,6 +1207,7 @@ async function voiceCmd(flags) {
       noRefresh: true,
       noStart: true,
     });
+    writePrivateText(ROUTE_CONFIG, activeRoute);
     if (!flags.noStart) {
       await startPresetServer(presets.readPreset(RUNTIME_DIR, activePreset), { replace: true });
     }

@@ -186,6 +186,9 @@ test('voice enable routes Codex handoffs through the configured active preset wi
     assert.match(config, /^base_url = "http:\/\/127\.0\.0\.1:11436\/v1\/"$/m);
     assert.match(config, /^wire_api = "responses"$/m);
     assert.match(config, /^requires_openai_auth = true$/m);
+    const route = fs.readFileSync(path.join(f.runtimeDir, 'proxy-models.toml'), 'utf8');
+    assert.match(route, /^active_preset = "local-voice"$/m);
+    assert.match(route, /^voice_model = "voice-model"$/m);
   } finally {
     f.cleanup();
   }
