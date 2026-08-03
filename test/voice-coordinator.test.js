@@ -324,3 +324,45 @@ test('voice coordinator does not duplicate an input already committed by the voi
     1,
   );
 });
+
+test('voice coordinator receives session context without persisting it as chat history', async () => {
+  let providerInput;
+  const coordinate = createVoiceCoordinator({
+    getModel: () => 'qwen3:8b',
+    requestResponse: async (body) => {
+      providerInput = body.input;
+      return { output_text: 'Ready.' };
+    },
+  });
+  const context = {
+    sessionContext: [
+      'Thread ID: thread_123',
+      'Working directory: /workspace/project',
+    ].join('\n'),
+    voiceCoordinatorHistory: [],
+  };
+
+  await coordinate('where are we working?', context);
+
+  assert.deepEqual(providerInput[0], {
+    role: 'developer',
+    content: [{
+      type: 'input_text',
+      text: [
+        'Active Codex voice session context:',
+        'Thread ID: thread_123',
+        'Working directory: /workspace/project',
+      ].join('\n'),
+    }],
+  });
+  assert.deepEqual(context.voiceCoordinatorHistory, [
+    {
+      role: 'user',
+      content: [{ type: 'input_text', text: 'where are we working?' }],
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'Ready.' }],
+    },
+  ]);
+});

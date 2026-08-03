@@ -12,7 +12,7 @@ const VOICE_TURN_INSTRUCTIONS = [
 const COORDINATOR_INSTRUCTIONS = [
   'You are the conversational voice coordinator for a Codex agent.',
   'Respond directly only when the request is self-contained and requires no tools, files, workspace access, research, or longer-running work.',
-  `For every action or task, call ${DELEGATE_TOOL_NAME}.`,
+  `For every action or task, call ${DELEGATE_TOOL_NAME}. Before calling that tool inform user that you will work on it now.`,
   `Also call ${DELEGATE_TOOL_NAME} when the user corrects, redirects, or cancels previously delegated work.`,
   'The Codex handoff owns the workspace and thread tools. It will decide whether to start new work or steer an existing worker.',
   'When delegating, first give the user one brief spoken acknowledgement, then call the tool.',
@@ -55,6 +55,18 @@ function rememberVoiceCoordinatorUpdate(history, text) {
       text: `Codex handoff update: ${update}`,
     }],
   });
+}
+
+function sessionContextItem(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  return {
+    role: 'developer',
+    content: [{
+      type: 'input_text',
+      text: `Active Codex voice session context:\n${text}`,
+    }],
+  };
 }
 
 function outputItems(response) {
@@ -167,10 +179,11 @@ function createVoiceCoordinator({
     // erase it from the next coordinator request.
     context.voiceCoordinatorHistory = inputHistory;
 
+    const sessionItem = sessionContextItem(context.sessionContext);
     const request = {
       model,
       instructions: COORDINATOR_INSTRUCTIONS,
-      input: inputHistory,
+      input: sessionItem ? [sessionItem, ...inputHistory] : inputHistory,
       tools: [DELEGATE_TOOL],
       tool_choice: 'auto',
       reasoning: { effort: 'none' },

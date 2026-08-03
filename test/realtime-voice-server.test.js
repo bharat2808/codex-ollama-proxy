@@ -51,7 +51,11 @@ function close(server) {
   });
 }
 
-async function createV3Call(port) {
+async function createV3Call(port, session = {
+  instructions: 'Codex V3 voice session',
+  audio: { output: { voice: 'ash' } },
+  delegation: { type: 'client' },
+}) {
   const boundary = 'codex-v3-realtime-call-boundary';
   const body = [
     `--${boundary}`,
@@ -63,11 +67,7 @@ async function createV3Call(port) {
     'Content-Disposition: form-data; name="session"',
     'Content-Type: application/json',
     '',
-    JSON.stringify({
-      instructions: 'Codex V3 voice session',
-      audio: { output: { voice: 'ash' } },
-      delegation: { type: 'client' },
-    }),
+    JSON.stringify(session),
     `--${boundary}--`,
     '',
   ].join('\r\n');
@@ -142,22 +142,33 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
     await once(sideband, 'open');
 
     await peerOptions.onSpeech(Buffer.from([1, 2, 3, 4]));
-    while (!events.some((event) => event.type === 'delegation.created')) {
+    while (!events.some((event) => event.type === 'handoff_request')) {
       await once(sideband, 'message');
     }
-    const delegation = events.find((event) => event.type === 'delegation.created');
-    assert.equal(delegation.item.target, 'client');
-    assert.equal(delegation.item.content[0].text, 'inspect the repository');
+    const delegation = events.find((event) => event.type === 'handoff_request');
+    const compatibilityDelegation = events.find((event) => (
+      event.type === 'delegation.created'
+    ));
+    assert.equal(delegation.input_transcript, 'inspect the repository');
+    assert.deepEqual(delegation.active_transcript, [
+      { role: 'user', text: 'inspect the repository' },
+      { role: 'assistant', text: 'I’ll ask Codex to inspect it.' },
+    ]);
+    assert.equal(compatibilityDelegation.item.id, delegation.handoff_id);
+    assert.match(
+      compatibilityDelegation.item.content[0].text,
+      /Active voice conversation:\nuser: inspect the repository\nassistant:/u,
+    );
     assert.deepEqual(spoken, ['I’ll ask Codex to inspect it.']);
     assert.deepEqual(played, ['audio:I’ll ask Codex to inspect it.']);
     assert.ok(
-      events.findIndex((event) => event.type === 'delegation.created')
+      events.findIndex((event) => event.type === 'handoff_request')
       < events.findIndex((event) => event.type === 'output_transcript.added'),
     );
 
     sideband.send(JSON.stringify({
       type: 'delegation.context.append',
-      delegation_item_id: delegation.item.id,
+      delegation_item_id: delegation.handoff_id,
       channel: 'speakable',
       content: [{ type: 'input_text', text: 'I inspected it.' }],
     }));
@@ -172,7 +183,10 @@ test('Codex V3 WebRTC live route uses frameless delegation and Kokoro playback',
       events.filter((event) => event.type === 'output_transcript.added').at(-1).item.text,
       'I inspected it.',
     );
-    assert.deepEqual(browserEvents, events);
+    assert.deepEqual(
+      browserEvents,
+      events.filter((event) => event.type !== 'delegation.created'),
+    );
     sideband.close();
     await once(sideband, 'close');
   } finally {
@@ -228,7 +242,7 @@ test('Codex V3 WebRTC publishes delegation before acknowledgement playback finis
 
     const speech = peerOptions.onSpeech(Buffer.from('voice'));
     await waitFor(
-      () => events.some((event) => event.type === 'delegation.created'),
+      () => events.some((event) => event.type === 'handoff_request'),
       'expected delegation while acknowledgement playback is pending',
     );
     assert.equal(
@@ -308,7 +322,7 @@ test('Codex V3 WebRTC speaks a direct coordinator response without delegating', 
       )).turn.transcript,
       directResponse,
     );
-    assert.equal(events.some((event) => event.type === 'delegation.created'), false);
+    assert.equal(events.some((event) => event.type === 'handoff_request'), false);
     sideband.close();
     await once(sideband, 'close');
   } finally {
@@ -359,12 +373,12 @@ test('Codex V3 WebRTC publishes the transcript before coordinator inference comp
       () => events.some((event) => event.type === 'input_transcript.added'),
       'expected input transcript before coordinator response',
     );
-    assert.equal(events.some((event) => event.type === 'delegation.created'), false);
+    assert.equal(events.some((event) => event.type === 'handoff_request'), false);
 
     resolveDecision({ action: 'delegate', input: 'inspect the repository' });
     await speech;
     await waitFor(
-      () => events.some((event) => event.type === 'delegation.created'),
+      () => events.some((event) => event.type === 'handoff_request'),
       'expected delegation after coordinator response',
     );
     sideband.close();
@@ -430,8 +444,8 @@ test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overt
     const second = peerOptions.onSpeech(Buffer.from('second'));
     await waitFor(
       () => events.some((event) => (
-        event.type === 'delegation.created'
-        && event.item.content[0].text === 'second'
+        event.type === 'handoff_request'
+        && event.input_transcript === 'second'
       )),
       'expected the second turn to overtake the stale turn',
     );
@@ -442,8 +456,8 @@ test('Codex V3 WebRTC barge-in aborts the stale turn and lets the new turn overt
     await Promise.all([first, second]);
     assert.equal(
       events.some((event) => (
-        event.type === 'delegation.created'
-        && event.item.content[0].text === 'first'
+        event.type === 'handoff_request'
+        && event.input_transcript === 'first'
       )),
       false,
     );
@@ -531,6 +545,15 @@ test('Codex V3 closes interrupted assistant output and retains it before the nex
       && event.turn.status === 'interrupted'
     ));
     assert.equal(interrupted.turn.transcript, 'Partial answer.');
+    const handoff = events.find((event) => (
+      event.type === 'handoff_request'
+      && event.input_transcript === 'second request'
+    ));
+    assert.deepEqual(handoff.active_transcript, [
+      { role: 'user', text: 'first request' },
+      { role: 'assistant', text: 'Partial answer.' },
+      { role: 'user', text: 'second request' },
+    ]);
     assert.deepEqual(histories[0], [
       {
         role: 'user',
@@ -634,7 +657,7 @@ test('Codex V3 WebRTC ignores Whisper noise without cancelling an active handoff
     releaseFirst({ action: 'delegate', input: 'inspect the working directory' });
     await first;
     await waitFor(
-      () => events.some((event) => event.type === 'delegation.created'),
+      () => events.some((event) => event.type === 'handoff_request'),
       'expected the original handoff to survive noise',
     );
     sideband.close();
@@ -703,12 +726,12 @@ test('Codex V3 WebRTC holds a completed handoff until a speech candidate is clas
     const candidate = peerOptions.onSpeech(Buffer.from('candidate'));
     releaseFirst({ action: 'delegate', input: 'first request' });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(events.some((event) => event.type === 'delegation.created'), false);
+    assert.equal(events.some((event) => event.type === 'handoff_request'), false);
 
     releaseCandidate('(snoring)');
     await Promise.all([first, candidate]);
     await waitFor(
-      () => events.some((event) => event.type === 'delegation.created'),
+      () => events.some((event) => event.type === 'handoff_request'),
       'expected the handoff after noise classification',
     );
     sideband.close();
@@ -769,12 +792,12 @@ test('Codex V3 retains muted stale delegation results for the next voice decisio
 
     await peerOptions.onSpeech(Buffer.from('inspect the repository'));
     await waitFor(
-      () => events.some((event) => event.type === 'delegation.created'),
+      () => events.some((event) => event.type === 'handoff_request'),
       'expected the initial delegation',
     );
     const delegationId = events.find(
-      (event) => event.type === 'delegation.created',
-    ).item.id;
+      (event) => event.type === 'handoff_request',
+    ).handoff_id;
 
     peerOptions.onSpeechStart();
     sideband.send(JSON.stringify({
@@ -1100,10 +1123,25 @@ test('Codex V3 announces the live session to the browser and sideband', async ()
   const port = await listen(server);
 
   try {
-    const offer = await createV3Call(port);
+    const offer = await createV3Call(port, {
+      instructions: 'Codex V3 voice session',
+      metadata: {
+        thread_id: 'thread_123',
+        cwd: '/workspace/project',
+        project_name: 'Example project',
+      },
+      audio: { output: { voice: 'ash' } },
+      delegation: { type: 'client' },
+    });
     assert.equal(offer.status, 201);
     const location = offer.headers.get('location');
     const callId = location.split('/').at(-1);
+    assert.equal(voice.calls.get(callId).sessionContext, [
+      'Instructions: Codex V3 voice session',
+      'Thread ID: thread_123',
+      'Working directory: /workspace/project',
+      'Project name: Example project',
+    ].join('\n'));
 
     assert.deepEqual(browserEvents, [{
       type: 'session.started',

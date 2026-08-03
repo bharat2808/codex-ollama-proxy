@@ -13,6 +13,7 @@ const MAX_WS_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_CONTEXT_BYTES = 500;
 const MAX_DIRECT_RESPONSE_BYTES = 8 * 1024;
 const MAX_PENDING_OUTPUTS = 8;
+const MAX_SESSION_CONTEXT_BYTES = 16 * 1024;
 const NON_SPEECH_TRANSCRIPT = /^(?:(?:\[(?:blank[_ ]audio|inaudible|silence|music|applause|laughter|laughing|snoring)\])|(?:\((?:blank[_ ]audio|inaudible|silence|music|applause|audience laughing|laughter|laughing|snoring)\)))[\s.!?]*$/iu;
 
 function multipartBoundary(contentType) {
@@ -114,6 +115,39 @@ function usableTranscript(value) {
   const transcript = String(value || '').trim();
   if (!transcript || NON_SPEECH_TRANSCRIPT.test(transcript)) return '';
   return transcript;
+}
+
+function normalizeSessionContext(session) {
+  if (!session || typeof session !== 'object' || Array.isArray(session)) return '';
+  const lines = [];
+  const add = (label, value) => {
+    if (typeof value !== 'string') return;
+    const text = value.trim();
+    if (text) lines.push(`${label}: ${text}`);
+  };
+
+  add('Instructions', session.instructions);
+  const metadata = session.metadata && typeof session.metadata === 'object'
+    && !Array.isArray(session.metadata)
+    ? session.metadata
+    : {};
+  const fields = [
+    ['Thread ID', ['thread_id', 'threadId']],
+    ['Working directory', ['cwd', 'working_directory', 'workingDirectory']],
+    ['Workspace root', ['workspace_root', 'workspaceRoot']],
+    ['Project name', ['project_name', 'projectName']],
+    ['Project ID', ['project_id', 'projectId']],
+    ['Thread title', ['thread_title', 'threadTitle', 'title']],
+  ];
+  for (const [label, keys] of fields) {
+    const value = keys
+      .flatMap((key) => [session[key], metadata[key]])
+      .find((candidate) => typeof candidate === 'string' && candidate.trim());
+    add(label, value);
+  }
+  const text = lines.join('\n');
+  if (Buffer.byteLength(text, 'utf8') <= MAX_SESSION_CONTEXT_BYTES) return text;
+  return Buffer.from(text, 'utf8').subarray(0, MAX_SESSION_CONTEXT_BYTES).toString('utf8');
 }
 
 function createRealtimeVoiceServer({
@@ -271,7 +305,6 @@ function createRealtimeVoiceServer({
 
   function sendCallEvent(call, event) {
     if (call.closed) return;
-    const payload = JSON.stringify(event);
     if (call.peer && typeof call.peer.sendDataEvent === 'function') {
       try {
         call.peer.sendDataEvent(event);
@@ -279,6 +312,12 @@ function createRealtimeVoiceServer({
         log(`live voice browser event failed: ${error.message}`);
       }
     }
+    sendSidebandEvent(call, event);
+  }
+
+  function sendSidebandEvent(call, event) {
+    if (call.closed) return;
+    const payload = JSON.stringify(event);
     if (call.sideband && call.sideband.readyState === WebSocket.OPEN) {
       call.sideband.send(payload);
     } else {
@@ -306,6 +345,15 @@ function createRealtimeVoiceServer({
     });
   }
 
+  function activeTranscriptSnapshot(call, pendingAssistantText = '') {
+    const transcript = call.activeTranscript.map((item) => ({ ...item }));
+    const activeAssistant = String(
+      pendingAssistantText || call.activeAssistantTurn?.transcript || '',
+    ).trim();
+    if (activeAssistant) transcript.push({ role: 'assistant', text: activeAssistant });
+    return transcript;
+  }
+
   function finishAssistantTurn(call, generation, {
     text,
     status = 'completed',
@@ -327,6 +375,7 @@ function createRealtimeVoiceServer({
         ...(status === 'completed' ? {} : { status }),
       },
     });
+    call.activeTranscript.push({ role: 'assistant', text: transcript });
     if (remember && !active?.historyCommitted) {
       call.voiceCoordinatorHistory = appendVoiceCoordinatorHistory(
         call.voiceCoordinatorHistory,
@@ -436,6 +485,7 @@ function createRealtimeVoiceServer({
       type: 'turn.done',
       turn: { id: `turn_${randomUUID()}`, role: 'user', transcript },
     });
+    call.activeTranscript.push({ role: 'user', text: transcript });
 
     call.voiceCoordinatorHistory = appendVoiceCoordinatorHistory(
       call.voiceCoordinatorHistory,
@@ -448,6 +498,7 @@ function createRealtimeVoiceServer({
     const context = {
       signal: controller.signal,
       voiceCoordinatorHistory: initialHistory,
+      sessionContext: call.sessionContext,
       inputAlreadyInHistory: true,
       onSpeechPhrase: (text) => {
         sendSpeechTranscript(call, text, generation);
@@ -492,13 +543,34 @@ function createRealtimeVoiceServer({
     if (!isCurrentTurn(call, generation)) return;
     const delegationId = `delegation_${randomUUID()}`;
     call.activeDelegationId = delegationId;
+    const activeTranscript = activeTranscriptSnapshot(call, decision.preface);
     sendCallEvent(call, {
+      type: 'handoff_request',
+      handoff_id: delegationId,
+      input_transcript: decision.input,
+      active_transcript: activeTranscript,
+    });
+    // The installed Codex desktop sideband still consumes this compatibility
+    // envelope, while its WebRTC client consumes handoff_request. Include the
+    // transcript in both structured fields and text so the backend execution
+    // model receives continuity even when it uses the legacy envelope.
+    const transcriptText = activeTranscript
+      .map((item) => `${item.role}: ${item.text}`)
+      .join('\n');
+    sendSidebandEvent(call, {
       type: 'delegation.created',
       item: {
         id: delegationId,
         type: 'delegation',
         target: 'client',
-        content: [{ type: 'input_text', text: decision.input }],
+        input_transcript: decision.input,
+        active_transcript: activeTranscript,
+        content: [{
+          type: 'input_text',
+          text: transcriptText
+            ? `${decision.input}\n\nActive voice conversation:\n${transcriptText}`
+            : decision.input,
+        }],
       },
     });
     log(
@@ -540,6 +612,8 @@ function createRealtimeVoiceServer({
         speechCandidateDone: Promise.resolve(),
         finishSpeechCandidate: null,
         voiceCoordinatorHistory: [],
+        activeTranscript: [],
+        sessionContext: normalizeSessionContext(parsed.session),
         interruptionMode: getInterruptionMode() === 'manual' ? 'manual' : 'vad',
       };
       call.peer = await createPeer({
