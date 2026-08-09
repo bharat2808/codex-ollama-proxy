@@ -5,7 +5,7 @@ const dgram = require('node:dgram');
 const { randomInt } = require('node:crypto');
 const { once } = require('node:events');
 const { RtpPacket } = require('werift');
-const { resolveLocalCommand } = require('./local-command');
+const { resolvePackagedFfmpeg } = require('./voice-dependencies');
 
 function pcmRms(buffer) {
   const sampleCount = Math.floor(buffer.length / 2);
@@ -204,7 +204,7 @@ function childExit(child, label, stderrChunks) {
 
 async function createFfmpegRtpDecoder({
   onPcm,
-  ffmpegCommand = 'ffmpeg',
+  ffmpegCommand = resolvePackagedFfmpeg(),
   spawnProcess = spawn,
   payloadType = 111,
 } = {}) {
@@ -212,9 +212,7 @@ async function createFfmpegRtpDecoder({
   const port = await allocateUdpPort();
   const sender = dgram.createSocket('udp4');
   const stderrChunks = [];
-  const command = spawnProcess === spawn
-    ? resolveLocalCommand(ffmpegCommand)
-    : ffmpegCommand;
+  const command = ffmpegCommand;
   const child = spawnProcess(command, [
     '-hide_banner', '-loglevel', 'error',
     '-protocol_whitelist', 'file,pipe,udp,rtp',
@@ -268,7 +266,7 @@ async function createFfmpegRtpDecoder({
 
 async function createFfmpegRtpPlayer({
   track,
-  ffmpegCommand = 'ffmpeg',
+  ffmpegCommand = resolvePackagedFfmpeg(),
   spawnProcess = spawn,
   payloadType = 111,
 } = {}) {
@@ -279,7 +277,10 @@ async function createFfmpegRtpPlayer({
   const port = receiver.address().port;
   let sequenceNumber = randomInt(0x10000);
   let timestamp = randomInt(0x100000000);
-  const ssrc = randomInt(1, 0x100000000);
+  // FFmpeg 6's RTP muxer accepts SSRC as a signed 32-bit option even though
+  // RTP serializes it as uint32. Staying in the positive signed range keeps
+  // the packaged binary and newer system builds interoperable.
+  const ssrc = randomInt(1, 0x80000000);
   let currentJob = null;
   let activeIterator = null;
   let activeCancel = null;
@@ -349,16 +350,19 @@ async function createFfmpegRtpPlayer({
 
   function startEncoder(sampleRate) {
     const stderrChunks = [];
-    const sourceSsrc = randomInt(1, 0x100000000);
-    const command = spawnProcess === spawn
-      ? resolveLocalCommand(ffmpegCommand)
-      : ffmpegCommand;
+    const sourceSsrc = randomInt(1, 0x80000000);
+    const command = ffmpegCommand;
     const child = spawnProcess(command, [
       '-hide_banner', '-loglevel', 'error',
       '-re',
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
+      '-probesize', '32',
+      '-analyzeduration', '0',
       '-f', 'f32le',
       '-ac', '1',
       '-ar', String(sampleRate),
+      '-blocksize', '4096',
       '-i', 'pipe:0',
       '-ac', '2',
       '-ar', '48000',

@@ -426,22 +426,24 @@ spoken directly through Kokoro. When the model includes a brief acknowledgement
 with a tool call, Kokoro speaks it before the handoff. Calling the tool hands
 the request to the preset's normal Codex model and tool loop.
 
-Configure Whisper and Kokoro, then enable routing for Codex's built-in Voice
-Chat button:
-
-The local transport requires `ffmpeg`, `whisper-cli`, and a whisper.cpp model.
-On macOS, Homebrew-installed commands are discovered even when the background
-service has launchd's restricted `PATH`.
+The npm package supplies FFmpeg, Transformers.js Whisper, ONNX Runtime, Kokoro,
+and the Kokoro voice files. It does not depend on a system `ffmpeg`,
+`whisper-cli`, Python environment, or Homebrew. Speech model weights are
+downloaded once into `~/.codex/codex-universal-proxy/voice-models` and reused
+offline afterward.
 
 ```bash
-codex-universal-proxy voice \
-  --whisper-command whisper-cli \
-  --whisper-model "/absolute/path/to/ggml-base.en.bin" \
-  --kokoro-voice af_heart \
-  --kokoro-dtype q8
+# Download, cache, and verify both speech models and packaged FFmpeg.
+codex-universal-proxy voice --setup
 
+# Setup is also performed automatically here when needed.
 codex-universal-proxy voice --enable
 ```
+
+Use `voice --doctor` to repeat the complete runtime check. Both commands verify
+the packaged FFmpeg `libopus` encoder, run a Whisper inference probe, and
+synthesize a short Kokoro phrase. `voice --enable --no-setup` is available for
+configuration-only automation that deliberately performs preflight separately.
 
 Enabling voice writes these user-level Codex settings using the active proxy
 port:
@@ -462,7 +464,7 @@ configuration.
 The built-in button then uses this pipeline:
 
 ```text
-WebRTC microphone -> ffmpeg/Opus -> Whisper -> voice_model or task's active model
+WebRTC microphone -> packaged FFmpeg/Opus -> packaged Whisper -> voice_model or task's active model
   -> direct response -> Kokoro -> WebRTC speaker
   or
   -> delegate_to_codex -> preset default_model /v1/responses
@@ -473,13 +475,60 @@ Voice handoff turns receive an extra developer instruction asking the selected
 model to speak briefly before tools and to always provide a concise spoken
 result afterward. Normal Responses requests are unchanged.
 
-Inspect or change the speech configuration:
+Inspect the current conversational, transcription, and synthesis settings:
 
 ```bash
 codex-universal-proxy voice --status
-codex-universal-proxy voice --kokoro-model "onnx-community/Kokoro-82M-v1.0-ONNX"
-codex-universal-proxy voice --kokoro-device cpu --kokoro-speed 1.1
 ```
+
+The conversational model is selected independently from the speech models.
+Set `--voice-model` when creating or updating a preset to dedicate a model to
+voice coordination. The voice model must also occur in that preset's
+`--models` list:
+
+```bash
+codex-universal-proxy preset add local-voice \
+  --url "http://127.0.0.1:11434/v1" \
+  --models "qwen3-coder,qwen3:8b" \
+  --default-model "qwen3-coder" \
+  --voice-model "qwen3:8b"
+```
+
+Leave the preset's `voice_model` empty to follow the model actively serving the
+same Codex task. Before that task has sent a completion, voice uses the preset's
+default model. In both cases the coordinator requests the model's lowest
+catalogued reasoning effort, or sends no reasoning effort when the catalog does
+not declare one.
+
+Choose and preflight the Whisper speech-to-text model:
+
+```bash
+codex-universal-proxy voice \
+  --whisper-model "onnx-community/whisper-base.en" \
+  --whisper-dtype q8 \
+  --whisper-device cpu \
+  --setup
+```
+
+`--whisper-model` must identify a Transformers.js-compatible ONNX Whisper
+repository. Legacy GGML `.bin` files and `whisper-cli` models are not supported
+by the packaged in-process runtime.
+
+Choose and preflight the Kokoro text-to-speech model and speaker voice:
+
+```bash
+codex-universal-proxy voice \
+  --kokoro-model "onnx-community/Kokoro-82M-v1.0-ONNX" \
+  --kokoro-voice "af_heart" \
+  --kokoro-dtype q8 \
+  --kokoro-device cpu \
+  --kokoro-speed 1.1 \
+  --setup
+```
+
+The selected speaker name must exist in the selected Kokoro model. `--setup`
+downloads any newly selected model files into the managed voice cache and runs
+real transcription and synthesis probes before saving the configuration.
 
 Choose how speech playback is interrupted:
 

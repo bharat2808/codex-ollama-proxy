@@ -13,6 +13,8 @@ const launcherState = require('./launcher-state');
 const runtimePaths = require('./runtime-paths');
 const branding = require('./branding');
 const { requireVerifiedProxyListeners } = require('./process-lifecycle');
+const { voiceModelCacheDirectory } = require('./voice-agent/voice-dependencies');
+const { prepareVoiceRuntime } = require('./voice-agent/voice-setup');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const HOME_DIR = runtimePaths.homeDir();
@@ -75,11 +77,13 @@ function usage() {
   codex-universal-proxy imagine [--enhance|--no-enhance] [--aspect-ratio RATIO]
   codex-universal-proxy imagine --status
   codex-universal-proxy imagine --doctor
-  codex-universal-proxy voice [--enable|--disable] [--whisper-command COMMAND] [--whisper-model PATH]
+  codex-universal-proxy voice [--enable|--disable] [--whisper-model MODEL] [--whisper-dtype DTYPE] [--whisper-device DEVICE]
   codex-universal-proxy voice [--kokoro-model MODEL] [--kokoro-voice VOICE]
                               [--kokoro-dtype DTYPE] [--kokoro-device DEVICE] [--kokoro-speed SPEED]
                               [--interruption-mode vad|manual] [--interruption-key right-command|none]
   codex-universal-proxy voice --interrupt
+  codex-universal-proxy voice --setup
+  codex-universal-proxy voice --doctor
   codex-universal-proxy voice --status`);
 }
 
@@ -266,7 +270,7 @@ function parseFlags(argv) {
     const eq = arg.indexOf('=');
     const key = (eq >= 0 ? arg.slice(2, eq) : arg.slice(2)).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     if (eq >= 0) flags[key] = arg.slice(eq + 1);
-    else if (['force', 'auto-image', 'no-auto-image', 'persist-images', 'no-persist-images', 'dedupe-large-input', 'no-dedupe-large-input', 'verbose-tools', 'no-verbose-tools', 'log-upstream-body', 'no-log-upstream-body', 'enable-find-skill', 'no-enable-find-skill', 'stream-loop', 'no-stream-loop', 'imagine-enable', 'imagine-disable', 'imagine-enhance', 'imagine-no-enhance', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'status', 'interrupt', 'no-refresh', 'no-backup', 'no-start', 'replace', 'no-replace', 'foreground'].includes(arg.slice(2))) flags[key] = true;
+    else if (['force', 'auto-image', 'no-auto-image', 'persist-images', 'no-persist-images', 'dedupe-large-input', 'no-dedupe-large-input', 'verbose-tools', 'no-verbose-tools', 'log-upstream-body', 'no-log-upstream-body', 'enable-find-skill', 'no-enable-find-skill', 'stream-loop', 'no-stream-loop', 'imagine-enable', 'imagine-disable', 'imagine-enhance', 'imagine-no-enhance', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'setup', 'no-setup', 'status', 'interrupt', 'no-refresh', 'no-backup', 'no-start', 'replace', 'no-replace', 'foreground'].includes(arg.slice(2))) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { flags, rest };
@@ -1166,8 +1170,9 @@ async function voiceCmd(flags) {
     die('Error: --enable and --disable cannot be used together.');
   }
   for (const [flag, display] of [
-    ['whisperCommand', '--whisper-command'],
     ['whisperModel', '--whisper-model'],
+    ['whisperDtype', '--whisper-dtype'],
+    ['whisperDevice', '--whisper-device'],
     ['kokoroModel', '--kokoro-model'],
     ['kokoroVoice', '--kokoro-voice'],
     ['kokoroDtype', '--kokoro-dtype'],
@@ -1196,8 +1201,9 @@ async function voiceCmd(flags) {
     }
     updates.interruption_key = key;
   }
-  if (flags.whisperCommand !== undefined) updates.whisper_command = String(flags.whisperCommand);
   if (flags.whisperModel !== undefined) updates.whisper_model = String(flags.whisperModel);
+  if (flags.whisperDtype !== undefined) updates.whisper_dtype = String(flags.whisperDtype);
+  if (flags.whisperDevice !== undefined) updates.whisper_device = String(flags.whisperDevice);
   if (flags.kokoroModel !== undefined) updates.kokoro_model = String(flags.kokoroModel);
   if (flags.kokoroVoice !== undefined) updates.kokoro_voice = String(flags.kokoroVoice);
   if (flags.kokoroDtype !== undefined) updates.kokoro_dtype = String(flags.kokoroDtype);
@@ -1211,11 +1217,24 @@ async function voiceCmd(flags) {
   }
 
   let next = { ...current, ...updates };
+  const setupRequested = flags.setup || flags.doctor;
+  if (setupRequested || (flags.enable && !flags.noSetup)) {
+    console.log(`voice_models=${voiceModelCacheDirectory(CODEX_DIR)}`);
+    const ready = await prepareVoiceRuntime({
+      config: next,
+      cacheDir: voiceModelCacheDirectory(CODEX_DIR),
+    });
+    console.log(`ffmpeg=${ready.ffmpeg}`);
+    console.log(`whisper_model=${ready.whisperModel}`);
+    console.log(`kokoro_model=${ready.kokoroModel}`);
+    console.log('voice_runtime=ready');
+    if (setupRequested && !flags.enable) {
+      if (flags.setup) voiceConfig.write(VOICE_CONFIG, next);
+      return;
+    }
+  }
   let codexChanged = false;
   if (flags.enable) {
-    if (!next.whisper_model) {
-      die('Error: --enable requires a configured Whisper model. Pass --whisper-model PATH.');
-    }
     const baseUrl = realtimeProxyBaseUrl();
     const restore = ownsVoiceRouting(current)
       ? {}

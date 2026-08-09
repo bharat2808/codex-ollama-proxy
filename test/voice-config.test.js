@@ -45,7 +45,7 @@ function fixture() {
   };
 }
 
-test('init creates a private voice configuration with local Whisper and Kokoro defaults', () => {
+test('init creates a private self-contained voice configuration', () => {
   const f = fixture();
   try {
     const result = f.run(['init']);
@@ -54,8 +54,10 @@ test('init creates a private voice configuration with local Whisper and Kokoro d
     assert.match(config, /^voice_enabled = false$/m);
     assert.match(config, /^interruption_mode = "vad"$/m);
     assert.match(config, /^interruption_key = "right-command"$/m);
-    assert.match(config, /^whisper_command = "whisper-cli"$/m);
-    assert.match(config, /^whisper_model = ""$/m);
+    assert.doesNotMatch(config, /^whisper_command\s*=/m);
+    assert.match(config, /^whisper_model = "onnx-community\/whisper-base\.en"$/m);
+    assert.match(config, /^whisper_dtype = "q8"$/m);
+    assert.match(config, /^whisper_device = "cpu"$/m);
     assert.match(config, /^kokoro_model = "onnx-community\/Kokoro-82M-v1\.0-ONNX"$/m);
     assert.match(config, /^kokoro_voice = "af_heart"$/m);
     assert.match(config, /^kokoro_dtype = "q8"$/m);
@@ -74,8 +76,9 @@ test('voice command updates speech settings and reports them without changing Co
     fs.writeFileSync(f.codexConfig, 'sandbox_mode = "danger-full-access"\n', 'utf8');
     const result = f.run([
       'voice',
-      '--whisper-command', '/opt/local/bin/whisper-cli',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--whisper-model', 'local/whisper',
+      '--whisper-dtype', 'fp32',
+      '--whisper-device', 'cpu',
       '--kokoro-model', 'local/kokoro',
       '--kokoro-voice', 'bf_emma',
       '--kokoro-dtype', 'fp32',
@@ -90,8 +93,8 @@ test('voice command updates speech settings and reports them without changing Co
     const status = f.run(['voice', '--status']);
     assert.equal(status.status, 0, status.stderr || status.stdout);
     assert.match(status.stdout, /voice_enabled = false/u);
-    assert.match(status.stdout, /whisper_command = "\/opt\/local\/bin\/whisper-cli"/u);
-    assert.match(status.stdout, /whisper_model = "\/models\/ggml-base\.en\.bin"/u);
+    assert.match(status.stdout, /whisper_model = "local\/whisper"/u);
+    assert.match(status.stdout, /whisper_dtype = "fp32"/u);
     assert.match(status.stdout, /kokoro_voice = "bf_emma"/u);
     assert.match(status.stdout, /kokoro_speed = 1\.15/u);
     assert.match(status.stdout, /interruption_mode = "manual"/u);
@@ -139,7 +142,7 @@ test('voice enable points Codex WebRTC call creation and sideband traffic at the
     const result = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
     assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -175,7 +178,7 @@ test('voice enable allows the active completion model when voice_model is empty'
     const result = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
 
@@ -203,7 +206,7 @@ test('voice enable routes Codex handoffs through the configured active preset wi
     const result = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
 
@@ -237,7 +240,7 @@ test('switch openai releases proxy-owned model and voice routing without changin
     const enabled = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
     assert.equal(enabled.status, 0, enabled.stderr || enabled.stdout);
@@ -282,7 +285,7 @@ test('voice disable restores pre-existing Codex Realtime endpoints without distu
     const enabled = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
     assert.equal(enabled.status, 0, enabled.stderr || enabled.stdout);
@@ -341,7 +344,7 @@ test('voice routing preserves quoted TOML feature tables without creating a dupl
     const enabled = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
     assert.equal(enabled.status, 0, enabled.stderr || enabled.stdout);
@@ -370,7 +373,7 @@ test('install completes an interrupted voice disable before attempting service i
     const enabled = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
     assert.equal(enabled.status, 0, enabled.stderr || enabled.stdout);
@@ -406,7 +409,7 @@ test('install completes an interrupted voice enable before attempting service in
     const enabled = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
     assert.equal(enabled.status, 0, enabled.stderr || enabled.stdout);
@@ -443,7 +446,7 @@ test('install reapplies enabled voice routing when the saved proxy port changes'
     const enabled = f.run([
       'voice',
       '--enable',
-      '--whisper-model', '/models/ggml-base.en.bin',
+      '--no-setup',
       '--no-start',
     ]);
     assert.equal(enabled.status, 0, enabled.stderr || enabled.stdout);

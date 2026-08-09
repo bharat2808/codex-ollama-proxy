@@ -7,26 +7,32 @@ const {
   transcribeAudio,
 } = require('../src/voice-agent/local-speech');
 
-test('local transcription invokes Whisper with the selected model', async () => {
+test('local transcription runs packaged Whisper on PCM without an external command', async () => {
   const calls = [];
   const transcript = await transcribeAudio({
-    audioPath: '/tmp/input.wav',
-    modelPath: '/models/ggml-base.en.bin',
-    run: async (command, args) => {
-      calls.push({ command, args });
-      return { stdout: '  check the build please  \n' };
+    pcm: Buffer.from([0x00, 0x80, 0xff, 0x7f]),
+    sampleRate: 16000,
+    modelId: 'onnx-community/whisper-base.en',
+    cacheDir: '/voice-models',
+    loadPipeline: async (options) => {
+      calls.push(options);
+      return async (audio) => {
+        calls.push(audio);
+        return { text: '  check the build please  ' };
+      };
     },
   });
 
-  assert.deepEqual(calls, [{
-    command: 'whisper-cli',
-    args: [
-      '--model', '/models/ggml-base.en.bin',
-      '--file', '/tmp/input.wav',
-      '--no-timestamps',
-      '--no-prints',
-    ],
-  }]);
+  assert.deepEqual(calls[0], {
+    modelId: 'onnx-community/whisper-base.en',
+    cacheDir: '/voice-models',
+    dtype: 'q8',
+    device: 'cpu',
+  });
+  assert.equal(calls[1] instanceof Float32Array, true);
+  assert.equal(calls[1].length, 2);
+  assert.equal(calls[1][0], -1);
+  assert.ok(calls[1][1] > 0.999 && calls[1][1] <= 1);
   assert.equal(transcript, 'check the build please');
 });
 

@@ -9,8 +9,9 @@ const DEFAULTS = {
   interruption_mode: 'vad',
   interruption_key: 'right-command',
   routing_state: 'disabled',
-  whisper_command: 'whisper-cli',
-  whisper_model: '',
+  whisper_model: 'onnx-community/whisper-base.en',
+  whisper_dtype: 'q8',
+  whisper_device: 'cpu',
   kokoro_model: 'onnx-community/Kokoro-82M-v1.0-ONNX',
   kokoro_voice: 'af_heart',
   kokoro_dtype: 'q8',
@@ -29,8 +30,9 @@ const PUBLIC_FIELDS = [
   'voice_enabled',
   'interruption_mode',
   'interruption_key',
-  'whisper_command',
   'whisper_model',
+  'whisper_dtype',
+  'whisper_device',
   'kokoro_model',
   'kokoro_voice',
   'kokoro_dtype',
@@ -41,8 +43,9 @@ const PUBLIC_FIELDS = [
 const STRING_FIELDS = [
   'interruption_mode',
   'interruption_key',
-  'whisper_command',
   'whisper_model',
+  'whisper_dtype',
+  'whisper_device',
   'kokoro_model',
   'kokoro_voice',
   'kokoro_dtype',
@@ -95,8 +98,9 @@ function render(raw = {}) {
     `voice_enabled = ${config.voice_enabled ? 'true' : 'false'}`,
     `interruption_mode = "${escapeTomlString(config.interruption_mode)}"`,
     `interruption_key = "${escapeTomlString(config.interruption_key)}"`,
-    `whisper_command = "${escapeTomlString(config.whisper_command)}"`,
     `whisper_model = "${escapeTomlString(config.whisper_model)}"`,
+    `whisper_dtype = "${escapeTomlString(config.whisper_dtype)}"`,
+    `whisper_device = "${escapeTomlString(config.whisper_device)}"`,
     `kokoro_model = "${escapeTomlString(config.kokoro_model)}"`,
     `kokoro_voice = "${escapeTomlString(config.kokoro_voice)}"`,
     `kokoro_dtype = "${escapeTomlString(config.kokoro_dtype)}"`,
@@ -121,6 +125,7 @@ function read(file) {
   const text = fs.readFileSync(file, 'utf8');
   const values = {};
   for (const key of STRING_FIELDS) values[key] = readTomlString(text, key, DEFAULTS[key]);
+  if (/\.bin$/iu.test(values.whisper_model)) values.whisper_model = DEFAULTS.whisper_model;
   for (const key of BOOL_FIELDS) values[key] = readTomlBool(text, key, DEFAULTS[key]);
   values.kokoro_speed = readTomlNumber(text, 'kokoro_speed', DEFAULTS.kokoro_speed);
   return normalize(values);

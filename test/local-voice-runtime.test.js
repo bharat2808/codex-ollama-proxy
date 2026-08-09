@@ -4,21 +4,18 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { createLocalVoiceRuntime } = require('../src/voice-agent/local-voice-runtime');
 
-test('local voice runtime passes current Whisper configuration and cleans up its WAV', async () => {
-  const writes = [];
-  const removed = [];
+test('local voice runtime passes PCM to packaged Whisper with the managed model cache', async () => {
   const calls = [];
   const runtime = createLocalVoiceRuntime({
     configFile: '/config/voice.toml',
+    modelCacheDir: '/managed/voice-models',
     readConfig() {
       return {
-        whisper_command: '/bin/whisper-cli',
-        whisper_model: '/models/base.bin',
+        whisper_model: 'onnx-community/whisper-base.en',
+        whisper_dtype: 'q8',
+        whisper_device: 'cpu',
       };
     },
-    allocatePath: () => '/tmp/input.wav',
-    writeFile: async (file, data) => writes.push([file, data]),
-    unlink: async (file) => removed.push(file),
     transcribe: async (options) => {
       calls.push(options);
       return 'hello Codex';
@@ -31,21 +28,21 @@ test('local voice runtime passes current Whisper configuration and cleans up its
   );
 
   assert.equal(result, 'hello Codex');
-  assert.equal(writes[0][0], '/tmp/input.wav');
-  assert.equal(writes[0][1].subarray(0, 4).toString('ascii'), 'RIFF');
-  assert.equal(writes[0][1].readUInt32LE(24), 24000);
   assert.deepEqual(calls, [{
-    audioPath: '/tmp/input.wav',
-    modelPath: '/models/base.bin',
-    whisperCommand: '/bin/whisper-cli',
+    pcm: Buffer.from([1, 0, 2, 0]),
+    sampleRate: 24000,
+    modelId: 'onnx-community/whisper-base.en',
+    cacheDir: '/managed/voice-models',
+    dtype: 'q8',
+    device: 'cpu',
   }]);
-  assert.deepEqual(removed, ['/tmp/input.wav']);
 });
 
 test('local voice runtime streams Kokoro sentence PCM using current configuration', async () => {
   const calls = [];
   const runtime = createLocalVoiceRuntime({
     configFile: '/config/voice.toml',
+    modelCacheDir: '/managed/voice-models',
     readConfig() {
       return {
         kokoro_model: 'local/kokoro',
@@ -70,6 +67,7 @@ test('local voice runtime streams Kokoro sentence PCM using current configuratio
   assert.deepEqual(chunks.map((chunk) => chunk.pcm.toString()), ['first', 'second']);
   assert.deepEqual(calls, [{
     text: 'First. Second.',
+    cacheDir: '/managed/voice-models',
     modelId: 'local/kokoro',
     voice: 'bf_emma',
     dtype: 'fp32',
@@ -78,19 +76,15 @@ test('local voice runtime streams Kokoro sentence PCM using current configuratio
   }]);
 });
 
-test('local voice runtime still removes temporary files when speech tools fail', async () => {
-  const removed = [];
+test('local voice runtime surfaces packaged Whisper failures', async () => {
   const runtime = createLocalVoiceRuntime({
     configFile: '/config/voice.toml',
-    readConfig: () => ({ whisper_model: '/models/base.bin' }),
-    allocatePath: () => '/tmp/input.wav',
-    writeFile: async () => {},
-    unlink: async (file) => removed.push(file),
+    modelCacheDir: '/managed/voice-models',
+    readConfig: () => ({ whisper_model: 'onnx-community/whisper-base.en' }),
     transcribe: async () => {
       throw new Error('Whisper failed');
     },
   });
 
   await assert.rejects(runtime.transcribePcm(Buffer.alloc(2)), /Whisper failed/u);
-  assert.deepEqual(removed, ['/tmp/input.wav']);
 });

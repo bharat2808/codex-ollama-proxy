@@ -26,6 +26,7 @@ const {
 } = require('./voice-agent/voice-coordinator');
 const { createWeriftVoicePeer } = require('./voice-agent/werift-voice-peer');
 const { startMacosInterruptionKey } = require('./voice-agent/macos-interruption-key');
+const { voiceModelCacheDirectory } = require('./voice-agent/voice-dependencies');
 const {
   createActiveModelTracker,
   lowestReasoningEffort,
@@ -2006,6 +2007,7 @@ async function decodeRequestBody(body, contentEncoding) {
 
 const localVoiceRuntime = createLocalVoiceRuntime({
   configFile: VOICE_CONFIG_PATH,
+  modelCacheDir: voiceModelCacheDirectory(CODEX_DIR),
 });
 const coordinateVoiceTranscript = createVoiceCoordinator({
   getModel: (context) => resolveVoiceModel({
