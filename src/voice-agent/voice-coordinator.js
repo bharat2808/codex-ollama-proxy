@@ -106,43 +106,127 @@ function speechFrom(response) {
 }
 
 function createPhraseEmitter(onPhrase, {
-  minimumCharacters = 16,
+  initialBufferMs = 500,
+  schedule = setTimeout,
+  cancelSchedule = clearTimeout,
 } = {}) {
   let pending = '';
   let emitted = 0;
+  let windowTimer = null;
+  let windowExpired = false;
+  let queuedPhrase = '';
+  let drainRunning = false;
+  let closed = false;
+  let emissionFailure = null;
+  const idleWaiters = new Set();
 
-  async function emit(text) {
-    const phrase = text.trim();
-    if (!phrase) return;
-    emitted += 1;
-    await onPhrase(phrase);
+  function cancelWindow() {
+    if (windowTimer !== null) cancelSchedule(windowTimer);
+    windowTimer = null;
   }
 
-  async function push(delta) {
-    pending += String(delta || '');
-    for (;;) {
-      const punctuation = pending.match(/^([\s\S]*?[.!?](?:["')\]]+)?)(?=\s|$)/u);
-      const newline = pending.indexOf('\n');
-      if (newline >= 0 && (!punctuation || newline < punctuation[1].length)) {
-        await emit(pending.slice(0, newline));
-        pending = pending.slice(newline + 1).trimStart();
-        continue;
+  function resolveIdleWaiters() {
+    if (drainRunning || queuedPhrase) return;
+    for (const resolve of idleWaiters) resolve();
+    idleWaiters.clear();
+  }
+
+  function waitForIdle() {
+    if (!drainRunning && !queuedPhrase) return Promise.resolve();
+    return new Promise((resolve) => idleWaiters.add(resolve));
+  }
+
+  function appendQueuedPhrase(text) {
+    const phrase = text.trim();
+    if (!phrase || closed) return;
+    queuedPhrase = queuedPhrase
+      ? `${queuedPhrase.trimEnd()} ${phrase}`
+      : phrase;
+    startDrain();
+  }
+
+  async function drainPhrases() {
+    try {
+      while (queuedPhrase && !closed) {
+        const phrase = queuedPhrase;
+        queuedPhrase = '';
+        emitted += 1;
+        await onPhrase(phrase);
       }
-      if (punctuation && punctuation[1].trim().length >= minimumCharacters) {
-        await emit(punctuation[1]);
-        pending = pending.slice(punctuation[1].length).trimStart();
-        continue;
-      }
-      break;
+    } catch (error) {
+      if (!emissionFailure) emissionFailure = error;
+      queuedPhrase = '';
+    } finally {
+      drainRunning = false;
+      if (queuedPhrase && !closed && !emissionFailure) startDrain();
+      else resolveIdleWaiters();
     }
   }
 
+  function startDrain() {
+    if (drainRunning || closed || emissionFailure) return;
+    drainRunning = true;
+    Promise.resolve().then(drainPhrases);
+  }
+
+  function completePrefixEnd(text) {
+    const endings = /[.!?](?:["')\]]+)?(?=\s|$)/gu;
+    let end = 0;
+    for (const match of text.matchAll(endings)) {
+      end = match.index + match[0].length;
+    }
+    return end;
+  }
+
+  function emitPrefix(end) {
+    if (end <= 0) return false;
+    appendQueuedPhrase(pending.slice(0, end));
+    pending = pending.slice(end).trimStart();
+    windowExpired = false;
+    startWindow();
+    return true;
+  }
+
+  function emitCompletePrefix() {
+    return emitPrefix(completePrefixEnd(pending));
+  }
+
+  function startWindow() {
+    if (closed || windowTimer !== null || windowExpired || !pending.trim()) return;
+    windowTimer = schedule(() => {
+      windowTimer = null;
+      windowExpired = true;
+      emitCompletePrefix();
+    }, initialBufferMs);
+  }
+
+  async function push(delta) {
+    if (closed) return;
+    pending += String(delta || '');
+    if (!pending.trim()) return;
+    if (windowExpired) emitCompletePrefix();
+    startWindow();
+  }
+
   async function flush() {
-    await emit(pending);
+    cancelWindow();
+    appendQueuedPhrase(pending);
     pending = '';
+    await waitForIdle();
+    if (emissionFailure) throw emissionFailure;
+    closed = true;
+  }
+
+  function cancel() {
+    cancelWindow();
+    closed = true;
+    pending = '';
+    queuedPhrase = '';
+    resolveIdleWaiters();
   }
 
   return {
+    cancel,
     push,
     flush,
     get emitted() {
@@ -153,6 +237,7 @@ function createPhraseEmitter(onPhrase, {
 
 function createVoiceCoordinator({
   getModel,
+  phraseEmitterOptions,
   requestResponse,
   streamResponse,
 } = {}) {
@@ -192,12 +277,17 @@ function createVoiceCoordinator({
     let phraseEmitter = null;
     let response;
     if (request.stream && typeof streamResponse === 'function') {
-      phraseEmitter = createPhraseEmitter(context.onSpeechPhrase);
-      response = await streamResponse(request, {
-        signal: context.signal,
-        onTextDelta: phraseEmitter.push,
-      });
-      await phraseEmitter.flush();
+      phraseEmitter = createPhraseEmitter(context.onSpeechPhrase, phraseEmitterOptions);
+      try {
+        response = await streamResponse(request, {
+          signal: context.signal,
+          onTextDelta: phraseEmitter.push,
+        });
+        await phraseEmitter.flush();
+      } catch (error) {
+        phraseEmitter.cancel();
+        throw error;
+      }
     } else {
       request.stream = false;
       response = await requestResponse(request, { signal: context.signal });
@@ -249,6 +339,7 @@ function createVoiceCoordinator({
 module.exports = {
   VOICE_TURN_INSTRUCTIONS,
   appendVoiceCoordinatorHistory,
+  createPhraseEmitter,
   createVoiceCoordinator,
   rememberVoiceCoordinatorUpdate,
 };

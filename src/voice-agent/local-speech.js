@@ -52,6 +52,7 @@ async function* streamKokoroAudio({
   text,
   voice = 'af_heart',
   speed = 1,
+  prebufferMs = 4000,
   modelId = 'onnx-community/Kokoro-82M-v1.0-ONNX',
   dtype = 'q8',
   device = 'cpu',
@@ -64,7 +65,11 @@ async function* streamKokoroAudio({
   const generated = tts.stream(splitter, { voice, speed });
   splitter.push(text);
   splitter.close();
-  for await (const chunk of generated) {
+
+  async function nextChunk() {
+    const next = await generated.next();
+    if (next.done) return null;
+    const chunk = next.value;
     const raw = chunk && chunk.audio;
     if (
       !raw
@@ -79,11 +84,26 @@ async function* streamKokoroAudio({
       raw.audio.byteOffset,
       raw.audio.byteLength,
     );
-    yield {
+    return {
       text: String(chunk.text || ''),
       pcm: Buffer.from(pcmView),
       sampleRate: raw.sampling_rate,
     };
+  }
+
+  const buffered = [];
+  let bufferedAudioMs = 0;
+  while (bufferedAudioMs < prebufferMs) {
+    const chunk = await nextChunk();
+    if (!chunk) break;
+    buffered.push(chunk);
+    bufferedAudioMs += chunk.pcm.length / 4 / chunk.sampleRate * 1000;
+  }
+  for (const chunk of buffered) yield chunk;
+  for (;;) {
+    const chunk = await nextChunk();
+    if (!chunk) break;
+    yield chunk;
   }
 }
 

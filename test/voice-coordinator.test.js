@@ -5,8 +5,41 @@ const test = require('node:test');
 
 const {
   appendVoiceCoordinatorHistory,
+  createPhraseEmitter,
   createVoiceCoordinator,
 } = require('../src/voice-agent/voice-coordinator');
+
+function createManualScheduler() {
+  let now = 0;
+  let nextId = 1;
+  const jobs = new Map();
+  return {
+    schedule(callback, delay) {
+      const id = nextId;
+      nextId += 1;
+      jobs.set(id, { callback, due: now + delay });
+      return id;
+    },
+    cancel(id) {
+      jobs.delete(id);
+    },
+    async advance(milliseconds) {
+      const target = now + milliseconds;
+      for (;;) {
+        const next = [...jobs.entries()]
+          .filter(([, job]) => job.due <= target)
+          .sort((left, right) => left[1].due - right[1].due)[0];
+        if (!next) break;
+        const [id, job] = next;
+        jobs.delete(id);
+        now = job.due;
+        await job.callback();
+      }
+      now = target;
+      await Promise.resolve();
+    },
+  };
+}
 
 test('voice coordinator retains the complete in-session history', () => {
   const history = Array.from({ length: 20 }, (_, index) => ({
@@ -207,7 +240,144 @@ test('voice coordinator rejects a model response that neither speaks nor delegat
   );
 });
 
+test('phrase emitter batches every complete sentence received during the initial 500 ms', async () => {
+  const scheduler = createManualScheduler();
+  const phrases = [];
+  const emitter = createPhraseEmitter(async (text) => phrases.push(text), {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  });
+
+  await emitter.push('Hello! ');
+  await scheduler.advance(300);
+  await emitter.push('I am good. How are');
+  await scheduler.advance(199);
+  assert.deepEqual(phrases, []);
+
+  await scheduler.advance(1);
+  assert.deepEqual(phrases, ['Hello! I am good.']);
+
+  await emitter.push(' you?');
+  await scheduler.advance(499);
+  assert.deepEqual(phrases, ['Hello! I am good.']);
+  await scheduler.advance(1);
+  assert.deepEqual(phrases, ['Hello! I am good.', 'How are you?']);
+  await emitter.flush();
+});
+
+test('phrase emitter waits past 500 ms for a complete sentence then starts a new window', async () => {
+  const scheduler = createManualScheduler();
+  const phrases = [];
+  const emitter = createPhraseEmitter(async (text) => phrases.push(text), {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  });
+
+  await emitter.push('Hello, I am currently');
+  await scheduler.advance(500);
+  assert.deepEqual(phrases, []);
+
+  await emitter.push(' doing well.');
+  await Promise.resolve();
+  assert.deepEqual(phrases, ['Hello, I am currently doing well.']);
+
+  await emitter.push(' Next one. ');
+  await scheduler.advance(300);
+  await emitter.push('And another.');
+  await scheduler.advance(199);
+  assert.deepEqual(phrases, ['Hello, I am currently doing well.']);
+  await scheduler.advance(1);
+  assert.deepEqual(phrases, [
+    'Hello, I am currently doing well.',
+    'Next one. And another.',
+  ]);
+  await emitter.flush();
+});
+
+test('phrase emitter does not treat a markdown newline as a standalone sentence', async () => {
+  const scheduler = createManualScheduler();
+  const phrases = [];
+  const emitter = createPhraseEmitter(async (text) => phrases.push(text), {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  });
+
+  await emitter.push('# Summary\n');
+  await scheduler.advance(500);
+  assert.deepEqual(phrases, []);
+
+  await emitter.push('Everything is working.');
+  await Promise.resolve();
+  assert.deepEqual(phrases, ['# Summary\nEverything is working.']);
+  await emitter.flush();
+});
+
+test('phrase emitter coalesces released windows while the previous batch is playing', async () => {
+  const scheduler = createManualScheduler();
+  const started = [];
+  let releaseFirst;
+  const firstPlayback = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const emitter = createPhraseEmitter(async (text) => {
+    started.push(text);
+    if (started.length === 1) await firstPlayback;
+  }, {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  });
+
+  await emitter.push('First sentence.');
+  await scheduler.advance(500);
+  assert.deepEqual(started, ['First sentence.']);
+
+  await emitter.push('Second sentence.');
+  await scheduler.advance(500);
+  await emitter.push('Third sentence.');
+  await scheduler.advance(500);
+  assert.deepEqual(started, ['First sentence.']);
+
+  releaseFirst();
+  await emitter.flush();
+  assert.deepEqual(started, [
+    'First sentence.',
+    'Second sentence. Third sentence.',
+  ]);
+});
+
+test('phrase emitter folds stream completion into the mutable next batch', async () => {
+  const scheduler = createManualScheduler();
+  const started = [];
+  let releaseFirst;
+  const firstPlayback = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const emitter = createPhraseEmitter(async (text) => {
+    started.push(text);
+    if (started.length === 1) await firstPlayback;
+  }, {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  });
+
+  await emitter.push('First sentence.');
+  await scheduler.advance(500);
+  await emitter.push('Second sentence. Final partial response');
+  await scheduler.advance(500);
+  const finished = emitter.flush();
+  await Promise.resolve();
+  assert.deepEqual(started, ['First sentence.']);
+
+  releaseFirst();
+  await finished;
+  assert.deepEqual(started, [
+    'First sentence.',
+    'Second sentence. Final partial response',
+  ]);
+});
+
 test('voice coordinator streams complete phrases before the model response finishes', async () => {
+  const scheduler = createManualScheduler();
   const phrases = [];
   let releaseResponse;
   let deltaDelivered;
@@ -219,6 +389,10 @@ test('voice coordinator streams complete phrases before the model response finis
   });
   const coordinate = createVoiceCoordinator({
     getModel: () => 'qwen3:8b',
+    phraseEmitterOptions: {
+      schedule: scheduler.schedule,
+      cancelSchedule: scheduler.cancel,
+    },
     requestResponse: async () => {
       throw new Error('non-streaming request must not run');
     },
@@ -244,6 +418,9 @@ test('voice coordinator streams complete phrases before the model response finis
     onSpeechPhrase: async (text) => phrases.push(text),
   });
   await firstDelta;
+  assert.deepEqual(phrases, []);
+
+  await scheduler.advance(500);
   assert.deepEqual(phrases, ['I can help with that.']);
 
   releaseResponse();
@@ -258,6 +435,83 @@ test('voice coordinator streams complete phrases before the model response finis
   ]);
 });
 
+test('voice coordinator keeps consuming model deltas while earlier speech is playing', async () => {
+  const scheduler = createManualScheduler();
+  let releasePlayback;
+  const playbackGate = new Promise((resolve) => {
+    releasePlayback = resolve;
+  });
+  let modelContinued;
+  const continued = new Promise((resolve) => {
+    modelContinued = resolve;
+  });
+  const coordinate = createVoiceCoordinator({
+    getModel: () => 'qwen3:8b',
+    phraseEmitterOptions: {
+      schedule: scheduler.schedule,
+      cancelSchedule: scheduler.cancel,
+    },
+    requestResponse: async () => {
+      throw new Error('non-streaming request must not run');
+    },
+    streamResponse: async (_body, { onTextDelta }) => {
+      await onTextDelta('This is the first sentence. ');
+      await scheduler.advance(500);
+      await onTextDelta('This is the second sentence.');
+      modelContinued();
+      return {
+        output_text: 'This is the first sentence. This is the second sentence.',
+      };
+    },
+  });
+
+  const resultPromise = coordinate('hello', {
+    onSpeechPhrase: async () => playbackGate,
+  });
+  await Promise.race([
+    continued,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('model stream waited for speech playback')), 100);
+    }),
+  ]);
+  releasePlayback();
+
+  assert.deepEqual(await resultPromise, {
+    action: 'speak',
+    text: 'This is the first sentence. This is the second sentence.',
+    streamed: true,
+  });
+});
+
+test('voice coordinator cancels buffered speech when the model stream fails', async () => {
+  const scheduler = createManualScheduler();
+  const phrases = [];
+  const coordinate = createVoiceCoordinator({
+    getModel: () => 'qwen3:8b',
+    phraseEmitterOptions: {
+      schedule: scheduler.schedule,
+      cancelSchedule: scheduler.cancel,
+    },
+    requestResponse: async () => {
+      throw new Error('non-streaming request must not run');
+    },
+    streamResponse: async (_body, { onTextDelta }) => {
+      await onTextDelta('This response never finishes');
+      throw new Error('stream disconnected');
+    },
+  });
+
+  await assert.rejects(
+    coordinate('hello', {
+      onSpeechPhrase: async (text) => phrases.push(text),
+    }),
+    /stream disconnected/u,
+  );
+  await scheduler.advance(1200);
+
+  assert.deepEqual(phrases, []);
+});
+
 test('voice coordinator does not force incomplete long deltas into speech', async () => {
   const phrases = [];
   let inspectBufferedDelta;
@@ -268,7 +522,7 @@ test('voice coordinator does not force incomplete long deltas into speech', asyn
   const remainderGate = new Promise((resolve) => {
     releaseRemainder = resolve;
   });
-  const incomplete = `This is one continuous thought ${'without a safe boundary '.repeat(7)}`;
+  const incomplete = `This is one continuous thought ${'without a safe boundary '.repeat(3)}`;
   const complete = `${incomplete}until this full line is completed.`;
   const coordinate = createVoiceCoordinator({
     getModel: () => 'qwen3:8b',

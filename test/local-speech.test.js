@@ -37,6 +37,7 @@ test('Kokoro streaming yields sentence PCM before the complete text finishes', a
   });
   const stream = streamKokoroAudio({
     text: 'First sentence. Second sentence.',
+    prebufferMs: 0,
     voice: 'af_heart',
     speed: 1.1,
     loadModel: async () => ({
@@ -68,4 +69,35 @@ test('Kokoro streaming yields sentence PCM before the complete text finishes', a
   const remaining = [];
   for await (const chunk of stream) remaining.push(chunk.text);
   assert.deepEqual(remaining, ['Second sentence.']);
+});
+
+test('Kokoro streaming builds an audio reserve before playback starts', async () => {
+  let produced = 0;
+  const stream = streamKokoroAudio({
+    text: 'Short sentence. Much longer sentence.',
+    prebufferMs: 3000,
+    loadModel: async () => ({
+      async *stream(sentences) {
+        for await (const sentence of sentences) {
+          produced += 1;
+          const seconds = produced === 1 ? 1 : 3;
+          yield {
+            text: sentence,
+            audio: {
+              audio: new Float32Array(24000 * seconds),
+              sampling_rate: 24000,
+            },
+          };
+        }
+      },
+    }),
+  });
+
+  const first = await stream.next();
+
+  assert.equal(first.done, false);
+  assert.equal(first.value.text, 'Short sentence.');
+  assert.equal(produced, 2, 'playback must not start with only one second reserved');
+  const second = await stream.next();
+  assert.equal(second.value.text, 'Much longer sentence.');
 });
