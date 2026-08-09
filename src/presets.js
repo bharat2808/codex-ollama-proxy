@@ -130,7 +130,8 @@ function normalizePreset(name, text) {
   }
   // image_model is a derived shorthand: if not explicitly set, mirror
   // default_model so a single --model/--text-model is enough (matches `switch
-  // ollama --model`). voice_model is validated when local voice is enabled.
+  // ollama --model`). voice_model is optional; local voice falls back to the
+  // active model for the matching Codex task when it is empty.
   if (!values.models.includes(values.default_model)) die(`Error: preset ${name} default_model must occur in models.`);
   if (values.voice_model && !values.models.includes(values.voice_model)) die(`Error: preset ${name} voice_model must occur in models.`);
   if (values.image_model && !values.models.includes(values.image_model)) die(`Error: preset ${name} image_model must occur in models.`);

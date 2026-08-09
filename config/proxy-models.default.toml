@@ -3,7 +3,8 @@
 #
 # models      : ordered models explicitly included in discovery/catalog.
 # default_model: model Codex preselects for a new thread.
-# voice_model : conversational coordinator required when local voice is enabled.
+# voice_model : optional conversational coordinator. When empty, voice follows
+#               the model most recently routed for the same Codex task.
 # image_model : model the proxy rewrites the request to when a message contains
 #               an input_image content block. Must be vision-capable in the catalog
 #               (codex-universal-models.json input_modalities includes "image").

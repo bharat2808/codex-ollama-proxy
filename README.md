@@ -403,8 +403,12 @@ The proxy uses Codex's existing `generate_image` tool. It does not inspect ordin
 
 ## Local Voice Configuration
 
-The active provider preset owns the conversational `voice_model`.
-Whisper and Kokoro remain in the separate speech configuration.
+The active provider preset can optionally own a conversational `voice_model`.
+When it is empty, voice uses the model most recently routed for the same Codex
+task, or the preset default before that task has made a completion request.
+Whisper and Kokoro remain in the separate speech configuration. The coordinator
+uses the model's lowest catalogued reasoning effort and omits reasoning when no
+supported effort is known.
 
 To let a lightweight model handle conversation and decide when Codex work is
 needed, include both models in the preset:
@@ -420,8 +424,7 @@ codex-universal-proxy preset add local-voice \
 The voice model receives one tool, `delegate_to_codex`. Plain model text is
 spoken directly through Kokoro. When the model includes a brief acknowledgement
 with a tool call, Kokoro speaks it before the handoff. Calling the tool hands
-the request to the preset's normal Codex model and tool loop. Voice cannot be
-enabled until the active preset has a `voice_model`.
+the request to the preset's normal Codex model and tool loop.
 
 Configure Whisper and Kokoro, then enable routing for Codex's built-in Voice
 Chat button:
@@ -459,7 +462,7 @@ configuration.
 The built-in button then uses this pipeline:
 
 ```text
-WebRTC microphone -> ffmpeg/Opus -> Whisper -> preset voice_model
+WebRTC microphone -> ffmpeg/Opus -> Whisper -> voice_model or task's active model
   -> direct response -> Kokoro -> WebRTC speaker
   or
   -> delegate_to_codex -> preset default_model /v1/responses

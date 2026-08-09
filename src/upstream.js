@@ -48,6 +48,18 @@ function authHeaders(upstream) {
   return upstream && upstream.apiKey ? { authorization: 'Bearer ' + upstream.apiKey } : {};
 }
 
+function responsesInputItems(input) {
+  if (Array.isArray(input)) return [...input];
+  if (typeof input === 'string') {
+    return [{
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: input }],
+    }];
+  }
+  return input == null ? [] : [input];
+}
+
 function requestJson(upstream, body, {
   signal,
 } = {}) {
@@ -182,6 +194,7 @@ module.exports = {
   createUpstream,
   displayUrl,
   requestJson,
+  responsesInputItems,
   streamResponse,
   responsesUrl,
   transport,

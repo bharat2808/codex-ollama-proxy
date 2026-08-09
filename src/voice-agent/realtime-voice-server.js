@@ -499,6 +499,7 @@ function createRealtimeVoiceServer({
       signal: controller.signal,
       voiceCoordinatorHistory: initialHistory,
       sessionContext: call.sessionContext,
+      modelSession: call.modelSession,
       inputAlreadyInHistory: true,
       onSpeechPhrase: (text) => {
         sendSpeechTranscript(call, text, generation);
@@ -614,6 +615,7 @@ function createRealtimeVoiceServer({
         voiceCoordinatorHistory: [],
         activeTranscript: [],
         sessionContext: normalizeSessionContext(parsed.session),
+        modelSession: parsed.session,
         interruptionMode: getInterruptionMode() === 'manual' ? 'manual' : 'vad',
       };
       call.peer = await createPeer({

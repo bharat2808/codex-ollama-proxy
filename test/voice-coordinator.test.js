@@ -82,6 +82,33 @@ test('voice coordinator returns direct speech from the preset voice model', asyn
   assert.equal(requests[0].tools[0].name, 'delegate_to_codex');
 });
 
+test('voice coordinator resolves the model from the live session and omits unsupported reasoning', async () => {
+  const requests = [];
+  const context = { modelSession: { metadata: { thread_id: 'thread-123' } } };
+  const coordinate = createVoiceCoordinator({
+    getModel: (receivedContext) => {
+      assert.equal(receivedContext, context);
+      return 'current-completion-model';
+    },
+    getReasoningEffort: () => null,
+    requestResponse: async (body) => {
+      requests.push(body);
+      return {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Ready.' }],
+        }],
+      };
+    },
+  });
+
+  await coordinate('hello', context);
+
+  assert.equal(requests[0].model, 'current-completion-model');
+  assert.equal(Object.hasOwn(requests[0], 'reasoning'), false);
+});
+
 test('voice coordinator returns delegation from its only tool call', async () => {
   const coordinate = createVoiceCoordinator({
     getModel: () => 'qwen3:8b',

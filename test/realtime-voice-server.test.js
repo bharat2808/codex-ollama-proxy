@@ -1142,6 +1142,16 @@ test('Codex V3 announces the live session to the browser and sideband', async ()
       'Working directory: /workspace/project',
       'Project name: Example project',
     ].join('\n'));
+    assert.deepEqual(voice.calls.get(callId).modelSession, {
+      instructions: 'Codex V3 voice session',
+      metadata: {
+        thread_id: 'thread_123',
+        cwd: '/workspace/project',
+        project_name: 'Example project',
+      },
+      audio: { output: { voice: 'ash' } },
+      delegation: { type: 'client' },
+    });
 
     assert.deepEqual(browserEvents, [{
       type: 'session.started',

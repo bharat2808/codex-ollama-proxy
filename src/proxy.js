@@ -26,6 +26,11 @@ const {
 } = require('./voice-agent/voice-coordinator');
 const { createWeriftVoicePeer } = require('./voice-agent/werift-voice-peer');
 const { startMacosInterruptionKey } = require('./voice-agent/macos-interruption-key');
+const {
+  createActiveModelTracker,
+  lowestReasoningEffort,
+  resolveVoiceModel,
+} = require('./voice-agent/voice-model-selection');
 
 // proxy-models.toml drives per-request model auto-routing.
 // Loaded once at startup; editable without restart by re-running apply script.
@@ -45,6 +50,7 @@ const INLINE_IMAGE_CACHE_DIR = path.join(CODEX_DIR, 'attachments', branding.ATTA
 // entry + CLI flag; the preset layer picks it up automatically.
 const routeSchema = require('./route-config-schema');
 const ROUTE_CFG = { ...routeSchema.ALL_ROUTE_KEYS };
+const activeModelTracker = createActiveModelTracker();
 function loadRouteConfig() {
   try {
     const raw = fs.readFileSync(PROXY_MODELS_PATH, 'utf8');
@@ -910,6 +916,7 @@ function translateRequestBody(body) {
   removeUnsupportedReasoningEffort(body);
   normalizeXaiReasoningInput(body);
   applyOutputModalities(body);
+  activeModelTracker.record(body);
   if (ROUTE_CFG.persist_inline_images && ROUTE_CFG.auto_route_image) {
     inlineImageCache.rewriteInlineImages(body, {
       cacheRoot: INLINE_IMAGE_CACHE_DIR,
@@ -1781,6 +1788,7 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
   const abortController = new AbortController();
   let workBody = JSON.parse(JSON.stringify(body));
   workBody.stream = true;
+  const continuationInput = upstreamLib.responsesInputItems(workBody.input);
 
   clientRes.writeHead(200, {
     'content-type': 'text/event-stream',
@@ -1897,7 +1905,8 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
 
       const prevOutput = result.completedEvent && result.completedEvent.response && Array.isArray(result.completedEvent.response.output)
         ? result.completedEvent.response.output : result.allOutputItems;
-      workBody = Object.assign({}, workBody, { input: [...prevOutput, ...outputs], stream: true });
+      continuationInput.push(...prevOutput, ...outputs);
+      workBody = Object.assign({}, workBody, { input: [...continuationInput], stream: true });
     }
 
     debugLog('streaming loop: exceeded ' + MAX_STREAM_LOOPS + ' iterations');
@@ -1999,7 +2008,13 @@ const localVoiceRuntime = createLocalVoiceRuntime({
   configFile: VOICE_CONFIG_PATH,
 });
 const coordinateVoiceTranscript = createVoiceCoordinator({
-  getModel: () => ROUTE_CFG.voice_model,
+  getModel: (context) => resolveVoiceModel({
+    configuredModel: ROUTE_CFG.voice_model,
+    defaultModel: ROUTE_CFG.default_model,
+    tracker: activeModelTracker,
+    session: context && context.modelSession,
+  }),
+  getReasoningEffort: (model) => lowestReasoningEffort(model, loadReasoningCatalogModels()),
   requestResponse: async (body, options) => {
     const upstream = getUpstream();
     await ensureCloudModelForRequest(upstream, body);
@@ -2396,6 +2411,7 @@ if (require.main === module || process.env.CODEX_OLLAMA_PROXY_AUTOSTART === '1')
 }
 
 module.exports = {
+  activeModelTracker,
   applyOutputModalities,
   dedupeLargeInputBlocks,
   imageInputOutputCapabilities,

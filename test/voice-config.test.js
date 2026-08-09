@@ -160,7 +160,7 @@ test('voice enable points Codex WebRTC call creation and sideband traffic at the
   }
 });
 
-test('voice enable requires a voice model in the active preset', () => {
+test('voice enable allows the active completion model when voice_model is empty', () => {
   const f = fixture();
   try {
     fs.writeFileSync(f.codexConfig, 'sandbox_mode = "danger-full-access"\n', 'utf8');
@@ -179,9 +179,9 @@ test('voice enable requires a voice model in the active preset', () => {
       '--no-start',
     ]);
 
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /active preset requires voice_model/u);
-    assert.doesNotMatch(fs.readFileSync(f.codexConfig, 'utf8'), /experimental_realtime_/u);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(fs.readFileSync(f.codexConfig, 'utf8'), /experimental_realtime_/u);
+    assert.match(fs.readFileSync(f.voiceConfig, 'utf8'), /^voice_enabled = true$/m);
   } finally {
     f.cleanup();
   }

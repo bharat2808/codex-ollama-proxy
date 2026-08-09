@@ -350,6 +350,7 @@ async function runResponsesLoop(upstream, originalBody, options = {}) {
   const verboseTools = !!options.verboseTools;
   let body = JSON.parse(JSON.stringify(originalBody));
   body.stream = false;
+  const continuationInput = upstreamLib.responsesInputItems(body.input);
   let fulfilledWebSearch = false;
 
   for (let loop = 0; loop < MAX_WEB_LOOPS; loop += 1) {
@@ -390,11 +391,12 @@ async function runResponsesLoop(upstream, originalBody, options = {}) {
       });
     }
 
+    continuationInput.push(
+      ...(Array.isArray(response.output) ? response.output : []),
+      ...outputs,
+    );
     body = Object.assign({}, body, {
-      input: [
-        ...(Array.isArray(response.output) ? response.output : []),
-        ...outputs,
-      ],
+      input: [...continuationInput],
       stream: false,
     });
   }

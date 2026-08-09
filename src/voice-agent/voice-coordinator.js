@@ -237,6 +237,7 @@ function createPhraseEmitter(onPhrase, {
 
 function createVoiceCoordinator({
   getModel,
+  getReasoningEffort,
   phraseEmitterOptions,
   requestResponse,
   streamResponse,
@@ -246,7 +247,7 @@ function createVoiceCoordinator({
 
   return async function coordinateTranscript(transcript, context = {}) {
     const input = String(transcript || '').trim();
-    const model = String(getModel() || '').trim();
+    const model = String(getModel(context) || '').trim();
     if (!model) throw new Error('voice model is not configured in the active preset');
     if (!input) throw new Error('voice transcript is empty');
 
@@ -271,9 +272,12 @@ function createVoiceCoordinator({
       input: sessionItem ? [sessionItem, ...inputHistory] : inputHistory,
       tools: [DELEGATE_TOOL],
       tool_choice: 'auto',
-      reasoning: { effort: 'none' },
       stream: typeof context.onSpeechPhrase === 'function',
     };
+    const reasoningEffort = typeof getReasoningEffort === 'function'
+      ? getReasoningEffort(model)
+      : 'none';
+    if (reasoningEffort) request.reasoning = { effort: reasoningEffort };
     let phraseEmitter = null;
     let response;
     if (request.stream && typeof streamResponse === 'function') {

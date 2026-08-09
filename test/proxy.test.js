@@ -155,6 +155,27 @@ test('active presets replace stale models on internal Codex turns', () => {
   });
 });
 
+test('request translation records the final routed model for the Codex thread', () => {
+  withRouteConfig([
+    'models = ["current-model"]',
+    'default_model = "current-model"',
+  ], ({ activeModelTracker, translateRequestBody }) => {
+    const body = {
+      model: 'stale-client-model',
+      metadata: { thread_id: 'voice-fallback-thread' },
+      input: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.model, 'current-model');
+    assert.equal(
+      activeModelTracker.resolve({ metadata: { thread_id: 'voice-fallback-thread' } }),
+      'current-model',
+    );
+  });
+});
+
 test('replayed voice handoffs with existing guidance still use the preset default', () => {
   withRouteConfig([
     'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
@@ -2471,6 +2492,68 @@ test('completed responses fill required token counters for image-only provider u
   });
 });
 
+test('non-streamed proxy-fulfilled web search preserves the original input for continuation', async () => {
+  const received = [];
+  await withProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      received.push(body);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (received.length === 1) {
+        res.end(JSON.stringify({
+          id: 'resp_web_call',
+          status: 'completed',
+          output: [{
+            type: 'function_call',
+            id: 'item_web_call',
+            call_id: 'call_web',
+            name: 'web_search',
+            arguments: '{}',
+            status: 'completed',
+          }],
+        }));
+        return;
+      }
+
+      const originalInput = body.input.find((item) => (
+        item.type === 'message'
+        && item.role === 'user'
+        && item.content?.[0]?.text === 'search, then explain'
+      ));
+      res.end(JSON.stringify({
+        id: 'resp_web_final',
+        status: 'completed',
+        output: [textItem(
+          'msg_web_final',
+          originalInput ? 'Search result explained.' : '',
+        )],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: [{
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'search, then explain' }],
+      }],
+      tools: [{ type: 'web_search' }],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(received.length, 2);
+    const body = JSON.parse(response.body);
+    assert.equal(body.output[0].content[0].text, 'Search result explained.');
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
 test('multiple proxy-fulfilled model turns finish only after the final assistant response', async () => {
   const received = [];
   await withProxy((req, res) => {
@@ -2481,8 +2564,11 @@ test('multiple proxy-fulfilled model turns finish only after the final assistant
       received.push(body);
       if (received.length <= 2) {
         if (received.length === 2) {
-          assert.equal(body.input[0].name, 'ollama_proxy_status');
-          assert.equal(body.input[1].type, 'function_call_output');
+          assert.equal(body.input[0].type, 'message');
+          assert.equal(body.input[0].role, 'user');
+          assert.equal(body.input[0].content[0].text, 'inspect app state');
+          assert.equal(body.input[1].name, 'ollama_proxy_status');
+          assert.equal(body.input[2].type, 'function_call_output');
         }
         writeFunctionTurn(res, {
           type: 'function_call',
@@ -2494,8 +2580,13 @@ test('multiple proxy-fulfilled model turns finish only after the final assistant
         }, received.length === 1 ? 'done' : 'eof');
         return;
       }
-      assert.equal(body.input[0].name, 'ollama_proxy_status');
-      assert.equal(body.input[1].type, 'function_call_output');
+      assert.equal(body.input[0].type, 'message');
+      assert.equal(body.input[0].role, 'user');
+      assert.equal(body.input[0].content[0].text, 'inspect app state');
+      assert.equal(body.input[1].name, 'ollama_proxy_status');
+      assert.equal(body.input[2].type, 'function_call_output');
+      assert.equal(body.input[3].name, 'ollama_proxy_status');
+      assert.equal(body.input[4].type, 'function_call_output');
       writeTextTurn(res, { id: 'resp_internal_final', text: 'Computer Use is ready.', ending: 'done' });
     });
   }, async (proxyPort) => {
