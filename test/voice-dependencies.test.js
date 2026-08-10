@@ -12,9 +12,10 @@ const {
 } = require('../src/voice-agent/voice-dependencies');
 
 test('voice models use a proxy-owned cache below CODEX_HOME', () => {
+  const codexHome = path.join(path.parse(process.cwd()).root, 'users', 'example', '.codex');
   assert.equal(
-    voiceModelCacheDirectory('/users/example/.codex'),
-    '/users/example/.codex/codex-universal-proxy/voice-models',
+    voiceModelCacheDirectory(codexHome),
+    path.join(codexHome, 'codex-universal-proxy', 'voice-models'),
   );
 });
 

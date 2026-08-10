@@ -14,13 +14,14 @@ function resolveLocalCommand(command, {
   const value = String(command || '').trim();
   if (!value) throw new Error('local command is required');
   if (value.includes('/') || value.includes('\\')) return value;
-  const candidates = envPath.split(path.delimiter).filter(Boolean);
+  const platformPath = platform === 'win32' ? path.win32 : path.posix;
+  const candidates = envPath.split(platformPath.delimiter).filter(Boolean);
   if (platform === 'darwin') {
     candidates.push('/opt/homebrew/bin', '/usr/local/bin');
   }
   candidates.push('/usr/bin', '/bin');
   for (const directory of [...new Set(candidates)]) {
-    const candidate = path.join(directory, value);
+    const candidate = platformPath.join(directory, value);
     try {
       if (isExecutable(candidate)) return candidate;
     } catch {
