@@ -66,7 +66,8 @@ try {
   if (!fs.existsSync(path.join(codexHome, 'codex-universal-proxy', 'proxy-models.toml'))) {
     throw new Error('Installed CLI did not initialize its route configuration.');
   }
-  const voiceStatus = run(process.execPath, [proxy, 'voice', '--status'], {
+  const packageEntrypoint = path.join(packageDirectory, 'bin', 'codex-universal-proxy');
+  const voiceStatus = run(process.execPath, [packageEntrypoint, 'voice', '--status'], {
     env: { ...process.env, CODEX_HOME: codexHome, PATH: '' },
   });
   if (!voiceStatus.stdout.includes('whisper_model = "onnx-community/whisper-base.en"')) {
