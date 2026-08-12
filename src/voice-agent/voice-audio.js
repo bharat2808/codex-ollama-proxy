@@ -269,6 +269,9 @@ async function createFfmpegRtpPlayer({
   ffmpegCommand = resolvePackagedFfmpeg(),
   spawnProcess = spawn,
   payloadType = 111,
+  drainBatchFrames = 5,
+  drainWaitMs = 250,
+  maxDrainFrames = 25,
 } = {}) {
   if (!track || typeof track.writeRtp !== 'function') {
     throw new Error('an RTP output track is required');
@@ -294,7 +297,8 @@ async function createFfmpegRtpPlayer({
     for (const waiter of [...active.waiters]) {
       if (active.emittedSamples < waiter.target) continue;
       active.waiters.delete(waiter);
-      waiter.resolve();
+      clearTimeout(waiter.timer);
+      waiter.resolve(true);
     }
   }
 
@@ -342,8 +346,9 @@ async function createFfmpegRtpPlayer({
 
   function finishEncoderWaiters(active, error = null) {
     for (const waiter of active.waiters) {
+      clearTimeout(waiter.timer);
       if (error) waiter.reject(error);
-      else waiter.resolve();
+      else waiter.resolve(false);
     }
     active.waiters.clear();
   }
@@ -409,10 +414,17 @@ async function createFfmpegRtpPlayer({
     return active;
   }
 
-  function waitForEncoderSamples(active, target) {
-    if (active.emittedSamples >= target) return Promise.resolve();
+  function waitForEncoderSamples(active, target, timeoutMs = null) {
+    if (active.emittedSamples >= target) return Promise.resolve(true);
     return new Promise((resolve, reject) => {
-      active.waiters.add({ target, resolve, reject });
+      const waiter = { target, resolve, reject, timer: null };
+      if (timeoutMs !== null) {
+        waiter.timer = setTimeout(() => {
+          active.waiters.delete(waiter);
+          resolve(false);
+        }, timeoutMs);
+      }
+      active.waiters.add(waiter);
     });
   }
 
@@ -516,16 +528,25 @@ async function createFfmpegRtpPlayer({
         }
         const outputSamples = Math.round(inputSamples * 48000 / sampleRate);
         const target = active.queuedSamples + outputSamples;
-        // FFmpeg/libopus retains up to five 20 ms frames while its stdin stays
-        // open. Feeding a short silent tail flushes the spoken samples without
-        // ending the call-wide encoder and doubles as a boundary prebuffer.
-        const drainFrames = 5;
-        const drainAudio = Buffer.alloc(frameSamples * 4 * drainFrames);
-        if (!await writePcm(drainAudio)) return null;
-        active.queuedSamples = target + (960 * drainFrames);
+        // FFmpeg/libopus buffering differs across packaged platform builds.
+        // Feed silence in bounded batches until every spoken frame has been
+        // emitted, preserving the call-wide encoder without waiting forever.
+        let drainFrames = 0;
+        let reachedTarget = active.emittedSamples >= target;
+        while (drainFrames < maxDrainFrames && (drainFrames < drainBatchFrames || !reachedTarget)) {
+          const batchFrames = Math.min(drainBatchFrames, maxDrainFrames - drainFrames);
+          const drainAudio = Buffer.alloc(frameSamples * 4 * batchFrames);
+          if (!await writePcm(drainAudio)) return null;
+          drainFrames += batchFrames;
+          active.queuedSamples = target + (960 * drainFrames);
+          reachedTarget = await waitForEncoderSamples(active, target, drainWaitMs);
+        }
+        if (!reachedTarget) {
+          throw new Error(`FFmpeg RTP packet drain timed out after ${maxDrainFrames} frames`);
+        }
         return target;
       } catch (error) {
-        active.child.stdin.destroy(error);
+        active.child.stdin.destroy();
         if (active.child.exitCode === null && active.child.signalCode === null) {
           active.child.kill('SIGTERM');
         }

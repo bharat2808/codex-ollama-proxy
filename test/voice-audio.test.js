@@ -384,3 +384,44 @@ test('ffmpeg RTP bridge cancellation releases an encoder stdin blocked on backpr
     await player.close();
   }
 });
+
+test('ffmpeg RTP bridge bounds a stalled encoder packet drain', async () => {
+  const { createFfmpegRtpPlayer } = loadVoiceAudio();
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.stdin = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = (signal) => {
+    child.signalCode = signal;
+    queueMicrotask(() => child.emit('exit', null, signal));
+    return true;
+  };
+  const player = await createFfmpegRtpPlayer({
+    track: { writeRtp() {} },
+    spawnProcess: () => child,
+    drainBatchFrames: 1,
+    drainWaitMs: 5,
+    maxDrainFrames: 2,
+  });
+
+  async function* speech() {
+    yield { pcm: sineFloat32Pcm(24000, 100), sampleRate: 24000 };
+  }
+
+  let guard;
+  try {
+    await assert.rejects(
+      Promise.race([
+        player.playAudioStream(speech()),
+        new Promise((_, reject) => {
+          guard = setTimeout(() => reject(new Error('test guard timed out')), 250);
+        }),
+      ]),
+      /FFmpeg RTP packet drain timed out/u,
+    );
+  } finally {
+    clearTimeout(guard);
+    await player.close();
+  }
+});
