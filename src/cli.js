@@ -93,7 +93,7 @@ function die(message) {
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { stdio: options.stdio || 'inherit', encoding: 'utf8' });
+  const result = spawnSync(command, args, { stdio: options.stdio || 'inherit', encoding: 'utf8', shell: false });
   if (result.error) throw result.error;
   if (result.status !== 0 && options.check !== false) process.exit(result.status ?? 1);
   return result;
