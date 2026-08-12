@@ -401,6 +401,169 @@ codex-universal-proxy imagine --doctor
 
 The proxy uses Codex's existing `generate_image` tool. It does not inspect ordinary prompts and automatically turn them into image requests.
 
+## Local Voice Configuration
+
+The active provider preset can optionally own a conversational `voice_model`.
+When it is empty, voice uses the model most recently routed for the same Codex
+task, or the preset default before that task has made a completion request.
+Whisper and Kokoro remain in the separate speech configuration. The coordinator
+uses the model's lowest catalogued reasoning effort and omits reasoning when no
+supported effort is known.
+
+To let a lightweight model handle conversation and decide when Codex work is
+needed, include both models in the preset:
+
+```bash
+codex-universal-proxy preset add local-voice \
+  --url "http://127.0.0.1:11434/v1" \
+  --models "qwen3-coder,qwen3:8b" \
+  --default-model "qwen3-coder" \
+  --voice-model "qwen3:8b"
+```
+
+The voice model receives one tool, `delegate_to_codex`. Plain model text is
+spoken directly through Kokoro. When the model includes a brief acknowledgement
+with a tool call, Kokoro speaks it before the handoff. Calling the tool hands
+the request to the preset's normal Codex model and tool loop.
+
+The npm package supplies FFmpeg, Transformers.js Whisper, ONNX Runtime, Kokoro,
+and the Kokoro voice files. It does not depend on a system `ffmpeg`,
+`whisper-cli`, Python environment, or Homebrew. Speech model weights are
+downloaded once into `~/.codex/codex-universal-proxy/voice-models` and reused
+offline afterward.
+
+```bash
+# Download, cache, and verify both speech models and packaged FFmpeg.
+codex-universal-proxy voice --setup
+
+# Setup is also performed automatically here when needed.
+codex-universal-proxy voice --enable
+```
+
+Use `voice --doctor` to repeat the complete runtime check. Both commands verify
+the packaged FFmpeg `libopus` encoder, run a Whisper inference probe, and
+synthesize a short Kokoro phrase. `voice --enable --no-setup` is available for
+configuration-only automation that deliberately performs preflight separately.
+
+Enabling voice writes these user-level Codex settings using the active proxy
+port:
+
+```toml
+experimental_realtime_webrtc_call_base_url = "http://127.0.0.1:11436/v1"
+experimental_realtime_ws_base_url = "http://127.0.0.1:11436/v1"
+
+[features]
+realtime_conversation = true
+```
+
+Codex V3 posts the WebRTC offer to `/live` under the first URL, then connects
+the sideband to the call-specific path returned in the response. Restart Codex
+after enabling or disabling voice so the app-server reloads the transport
+configuration.
+
+The built-in button then uses this pipeline:
+
+```text
+WebRTC microphone -> packaged FFmpeg/Opus -> packaged Whisper -> voice_model or task's active model
+  -> direct response -> Kokoro -> WebRTC speaker
+  or
+  -> delegate_to_codex -> preset default_model /v1/responses
+     -> Codex tools -> Kokoro -> WebRTC speaker
+```
+
+Voice handoff turns receive an extra developer instruction asking the selected
+model to speak briefly before tools and to always provide a concise spoken
+result afterward. Normal Responses requests are unchanged.
+
+Inspect the current conversational, transcription, and synthesis settings:
+
+```bash
+codex-universal-proxy voice --status
+```
+
+The conversational model is selected independently from the speech models.
+Set `--voice-model` when creating or updating a preset to dedicate a model to
+voice coordination. The voice model must also occur in that preset's
+`--models` list:
+
+```bash
+codex-universal-proxy preset add local-voice \
+  --url "http://127.0.0.1:11434/v1" \
+  --models "qwen3-coder,qwen3:8b" \
+  --default-model "qwen3-coder" \
+  --voice-model "qwen3:8b"
+```
+
+Leave the preset's `voice_model` empty to follow the model actively serving the
+same Codex task. Before that task has sent a completion, voice uses the preset's
+default model. In both cases the coordinator requests the model's lowest
+catalogued reasoning effort, or sends no reasoning effort when the catalog does
+not declare one.
+
+Choose and preflight the Whisper speech-to-text model:
+
+```bash
+codex-universal-proxy voice \
+  --whisper-model "onnx-community/whisper-base.en" \
+  --whisper-dtype q8 \
+  --whisper-device cpu \
+  --setup
+```
+
+`--whisper-model` must identify a Transformers.js-compatible ONNX Whisper
+repository. Legacy GGML `.bin` files and `whisper-cli` models are not supported
+by the packaged in-process runtime.
+
+Choose and preflight the Kokoro text-to-speech model and speaker voice:
+
+```bash
+codex-universal-proxy voice \
+  --kokoro-model "onnx-community/Kokoro-82M-v1.0-ONNX" \
+  --kokoro-voice "af_heart" \
+  --kokoro-dtype q8 \
+  --kokoro-device cpu \
+  --kokoro-speed 1.1 \
+  --setup
+```
+
+The selected speaker name must exist in the selected Kokoro model. `--setup`
+downloads any newly selected model files into the managed voice cache and runs
+real transcription and synthesis probes before saving the configuration.
+
+Choose how speech playback is interrupted:
+
+```bash
+# Automatic barge-in when VAD detects that you started speaking (default).
+codex-universal-proxy voice --interruption-mode vad
+
+# Hold Right Command to interrupt and record; release it to send the utterance.
+codex-universal-proxy voice --interruption-mode manual --interruption-key right-command
+codex-universal-proxy voice --interrupt
+```
+
+In manual mode microphone audio is discarded while Right Command is up. Key
+down interrupts current playback and starts a fresh buffer; key up commits that
+buffer to Whisper. The first activation asks for macOS Input Monitoring
+permission. `voice --interrupt` remains available as a playback-only fallback.
+General Codex tools remain in the delegated backend thread rather than running
+in the voice coordinator.
+
+Disable local routing:
+
+```bash
+codex-universal-proxy voice --disable
+```
+
+The proxy remembers pre-existing Realtime endpoint and feature values and
+restores them when disabling voice. If you edit an endpoint manually after
+enabling voice, disable will leave that later edit untouched. Routing state is
+written before Codex configuration changes and recovered during installation
+if an enable or disable operation is interrupted.
+
+The same public speech settings can be edited in
+`~/.codex/codex-universal-proxy/voice.toml`. Use the CLI for enable and disable
+so the managed restoration fields remain consistent.
+
 ## Advanced Preset Options
 
 Presets can also save proxy compatibility options:
@@ -517,6 +680,7 @@ Runtime configuration and logs are stored under:
 ```text
 ~/.codex/codex-universal-proxy/proxy-models.toml
 ~/.codex/codex-universal-proxy/imagine.toml
+~/.codex/codex-universal-proxy/voice.toml
 ~/.codex/codex-universal-proxy/proxy.log
 ```
 

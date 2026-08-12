@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Added configurable `vad` and `manual` voice interruption modes. On macOS,
+  manual mode uses Right Command as push-to-talk: key-down interrupts playback
+  and starts recording, key-up ends and commits the recording, and microphone
+  audio outside that interval is discarded.
+
+- Retain the complete voice coordinator history for the lifetime of a realtime
+  call instead of dropping older entries after 12 history items.
+
+- Prevented Whisper non-speech annotations such as `[BLANK_AUDIO]`, `(audience laughing)`, and `(snoring)` from cancelling active voice coordinator work. Voice barge-in now stops playback immediately but aborts coordinator inference only after transcription confirms real speech, and delegation events are delivered before acknowledgement playback finishes. Added coordinator lifecycle and cancellation logging for live diagnosis.
+
+- Stream sideband `delegation.context.append` / `session.context.append` text to
+  the realtime transcript (`output_transcript.added`) immediately, before local
+  Kokoro speech synthesis finishes. The assistant turn is still marked complete
+  (`turn.done`) after playback, so Codex progress is visible in the UI while the
+  agent is working without waiting for audio.
+
 ## 0.5.0
 
 - Rebranded the package, primary executable, runtime paths, provider identity,

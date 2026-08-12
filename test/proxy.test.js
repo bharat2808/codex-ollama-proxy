@@ -5,6 +5,7 @@ const { spawnSync } = require('node:child_process');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { assertPrivateDirectoryMode, assertPrivateFileMode } = require('./helpers/file-mode');
@@ -14,6 +15,7 @@ const {
   imageOutputCapabilities,
   imageOutputSupport,
 } = require('../src/proxy');
+const { VOICE_TURN_INSTRUCTIONS } = require('../src/voice-agent/voice-coordinator');
 
 const LOCAL_UPSTREAM = { baseUrl: new URL('http://127.0.0.1:11434/v1') };
 const IMAGE_SIGNATURES = {
@@ -87,6 +89,177 @@ test('native image-output requests do not forward or inject function tools', () 
 
   assert.deepEqual(body.tools, []);
   assert.equal(body.tool_choice, undefined);
+});
+
+test('voice handoff requests receive spoken-turn guidance before provider translation', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'local-model',
+    input: [{
+      type: 'message',
+      role: 'user',
+      content: [{
+        type: 'input_text',
+        text: '<realtime_delegation>\nPlease inspect the repository.\n</realtime_delegation>',
+      }],
+    }],
+  };
+
+  translateRequestBody(body);
+
+  const guidance = body.input.filter((item) => (
+    item
+    && item.type === 'message'
+    && item.role === 'developer'
+    && item.content?.some((part) => part.text === VOICE_TURN_INSTRUCTIONS)
+  ));
+  assert.equal(guidance.length, 1);
+});
+
+test('voice handoffs replace a stale Codex model with the active preset default', () => {
+  withRouteConfig([
+    'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
+    'default_model = "glm-5.2:cloud"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'gpt-5.6-luna',
+      input: [{
+        type: 'message',
+        role: 'user',
+        content: [{
+          type: 'input_text',
+          text: '<realtime_delegation>\nCheck the current branch.\n</realtime_delegation>',
+        }],
+      }],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.model, 'glm-5.2:cloud');
+  });
+});
+
+test('active presets replace stale models on internal Codex turns', () => {
+  withRouteConfig([
+    'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
+    'default_model = "glm-5.2:cloud"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'gpt-5.6-luna',
+      input: 'Generate a concise title for the completed voice thread.',
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.model, 'glm-5.2:cloud');
+  });
+});
+
+test('request translation records the final routed model for the Codex thread', () => {
+  withRouteConfig([
+    'models = ["current-model"]',
+    'default_model = "current-model"',
+  ], ({ activeModelTracker, translateRequestBody }) => {
+    const body = {
+      model: 'stale-client-model',
+      metadata: { thread_id: 'voice-fallback-thread' },
+      input: [],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.model, 'current-model');
+    assert.equal(
+      activeModelTracker.resolve({ metadata: { thread_id: 'voice-fallback-thread' } }),
+      'current-model',
+    );
+  });
+});
+
+test('replayed voice handoffs with existing guidance still use the preset default', () => {
+  withRouteConfig([
+    'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
+    'default_model = "glm-5.2:cloud"',
+  ], ({ translateRequestBody }) => {
+    const body = {
+      model: 'gpt-5.6-luna',
+      input: [
+        {
+          type: 'message',
+          role: 'developer',
+          content: [{ type: 'input_text', text: VOICE_TURN_INSTRUCTIONS }],
+        },
+        {
+          type: 'message',
+          role: 'user',
+          content: [{
+            type: 'input_text',
+            text: '<realtime_delegation>\nCheck the current branch.\n</realtime_delegation>',
+          }],
+        },
+      ],
+    };
+
+    translateRequestBody(body);
+
+    assert.equal(body.model, 'glm-5.2:cloud');
+    assert.equal(
+      body.input.filter((item) => (
+        Array.isArray(item.content)
+        && item.content.some((part) => part && part.text === VOICE_TURN_INSTRUCTIONS)
+      )).length,
+      1,
+    );
+  });
+});
+
+test('ordinary Responses requests do not receive voice guidance', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'local-model',
+    input: 'Please inspect the repository.',
+  };
+
+  translateRequestBody(body);
+
+  assert.equal(body.input, 'Please inspect the repository.');
+});
+
+test('a typed turn after a historical voice handoff does not receive voice guidance', () => {
+  const { translateRequestBody } = require('../src/proxy');
+  const body = {
+    model: 'local-model',
+    input: [
+      {
+        type: 'message',
+        role: 'user',
+        content: [{
+          type: 'input_text',
+          text: '<realtime_delegation><input>old voice turn</input></realtime_delegation>',
+        }],
+      },
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'Old response.' }],
+      },
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'This is a normal typed turn.' }],
+      },
+    ],
+  };
+
+  translateRequestBody(body);
+
+  assert.equal(
+    body.input.some((item) => (
+      item.role === 'developer'
+      && JSON.stringify(item).includes(VOICE_TURN_INSTRUCTIONS)
+    )),
+    false,
+  );
 });
 
 test('image generation tools are removed when Imagine is disabled', () => {
@@ -214,17 +387,21 @@ function close(server) {
 }
 
 function postJson(port, body) {
+  return postBuffer(port, Buffer.from(JSON.stringify(body)), {
+    'content-type': 'application/json',
+  });
+}
+
+function postBuffer(port, payload, headers = {}) {
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify(body);
     const req = http.request({
       host: '127.0.0.1',
       port,
       method: 'POST',
       path: '/v1/responses',
-      headers: {
-        'content-type': 'application/json',
+      headers: Object.assign({
         'content-length': Buffer.byteLength(payload),
-      },
+      }, headers),
     }, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
@@ -1920,6 +2097,96 @@ test('proxy forwards responses requests to configured upstream URL with bearer a
   }
 });
 
+test('proxy decodes compressed responses request bodies before translating and forwarding them', async () => {
+  const received = [];
+  await withProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks);
+      try {
+        received.push({
+          contentEncoding: req.headers['content-encoding'],
+          contentLength: req.headers['content-length'],
+          raw,
+          body: JSON.parse(raw.toString('utf8')),
+        });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ id: 'resp_test', output: [], status: 'completed' }));
+      } catch {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'upstream received a non-JSON body' }));
+      }
+    });
+  }, async (proxyPort) => {
+    const body = {
+      model: 'test-model',
+      input: 'compressed request',
+      tools: [],
+      stream: false,
+    };
+    const json = Buffer.from(JSON.stringify(body));
+    const encodings = [
+      ['zstd', zlib.zstdCompressSync],
+      ['gzip', zlib.gzipSync],
+      ['deflate', zlib.deflateSync],
+      ['br', zlib.brotliCompressSync],
+    ];
+
+    for (const [contentEncoding, compress] of encodings) {
+      const response = await postBuffer(proxyPort, compress(json), {
+        'content-type': 'application/json',
+        'content-encoding': contentEncoding,
+      });
+      assert.equal(response.statusCode, 200, contentEncoding);
+    }
+
+    assert.equal(received.length, encodings.length);
+    for (const request of received) {
+      assert.equal(request.contentEncoding, undefined);
+      assert.equal(request.contentLength, String(request.raw.length));
+      assert.equal(request.body.model, 'test-model');
+      assert.equal(request.body.input, 'compressed request');
+    }
+  });
+});
+
+test('proxy rejects malformed compressed responses request bodies without contacting upstream', async () => {
+  let upstreamRequests = 0;
+  await withProxy((_req, res) => {
+    upstreamRequests += 1;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'unexpected', output: [], status: 'completed' }));
+  }, async (proxyPort) => {
+    const response = await postBuffer(proxyPort, Buffer.from('not gzip data'), {
+      'content-type': 'application/json',
+      'content-encoding': 'gzip',
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body, /invalid gzip request body/i);
+    assert.equal(upstreamRequests, 0);
+  });
+});
+
+test('proxy rejects unsupported request content encodings without contacting upstream', async () => {
+  let upstreamRequests = 0;
+  await withProxy((_req, res) => {
+    upstreamRequests += 1;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'unexpected', output: [], status: 'completed' }));
+  }, async (proxyPort) => {
+    const response = await postBuffer(proxyPort, Buffer.from('encoded elsewhere'), {
+      'content-type': 'application/json',
+      'content-encoding': 'compress',
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body, /unsupported content-encoding/i);
+    assert.equal(upstreamRequests, 0);
+  });
+});
+
 test('proxy caches non-streaming native image results and returns their saved path', async () => {
   const imageUrl = inlineImageUrl('image/png', 'provider-generated');
   await withProxy((req, res) => {
@@ -2225,6 +2492,68 @@ test('completed responses fill required token counters for image-only provider u
   });
 });
 
+test('non-streamed proxy-fulfilled web search preserves the original input for continuation', async () => {
+  const received = [];
+  await withProxy((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      received.push(body);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (received.length === 1) {
+        res.end(JSON.stringify({
+          id: 'resp_web_call',
+          status: 'completed',
+          output: [{
+            type: 'function_call',
+            id: 'item_web_call',
+            call_id: 'call_web',
+            name: 'web_search',
+            arguments: '{}',
+            status: 'completed',
+          }],
+        }));
+        return;
+      }
+
+      const originalInput = body.input.find((item) => (
+        item.type === 'message'
+        && item.role === 'user'
+        && item.content?.[0]?.text === 'search, then explain'
+      ));
+      res.end(JSON.stringify({
+        id: 'resp_web_final',
+        status: 'completed',
+        output: [textItem(
+          'msg_web_final',
+          originalInput ? 'Search result explained.' : '',
+        )],
+      }));
+    });
+  }, async (proxyPort) => {
+    const response = await postJson(proxyPort, {
+      model: 'test-model',
+      input: [{
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'search, then explain' }],
+      }],
+      tools: [{ type: 'web_search' }],
+      stream: false,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(received.length, 2);
+    const body = JSON.parse(response.body);
+    assert.equal(body.output[0].content[0].text, 'Search result explained.');
+  }, [
+    'enable_find_skill = false',
+    'stream_proxy_loop = false',
+    'imagine_enabled = false',
+  ]);
+});
+
 test('multiple proxy-fulfilled model turns finish only after the final assistant response', async () => {
   const received = [];
   await withProxy((req, res) => {
@@ -2235,8 +2564,11 @@ test('multiple proxy-fulfilled model turns finish only after the final assistant
       received.push(body);
       if (received.length <= 2) {
         if (received.length === 2) {
-          assert.equal(body.input[0].name, 'ollama_proxy_status');
-          assert.equal(body.input[1].type, 'function_call_output');
+          assert.equal(body.input[0].type, 'message');
+          assert.equal(body.input[0].role, 'user');
+          assert.equal(body.input[0].content[0].text, 'inspect app state');
+          assert.equal(body.input[1].name, 'ollama_proxy_status');
+          assert.equal(body.input[2].type, 'function_call_output');
         }
         writeFunctionTurn(res, {
           type: 'function_call',
@@ -2248,8 +2580,13 @@ test('multiple proxy-fulfilled model turns finish only after the final assistant
         }, received.length === 1 ? 'done' : 'eof');
         return;
       }
-      assert.equal(body.input[0].name, 'ollama_proxy_status');
-      assert.equal(body.input[1].type, 'function_call_output');
+      assert.equal(body.input[0].type, 'message');
+      assert.equal(body.input[0].role, 'user');
+      assert.equal(body.input[0].content[0].text, 'inspect app state');
+      assert.equal(body.input[1].name, 'ollama_proxy_status');
+      assert.equal(body.input[2].type, 'function_call_output');
+      assert.equal(body.input[3].name, 'ollama_proxy_status');
+      assert.equal(body.input[4].type, 'function_call_output');
       writeTextTurn(res, { id: 'resp_internal_final', text: 'Computer Use is ready.', ending: 'done' });
     });
   }, async (proxyPort) => {

@@ -3,6 +3,8 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { promisify } = require('node:util');
+const zlib = require('node:zlib');
 const { codexDir } = require('./runtime-paths');
 const branding = require('./branding');
 const webSearch = require('./web-search');
@@ -11,16 +13,32 @@ const imagine = require('./imagine');
 const inlineImageCache = require('./inline-image-cache');
 const generatedImageCache = require('./generated-image-cache');
 const nativeImageGeneration = require('./native-image-generation');
+const voiceConfig = require('./voice-config');
 const { createOllamaCloudPuller } = require('./ollama-cloud-pull');
 const markers = require('./ui-markers');
 const upstreamLib = require('./upstream');
 const { normalizeOpenAiReasoningRequest } = require('./model-catalog/reasoning-request-normalization');
+const { createLocalVoiceRuntime } = require('./voice-agent/local-voice-runtime');
+const { createRealtimeVoiceServer } = require('./voice-agent/realtime-voice-server');
+const {
+  createVoiceCoordinator,
+  VOICE_TURN_INSTRUCTIONS,
+} = require('./voice-agent/voice-coordinator');
+const { createWeriftVoicePeer } = require('./voice-agent/werift-voice-peer');
+const { startMacosInterruptionKey } = require('./voice-agent/macos-interruption-key');
+const { voiceModelCacheDirectory } = require('./voice-agent/voice-dependencies');
+const {
+  createActiveModelTracker,
+  lowestReasoningEffort,
+  resolveVoiceModel,
+} = require('./voice-agent/voice-model-selection');
 
 // proxy-models.toml drives per-request model auto-routing.
 // Loaded once at startup; editable without restart by re-running apply script.
 const CODEX_DIR = codexDir();
 const RUNTIME_DIR = branding.resolveRuntimeDirectory(CODEX_DIR);
 const PROXY_MODELS_PATH = path.join(RUNTIME_DIR, 'proxy-models.toml');
+const VOICE_CONFIG_PATH = path.join(RUNTIME_DIR, 'voice.toml');
 const UPSTREAM_BODY_LOG = path.join(RUNTIME_DIR, 'upstream-bodies.jsonl');
 const INLINE_IMAGE_CACHE_DIR = path.join(CODEX_DIR, 'attachments', branding.ATTACHMENT_DIRNAME);
 // dedupe_large_input defaults to false: stripping repeated developer context
@@ -33,6 +51,7 @@ const INLINE_IMAGE_CACHE_DIR = path.join(CODEX_DIR, 'attachments', branding.ATTA
 // entry + CLI flag; the preset layer picks it up automatically.
 const routeSchema = require('./route-config-schema');
 const ROUTE_CFG = { ...routeSchema.ALL_ROUTE_KEYS };
+const activeModelTracker = createActiveModelTracker();
 function loadRouteConfig() {
   try {
     const raw = fs.readFileSync(PROXY_MODELS_PATH, 'utf8');
@@ -59,7 +78,7 @@ function loadRouteConfig() {
     const minChars = parseInt(process.env.PROXY_DEDUPE_MIN_CHARS, 10);
     if (Number.isFinite(minChars) && minChars >= 0) ROUTE_CFG.duplicate_input_min_chars = minChars;
   }
-  log('route config: text=' + ROUTE_CFG.default_model + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
+  log('route config: text=' + ROUTE_CFG.default_model + ' voice=' + (ROUTE_CFG.voice_model || '(not configured)') + ' image=' + ROUTE_CFG.image_model + ' auto_route_image=' + ROUTE_CFG.auto_route_image + ' persist_inline_images=' + ROUTE_CFG.persist_inline_images + ' inline_image_retention_days=' + ROUTE_CFG.inline_image_retention_days + ' dedupe_large_input=' + ROUTE_CFG.dedupe_large_input + ' duplicate_input_min_chars=' + ROUTE_CFG.duplicate_input_min_chars + ' verbose_tools=' + ROUTE_CFG.verbose_tools + ' log_upstream_body=' + ROUTE_CFG.log_upstream_body + ' find_skill=' + ROUTE_CFG.enable_find_skill + ' stream_loop=' + ROUTE_CFG.stream_proxy_loop + ' upstream=' + upstreamLib.displayUrl(getUpstream()) + ' imagine=' + ROUTE_CFG.imagine_enabled + ' imagine_service=' + ROUTE_CFG.imagine_service);
 }
 
 function getUpstream() {
@@ -787,14 +806,27 @@ async function appendVisibleGeneratedImageMessages(response, requestBody) {
   return messages;
 }
 
-// Apply per-request model routing based on the config + presence of an image.
+// Keep requests inside the active preset, then apply image routing.
+// Models outside a configured allowlist are stale client selections and use
+// the preset default before any image-specific decision is made.
 // Vision-capable models always pass through with images, regardless of auto_route_image.
 // Text-only models pass through when auto_route_image is off.
 // Text-only models get rewritten to image_model when auto_route_image is on.
 function applyModelRouting(body) {
   if (!body || typeof body !== 'object') return body;
+  if (
+    ROUTE_CFG.default_model
+    && ROUTE_CFG.models.length > 0
+    && !ROUTE_CFG.models.includes(body.model)
+  ) {
+    debugLog(
+      'preset route: model "' + body.model
+      + '" is outside the active preset -> rewrite to "' + ROUTE_CFG.default_model + '"',
+    );
+    body.model = ROUTE_CFG.default_model;
+  }
   const hasImage = activeTurnHasImage(body);
-  if (!hasImage) return body; // text requests always pass through unchanged
+  if (!hasImage) return body;
   // Model has vision — let it through regardless of auto_route setting
   if (modelHasVision(body.model)) {
     debugLog('auto-route: model "' + body.model + '" has vision -> passing through');
@@ -840,8 +872,35 @@ function normalizeXaiReasoningInput(body) {
   return changed;
 }
 
+function inputContainsText(value, needle) {
+  if (typeof value === 'string') return value.includes(needle);
+  if (Array.isArray(value)) return value.some((item) => inputContainsText(item, needle));
+  if (!value || typeof value !== 'object') return false;
+  return Object.values(value).some((item) => inputContainsText(item, needle));
+}
+
+function prepareVoiceTurn(body) {
+  if (!Array.isArray(body && body.input)) return false;
+  const activeUserMessage = body.input.findLast((item) => (
+    item && item.type === 'message' && item.role === 'user'
+  ));
+  if (!inputContainsText(activeUserMessage, '<realtime_delegation>')) return false;
+  if (!inputContainsText(body.input, VOICE_TURN_INSTRUCTIONS)) {
+    body.input.unshift({
+      type: 'message',
+      role: 'developer',
+      content: [{
+        type: 'input_text',
+        text: VOICE_TURN_INSTRUCTIONS,
+      }],
+    });
+  }
+  return true;
+}
+
 function translateRequestBody(body) {
   if (!body || typeof body !== 'object') return body;
+  prepareVoiceTurn(body);
   if (ROUTE_CFG.dedupe_large_input) {
     const removed = dedupeLargeInputBlocks(body, ROUTE_CFG.duplicate_input_min_chars);
     if (removed.blocks > 0) {
@@ -858,6 +917,7 @@ function translateRequestBody(body) {
   removeUnsupportedReasoningEffort(body);
   normalizeXaiReasoningInput(body);
   applyOutputModalities(body);
+  activeModelTracker.record(body);
   if (ROUTE_CFG.persist_inline_images && ROUTE_CFG.auto_route_image) {
     inlineImageCache.rewriteInlineImages(body, {
       cacheRoot: INLINE_IMAGE_CACHE_DIR,
@@ -1729,6 +1789,7 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
   const abortController = new AbortController();
   let workBody = JSON.parse(JSON.stringify(body));
   workBody.stream = true;
+  const continuationInput = upstreamLib.responsesInputItems(workBody.input);
 
   clientRes.writeHead(200, {
     'content-type': 'text/event-stream',
@@ -1845,7 +1906,8 @@ async function runStreamingLoop(upstream, body, clientRes, info, options) {
 
       const prevOutput = result.completedEvent && result.completedEvent.response && Array.isArray(result.completedEvent.response.output)
         ? result.completedEvent.response.output : result.allOutputItems;
-      workBody = Object.assign({}, workBody, { input: [...prevOutput, ...outputs], stream: true });
+      continuationInput.push(...prevOutput, ...outputs);
+      workBody = Object.assign({}, workBody, { input: [...continuationInput], stream: true });
     }
 
     debugLog('streaming loop: exceeded ' + MAX_STREAM_LOOPS + ' iterations');
@@ -1918,7 +1980,66 @@ function sendSseCompleted(clientRes, response) {
   clientRes.end();
 }
 
+const requestBodyDecompressors = {
+  gzip: promisify(zlib.gunzip),
+  deflate: promisify(zlib.inflate),
+  br: promisify(zlib.brotliDecompress),
+  ...(typeof zlib.zstdDecompress === 'function'
+    ? { zstd: promisify(zlib.zstdDecompress) }
+    : {}),
+};
+
+async function decodeRequestBody(body, contentEncoding) {
+  const encoding = String(contentEncoding || 'identity').trim().toLowerCase();
+  if (!encoding || encoding === 'identity') return body;
+
+  const decompress = requestBodyDecompressors[encoding];
+  if (!decompress) {
+    throw new Error('unsupported Content-Encoding: ' + encoding);
+  }
+
+  try {
+    return await decompress(body);
+  } catch (error) {
+    throw new Error('invalid ' + encoding + ' request body: ' + error.message);
+  }
+}
+
+const localVoiceRuntime = createLocalVoiceRuntime({
+  configFile: VOICE_CONFIG_PATH,
+  modelCacheDir: voiceModelCacheDirectory(CODEX_DIR),
+});
+const coordinateVoiceTranscript = createVoiceCoordinator({
+  getModel: (context) => resolveVoiceModel({
+    configuredModel: ROUTE_CFG.voice_model,
+    defaultModel: ROUTE_CFG.default_model,
+    tracker: activeModelTracker,
+    session: context && context.modelSession,
+  }),
+  getReasoningEffort: (model) => lowestReasoningEffort(model, loadReasoningCatalogModels()),
+  requestResponse: async (body, options) => {
+    const upstream = getUpstream();
+    await ensureCloudModelForRequest(upstream, body);
+    return upstreamLib.requestJson(upstream, body, options);
+  },
+  streamResponse: async (body, options) => {
+    const upstream = getUpstream();
+    await ensureCloudModelForRequest(upstream, body);
+    return upstreamLib.streamResponse(upstream, body, options);
+  },
+});
+const realtimeVoiceServer = createRealtimeVoiceServer({
+  enabled: () => voiceConfig.read(VOICE_CONFIG_PATH).voice_enabled,
+  getInterruptionMode: () => voiceConfig.read(VOICE_CONFIG_PATH).interruption_mode,
+  createPeer: createWeriftVoicePeer,
+  transcribePcm: localVoiceRuntime.transcribePcm,
+  coordinateTranscript: coordinateVoiceTranscript,
+  streamSpeech: localVoiceRuntime.streamSpeech,
+  log,
+});
+
 const server = http.createServer((clientReq, clientRes) => {
+  if (realtimeVoiceServer.handleRequest(clientReq, clientRes)) return;
   const isResponses = clientReq.method === 'POST' && clientReq.url.endsWith('/responses');
   const chunks = [];
   clientReq.on('data', (c) => chunks.push(c));
@@ -1929,6 +2050,17 @@ const server = http.createServer((clientReq, clientRes) => {
     let originalStream = false;
     let originalModel = null;
     if (isResponses) {
+      try {
+        bodyBuf = await decodeRequestBody(bodyBuf, clientReq.headers['content-encoding']);
+      } catch (error) {
+        sendJsonResponse(clientRes, 400, {
+          error: {
+            message: error.message,
+            type: 'invalid_request_error',
+          },
+        });
+        return;
+      }
       try {
         body = JSON.parse(bodyBuf.toString('utf8'));
         originalStream = body && body.stream === true;
@@ -2093,6 +2225,7 @@ const server = http.createServer((clientReq, clientRes) => {
     const targetUrl = upstreamLib.urlForClientPath(upstream, clientReq.url);
     const upstreamHeaders = Object.assign({}, clientReq.headers, upstreamLib.authHeaders(upstream));
     upstreamHeaders.host = targetUrl.host;
+    delete upstreamHeaders['content-encoding'];
     upstreamHeaders['content-length'] = String(bodyBuf.length);
     const upstreamReq = upstreamLib.transport(targetUrl).request({
       protocol: targetUrl.protocol,
@@ -2143,8 +2276,19 @@ const server = http.createServer((clientReq, clientRes) => {
   });
   clientReq.on('error', (e) => log('client error: ' + e.message));
 });
+realtimeVoiceServer.attach(server);
+let interruptionKeyHelper = null;
+server.on('close', () => {
+  if (interruptionKeyHelper && interruptionKeyHelper.exitCode === null) {
+    interruptionKeyHelper.kill('SIGTERM');
+  }
+  interruptionKeyHelper = null;
+  realtimeVoiceServer.close().catch((error) => {
+    debugLog('realtime voice shutdown failed: ' + error.message);
+  });
+});
 
-// Best-effort startup check that the configured default_model / image_model
+// Best-effort startup check that the configured text / voice / image models
 // resolve in the local Ollama registry. Only runs when the upstream is the
 // local Ollama daemon (host is 127.0.0.1/localhost AND the OpenAI mount path
 // is /v1, the standard Ollama topology). Remote Responses-API upstreams, the
@@ -2157,7 +2301,12 @@ const server = http.createServer((clientReq, clientRes) => {
 // Non-fatal: Ollama may start after the proxy, and the proxy still serves; the
 // per-request path already handles upstream errors.
 async function verifyConfiguredModels() {
-  const slugs = [...new Set([...ROUTE_CFG.models, ROUTE_CFG.default_model, ROUTE_CFG.image_model].filter(Boolean))];
+  const slugs = [...new Set([
+    ...ROUTE_CFG.models,
+    ROUTE_CFG.default_model,
+    ROUTE_CFG.voice_model,
+    ROUTE_CFG.image_model,
+  ].filter(Boolean))];
   if (!slugs.length) return;
   const upstream = getUpstream();
   const base = upstream && upstream.baseUrl ? upstream.baseUrl : null;
@@ -2239,6 +2388,13 @@ function startServer(port = LISTEN_PORT) {
     throw error;
   });
   server.listen(port, '127.0.0.1', () => {
+    const listeningPort = server.address().port;
+    interruptionKeyHelper = startMacosInterruptionKey({
+      config: voiceConfig.read(VOICE_CONFIG_PATH),
+      port: listeningPort,
+      runtimeDir: RUNTIME_DIR,
+      log,
+    });
     log('listening on 127.0.0.1:' + port + ' -> ' + upstreamLib.displayUrl(getUpstream()));
     verifyConfiguredModels().catch((error) => {
       debugLog('model availability check failed: ' + error.message);
@@ -2257,6 +2413,7 @@ if (require.main === module || process.env.CODEX_OLLAMA_PROXY_AUTOSTART === '1')
 }
 
 module.exports = {
+  activeModelTracker,
   applyOutputModalities,
   dedupeLargeInputBlocks,
   imageInputOutputCapabilities,

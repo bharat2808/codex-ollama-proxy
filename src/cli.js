@@ -7,10 +7,14 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const presets = require('./presets');
 const imagineConfig = require('./imagine-config');
+const voiceConfig = require('./voice-config');
+const codexRealtimeConfig = require('./codex-realtime-config');
 const launcherState = require('./launcher-state');
 const runtimePaths = require('./runtime-paths');
 const branding = require('./branding');
 const { requireVerifiedProxyListeners } = require('./process-lifecycle');
+const { voiceModelCacheDirectory } = require('./voice-agent/voice-dependencies');
+const { prepareVoiceRuntime } = require('./voice-agent/voice-setup');
 
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 const HOME_DIR = runtimePaths.homeDir();
@@ -19,6 +23,8 @@ const runtimeMigration = branding.migrateRuntimeDirectory(CODEX_DIR);
 const RUNTIME_DIR = runtimeMigration.runtimeDir;
 const ROUTE_CONFIG = path.join(RUNTIME_DIR, 'proxy-models.toml');
 const IMAGINE_CONFIG = path.join(RUNTIME_DIR, 'imagine.toml');
+const VOICE_CONFIG = path.join(RUNTIME_DIR, 'voice.toml');
+const CODEX_CONFIG = path.join(CODEX_DIR, 'config.toml');
 const LAUNCHER_STATE = path.join(RUNTIME_DIR, 'launcher-state.json');
 const DEFAULT_ROUTE_CONFIG = path.join(PACKAGE_DIR, 'config', 'proxy-models.default.toml');
 const DEFAULT_MODEL_CATALOG = path.join(PACKAGE_DIR, 'config', 'model-catalogs', 'codex-universal-models.default.json');
@@ -45,7 +51,7 @@ function usage() {
   codex-universal-proxy serve [--adaptor chat-completion|google] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
   codex-universal-proxy serve --preset NAME [--api-key KEY] [--model-override MODEL] [--replace]
   codex-universal-proxy serve --adaptor chat-completion|google [--completion-model MODEL] [--adaptor-port PORT]
-  codex-universal-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--image-model MODEL] [--api-key KEY]
+  codex-universal-proxy preset add NAME [--provider PROVIDER] [--adaptor chat-completion|google|none] [--url URL] --models MODEL[,MODEL...] [--default-model MODEL] [--voice-model MODEL] [--image-model MODEL] [--api-key KEY]
   codex-universal-proxy preset add NAME --provider vertexai --project PROJECT --location LOCATION --models MODEL[,MODEL...] [--vertex-token TOKEN]
     [--auto-image|--no-auto-image] [--dedupe-large-input|--no-dedupe-large-input] [--dedupe-min-chars N]
     [--persist-images|--no-persist-images] [--image-retention-days DAYS]
@@ -70,7 +76,15 @@ function usage() {
   codex-universal-proxy imagine [--quality fast|balanced|quality]
   codex-universal-proxy imagine [--enhance|--no-enhance] [--aspect-ratio RATIO]
   codex-universal-proxy imagine --status
-  codex-universal-proxy imagine --doctor`);
+  codex-universal-proxy imagine --doctor
+  codex-universal-proxy voice [--enable|--disable] [--whisper-model MODEL] [--whisper-dtype DTYPE] [--whisper-device DEVICE]
+  codex-universal-proxy voice [--kokoro-model MODEL] [--kokoro-voice VOICE]
+                              [--kokoro-dtype DTYPE] [--kokoro-device DEVICE] [--kokoro-speed SPEED]
+                              [--interruption-mode vad|manual] [--interruption-key right-command|none]
+  codex-universal-proxy voice --interrupt
+  codex-universal-proxy voice --setup
+  codex-universal-proxy voice --doctor
+  codex-universal-proxy voice --status`);
 }
 
 function die(message) {
@@ -101,6 +115,54 @@ function configuredProxyPort() {
   if (process.env.PROXY_PORT !== undefined) return parseProxyPort(process.env.PROXY_PORT);
   const state = launcherState.read(LAUNCHER_STATE);
   return state ? state.proxy_port : launcherState.DEFAULT_PROXY_PORT;
+}
+
+function realtimeProxyBaseUrl(proxyPort = configuredProxyPort()) {
+  return `http://127.0.0.1:${parseProxyPort(proxyPort)}/v1`;
+}
+
+function ownsVoiceRouting(config) {
+  return Boolean(
+    config.managed_realtime_base_url
+    && (config.voice_enabled || config.routing_state !== 'disabled'),
+  );
+}
+
+function completeVoiceDisable(current) {
+  if (!ownsVoiceRouting(current)) return current;
+  const pending = {
+    ...current,
+    voice_enabled: false,
+    routing_state: 'disabling',
+  };
+  voiceConfig.write(VOICE_CONFIG, pending);
+  const routing = codexRealtimeConfig.disable(CODEX_CONFIG, pending);
+  const completed = {
+    ...pending,
+    ...routing,
+    voice_enabled: false,
+    routing_state: 'disabled',
+  };
+  voiceConfig.write(VOICE_CONFIG, completed);
+  return completed;
+}
+
+function reapplyEnabledVoiceRouting(proxyPort = configuredProxyPort()) {
+  voiceConfig.ensure(VOICE_CONFIG);
+  const current = voiceConfig.read(VOICE_CONFIG);
+  if (current.routing_state === 'disabling') {
+    return completeVoiceDisable(current);
+  }
+  if (!current.voice_enabled && current.routing_state !== 'enabling') return current;
+  const baseUrl = realtimeProxyBaseUrl(proxyPort);
+  const routing = current.routing_state === 'enabling'
+    ? codexRealtimeConfig.enable(CODEX_CONFIG, baseUrl, current)
+    : codexRealtimeConfig.reapply(CODEX_CONFIG, baseUrl, current);
+  return voiceConfig.update(VOICE_CONFIG, {
+    ...routing,
+    voice_enabled: true,
+    routing_state: 'enabled',
+  });
 }
 
 function launcherRuntimeOverrides(proxyPort) {
@@ -208,7 +270,7 @@ function parseFlags(argv) {
     const eq = arg.indexOf('=');
     const key = (eq >= 0 ? arg.slice(2, eq) : arg.slice(2)).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     if (eq >= 0) flags[key] = arg.slice(eq + 1);
-    else if (['force', 'auto-image', 'no-auto-image', 'persist-images', 'no-persist-images', 'dedupe-large-input', 'no-dedupe-large-input', 'verbose-tools', 'no-verbose-tools', 'log-upstream-body', 'no-log-upstream-body', 'enable-find-skill', 'no-enable-find-skill', 'stream-loop', 'no-stream-loop', 'imagine-enable', 'imagine-disable', 'imagine-enhance', 'imagine-no-enhance', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'status', 'no-refresh', 'no-backup', 'no-start', 'replace', 'no-replace', 'foreground'].includes(arg.slice(2))) flags[key] = true;
+    else if (['force', 'auto-image', 'no-auto-image', 'persist-images', 'no-persist-images', 'dedupe-large-input', 'no-dedupe-large-input', 'verbose-tools', 'no-verbose-tools', 'log-upstream-body', 'no-log-upstream-body', 'enable-find-skill', 'no-enable-find-skill', 'stream-loop', 'no-stream-loop', 'imagine-enable', 'imagine-disable', 'imagine-enhance', 'imagine-no-enhance', 'enable', 'disable', 'enhance', 'no-enhance', 'doctor', 'setup', 'no-setup', 'status', 'interrupt', 'no-refresh', 'no-backup', 'no-start', 'replace', 'no-replace', 'foreground'].includes(arg.slice(2))) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { flags, rest };
@@ -241,6 +303,7 @@ function init(options = {}) {
     fs.copyFileSync(MODEL_CATALOG, MODEL_CATALOG_COPY);
   }
   imagineConfig.ensure(IMAGINE_CONFIG);
+  voiceConfig.ensure(VOICE_CONFIG);
   if (!fs.existsSync(ROUTE_CONFIG) || options.force) {
     fs.copyFileSync(DEFAULT_ROUTE_CONFIG, ROUTE_CONFIG);
     console.log(`created=${ROUTE_CONFIG}`);
@@ -256,6 +319,7 @@ function init(options = {}) {
     console.log(`catalog_exists=${MODEL_CATALOG}`);
   }
   fs.chmodSync(ROUTE_CONFIG, 0o600);
+  fs.chmodSync(VOICE_CONFIG, 0o600);
 }
 
 // Redact secret values in a TOML string so status() never leaks API keys.
@@ -314,7 +378,7 @@ function applyPreset(name, flags = {}) {
   // --model`.
   const values = Object.assign({}, preset.values);
   if (flags.textModel) {
-    values.models = [flags.textModel];
+    values.models = [...new Set([flags.textModel, values.voice_model].filter(Boolean))];
     values.default_model = flags.textModel;
     values.image_model = flags.textModel;
   }
@@ -409,6 +473,7 @@ function route(flags) {
   } else if (flags.defaultModel) {
     text = writeRouteValue(text, 'default_model', flags.defaultModel);
   }
+  if (flags.voiceModel) text = writeRouteValue(text, 'voice_model', flags.voiceModel);
   if (flags.imageModel) text = writeRouteValue(text, 'image_model', flags.imageModel);
   if (flags.autoImage) text = writeRouteValue(text, 'auto_route_image', true);
   if (flags.noAutoImage) text = writeRouteValue(text, 'auto_route_image', false);
@@ -462,6 +527,8 @@ function codexConfig(args) {
 function switchMode(mode, flags) {
   if (mode === 'openai') {
     codexConfig(['openai']);
+    const currentVoice = voiceConfig.read(VOICE_CONFIG);
+    if (ownsVoiceRouting(currentVoice)) completeVoiceDisable(currentVoice);
     return;
   }
   if (mode !== 'ollama') die('switch mode must be "openai" or "ollama"');
@@ -532,6 +599,33 @@ function probeJson(port, requestPath, timeoutMs = 750) {
       resolve({ statusCode: 0, body: null, raw: '', error: 'timeout' });
     });
     req.on('error', (error) => resolve({ statusCode: 0, body: null, raw: '', error: error.message }));
+  });
+}
+
+function postJson(port, requestPath, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path: requestPath,
+      method: 'POST',
+      timeout: timeoutMs,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let body = null;
+        try { body = JSON.parse(raw); } catch {}
+        resolve({ statusCode: res.statusCode || 0, body, raw });
+      });
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ statusCode: 0, body: null, raw: '', error: 'timeout' });
+    });
+    req.on('error', (error) => resolve({ statusCode: 0, body: null, raw: '', error: error.message }));
+    req.end();
   });
 }
 
@@ -702,6 +796,7 @@ function install() {
   init();
   stopLegacyPlatformServices();
   const state = launcherStateForInstall();
+  reapplyEnabledVoiceRouting(state.proxy_port);
   if (SERVICE_PLATFORM === 'darwin') {
     fs.mkdirSync(path.dirname(PLIST), { recursive: true });
     fs.writeFileSync(PLIST, renderPlist(), 'utf8');
@@ -756,6 +851,9 @@ function install() {
 }
 
 function uninstall() {
+  voiceConfig.ensure(VOICE_CONFIG);
+  const currentVoice = voiceConfig.read(VOICE_CONFIG);
+  completeVoiceDisable(currentVoice);
   stopPlatformService();
   stopLegacyPlatformServices();
   let serviceFile = PLIST;
@@ -852,6 +950,13 @@ async function serveCmd(flags = {}) {
       }),
       [proxyServer],
     );
+    function shutdown() {
+      try {
+        if (proxyServer && proxyServer.listening) proxyServer.close(() => {});
+      } catch {}
+    }
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
     return proxyServer;
   }
   if (!['chat-completion', 'google'].includes(flags.adaptor)) {
@@ -1039,6 +1144,152 @@ async function imagineCmd(flags) {
   }
 }
 
+async function voiceCmd(flags) {
+  voiceConfig.ensure(VOICE_CONFIG);
+  const current = voiceConfig.read(VOICE_CONFIG);
+  if (flags.interrupt) {
+    const result = await postJson(configuredProxyPort(), '/v1/live/interrupt');
+    if (result.statusCode !== 200) {
+      die(`Error: no active voice response was interrupted${result.error ? ` (${result.error})` : ''}.`);
+    }
+    console.log(`interrupted=${result.body?.interrupted || 0}`);
+    return;
+  }
+  if (flags.status) {
+    console.log('Local voice configuration:');
+    for (const field of voiceConfig.PUBLIC_FIELDS) {
+      console.log(`  ${field} = ${JSON.stringify(current[field])}`);
+    }
+    const routed = current.voice_enabled && current.managed_realtime_base_url
+      ? current.managed_realtime_base_url
+      : '(not routed)';
+    console.log(`  codex_realtime_base_url = ${JSON.stringify(routed)}`);
+    return;
+  }
+  if (flags.enable && flags.disable) {
+    die('Error: --enable and --disable cannot be used together.');
+  }
+  for (const [flag, display] of [
+    ['whisperModel', '--whisper-model'],
+    ['whisperDtype', '--whisper-dtype'],
+    ['whisperDevice', '--whisper-device'],
+    ['kokoroModel', '--kokoro-model'],
+    ['kokoroVoice', '--kokoro-voice'],
+    ['kokoroDtype', '--kokoro-dtype'],
+    ['kokoroDevice', '--kokoro-device'],
+    ['kokoroSpeed', '--kokoro-speed'],
+    ['interruptionMode', '--interruption-mode'],
+    ['interruptionKey', '--interruption-key'],
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(flags, flag) && flags[flag] === undefined) {
+      die(`Error: ${display} requires a value.`);
+    }
+  }
+
+  const updates = {};
+  if (flags.interruptionMode !== undefined) {
+    const mode = String(flags.interruptionMode).toLowerCase();
+    if (!['vad', 'manual'].includes(mode)) {
+      die('Error: --interruption-mode must be vad or manual.');
+    }
+    updates.interruption_mode = mode;
+  }
+  if (flags.interruptionKey !== undefined) {
+    const key = String(flags.interruptionKey).toLowerCase();
+    if (!['right-command', 'none'].includes(key)) {
+      die('Error: --interruption-key must be right-command or none.');
+    }
+    updates.interruption_key = key;
+  }
+  if (flags.whisperModel !== undefined) updates.whisper_model = String(flags.whisperModel);
+  if (flags.whisperDtype !== undefined) updates.whisper_dtype = String(flags.whisperDtype);
+  if (flags.whisperDevice !== undefined) updates.whisper_device = String(flags.whisperDevice);
+  if (flags.kokoroModel !== undefined) updates.kokoro_model = String(flags.kokoroModel);
+  if (flags.kokoroVoice !== undefined) updates.kokoro_voice = String(flags.kokoroVoice);
+  if (flags.kokoroDtype !== undefined) updates.kokoro_dtype = String(flags.kokoroDtype);
+  if (flags.kokoroDevice !== undefined) updates.kokoro_device = String(flags.kokoroDevice);
+  if (flags.kokoroSpeed !== undefined) {
+    const speed = Number(flags.kokoroSpeed);
+    if (!Number.isFinite(speed) || speed <= 0) {
+      die('Error: --kokoro-speed must be a positive number.');
+    }
+    updates.kokoro_speed = speed;
+  }
+
+  let next = { ...current, ...updates };
+  const setupRequested = flags.setup || flags.doctor;
+  if (setupRequested || (flags.enable && !flags.noSetup)) {
+    console.log(`voice_models=${voiceModelCacheDirectory(CODEX_DIR)}`);
+    const ready = await prepareVoiceRuntime({
+      config: next,
+      cacheDir: voiceModelCacheDirectory(CODEX_DIR),
+    });
+    console.log(`ffmpeg=${ready.ffmpeg}`);
+    console.log(`whisper_model=${ready.whisperModel}`);
+    console.log(`kokoro_model=${ready.kokoroModel}`);
+    console.log('voice_runtime=ready');
+    if (setupRequested && !flags.enable) {
+      if (flags.setup) voiceConfig.write(VOICE_CONFIG, next);
+      return;
+    }
+  }
+  let codexChanged = false;
+  if (flags.enable) {
+    const baseUrl = realtimeProxyBaseUrl();
+    const restore = ownsVoiceRouting(current)
+      ? {}
+      : codexRealtimeConfig.capture(CODEX_CONFIG);
+    const pending = {
+      ...next,
+      ...restore,
+      voice_enabled: true,
+      routing_state: 'enabling',
+      managed_realtime_base_url: baseUrl,
+    };
+    voiceConfig.write(VOICE_CONFIG, pending);
+    const routing = codexRealtimeConfig.enable(CODEX_CONFIG, baseUrl, pending);
+    next = {
+      ...pending,
+      ...routing,
+      voice_enabled: true,
+      routing_state: 'enabled',
+    };
+    codexChanged = true;
+  } else if (flags.disable) {
+    if (ownsVoiceRouting(current)) {
+      next = completeVoiceDisable({ ...current, ...updates });
+      codexChanged = true;
+    } else {
+      next = { ...next, voice_enabled: false, routing_state: 'disabled' };
+    }
+  }
+  voiceConfig.write(VOICE_CONFIG, next);
+  console.log(`updated=${VOICE_CONFIG}`);
+  if (codexChanged) {
+    console.log(`codex_config_updated=${CODEX_CONFIG}`);
+    console.log('Restart Codex so the Voice Chat transport reloads.');
+  }
+
+  const activePreset = next.voice_enabled && !flags.disable
+    ? readRouteValue(readRouteConfig(), 'active_preset', '')
+    : '';
+  if (activePreset) {
+    const activeRoute = readRouteConfig();
+    // Realtime handoffs are routed back through the current Codex session.
+    // Point that session at the proxy so the handoff reaches the active
+    // preset's Responses endpoint and retains Codex's normal tool loop.
+    switchMode('ollama', {
+      noBackup: true,
+      noRefresh: true,
+      noStart: true,
+    });
+    writePrivateText(ROUTE_CONFIG, activeRoute);
+    if (!flags.noStart) {
+      await startPresetServer(presets.readPreset(RUNTIME_DIR, activePreset), { replace: true });
+    }
+  }
+}
+
 function readImagineConfig() {
   const cfg = imagineConfig.read(IMAGINE_CONFIG);
   cfg.default_model = readRouteValue(readRouteConfig(), 'default_model', null);
@@ -1060,6 +1311,7 @@ async function main() {
   if (command === 'install') return install();
   if (command === 'uninstall') return uninstall();
   if (command === 'imagine') return await imagineCmd(parseFlags(process.argv.slice(2)).flags);
+  if (command === 'voice') return await voiceCmd(parseFlags(process.argv.slice(2)).flags);
   if (command === 'restart') return await restart();
   usage();
   process.exit(1);

@@ -192,6 +192,7 @@ test('completion API adaptor translates Responses requests to Chat Completions',
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.status, 'completed');
     assert.equal(response.body.output_text, 'hello from chat');
+    assert.equal(response.body.output[0].phase, 'final_answer');
     assert.equal(received.length, 1);
     assert.equal(received[0].url, '/v1/chat/completions');
     assert.equal(received[0].authorization, 'Bearer test-key');
@@ -199,6 +200,109 @@ test('completion API adaptor translates Responses requests to Chat Completions',
     assert.equal(received[0].body.reasoning_effort, 'max');
     assert.deepEqual(received[0].body.messages, [{ role: 'user', content: 'say hello' }]);
     assert.equal(received[0].body.tools[0].function.name, 'lookup');
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
+test('completion adaptor marks text accompanying tool calls as spoken commentary', async () => {
+  const chatServer = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: 'I’ll inspect the build first.',
+          tool_calls: [{
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'exec_command', arguments: '{"cmd":"npm test"}' },
+          }],
+        },
+      }],
+    }));
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'test-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+
+  try {
+    const response = await postJson(adaptorServer.address().port, '/v1/responses', {
+      input: 'Fix the build.',
+      stream: false,
+      tools: [{
+        type: 'function',
+        name: 'exec_command',
+        parameters: { type: 'object', properties: { cmd: { type: 'string' } } },
+      }],
+    });
+    const message = response.body.output.find((item) => item.type === 'message');
+    assert.equal(message.text, undefined);
+    assert.equal(message.content[0].text, 'I’ll inspect the build first.');
+    assert.equal(message.phase, 'commentary');
+  } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
+test('completion adaptor streams tool commentary and text-only final phases', async () => {
+  let requestCount = 0;
+  const chatServer = http.createServer((_req, res) => {
+    requestCount += 1;
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    if (requestCount === 1) {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {
+        content: 'I’ll inspect that first.',
+        tool_calls: [{
+          index: 0,
+          id: 'call-1',
+          function: { name: 'exec_command', arguments: '{"cmd":"pwd"}' },
+        }],
+      } }] })}\n\n`);
+    } else {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {
+        content: 'The result is complete.',
+      } }] })}\n\n`);
+    }
+    res.end('data: [DONE]\n\n');
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'test-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+
+  try {
+    const phases = [];
+    for (const input of ['Inspect it.', 'Summarize it.']) {
+      const response = await postJsonText(adaptorServer.address().port, '/v1/responses', {
+        input,
+        stream: true,
+      });
+      const events = response.body
+        .split('\n')
+        .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
+        .map((line) => JSON.parse(line.slice(6)));
+      const doneMessage = events
+        .filter((event) => event.type === 'response.output_item.done')
+        .map((event) => event.item)
+        .find((item) => item.type === 'message');
+      const completed = events.find((event) => event.type === 'response.completed');
+      const completedMessage = completed.response.output.find((item) => item.type === 'message');
+      assert.equal(doneMessage.phase, completedMessage.phase);
+      phases.push(doneMessage.phase);
+    }
+    assert.deepEqual(phases, ['commentary', 'final_answer']);
   } finally {
     await close(adaptorServer);
     await close(chatServer);
@@ -412,6 +516,60 @@ test('completion API adaptor bounds stalled upstream requests', async () => {
     assert.equal(response.statusCode, 504);
     assert.match(response.body.error, /timed out after 50ms/u);
   } finally {
+    await close(adaptorServer);
+    await close(chatServer);
+  }
+});
+
+test('completion API adaptor aborts its provider request when the Responses client disconnects', async () => {
+  let providerResponse;
+  let providerStarted;
+  let providerClosed;
+  const started = new Promise((resolve) => {
+    providerStarted = resolve;
+  });
+  const closed = new Promise((resolve) => {
+    providerClosed = resolve;
+  });
+  const chatServer = http.createServer((_req, res) => {
+    providerResponse = res;
+    res.once('close', providerClosed);
+    providerStarted();
+  });
+  const chatPort = await listen(chatServer);
+  const adaptor = require('../adaptor/completion-api-adaptor');
+  const adaptorServer = adaptor.startServer({
+    port: 0,
+    baseUrl: `http://127.0.0.1:${chatPort}/v1`,
+    defaultModel: 'stalled-model',
+  });
+  await new Promise((resolve) => adaptorServer.once('listening', resolve));
+  const request = http.request({
+    host: '127.0.0.1',
+    port: adaptorServer.address().port,
+    path: '/v1/responses',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+  request.on('error', () => {});
+
+  try {
+    request.end(JSON.stringify({
+      model: 'stalled-model',
+      input: 'cancel this',
+      stream: true,
+    }));
+    await started;
+    request.destroy();
+    await Promise.race([
+      closed,
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('provider request was not aborted')), 500);
+      }),
+    ]);
+  } finally {
+    request.destroy();
+    if (providerResponse && !providerResponse.writableEnded) providerResponse.end();
     await close(adaptorServer);
     await close(chatServer);
   }

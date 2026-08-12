@@ -130,8 +130,10 @@ function normalizePreset(name, text) {
   }
   // image_model is a derived shorthand: if not explicitly set, mirror
   // default_model so a single --model/--text-model is enough (matches `switch
-  // ollama --model`). It is always present in the stored preset.
+  // ollama --model`). voice_model is optional; local voice falls back to the
+  // active model for the matching Codex task when it is empty.
   if (!values.models.includes(values.default_model)) die(`Error: preset ${name} default_model must occur in models.`);
+  if (values.voice_model && !values.models.includes(values.voice_model)) die(`Error: preset ${name} voice_model must occur in models.`);
   if (values.image_model && !values.models.includes(values.image_model)) die(`Error: preset ${name} image_model must occur in models.`);
   // auto_route_image is a core identity field, always resolved by the preset
   // (false when absent) so a preset fully determines image routing — matching
@@ -150,7 +152,8 @@ function readPreset(runtimeDir, name) {
 // Map CLI flags -> preset config keys. Booleans use paired --flag/--no-flag
 // forms; a toggle is only stored when one of the pair is passed (undeclared
 // toggles keep the template default at apply time). Required keys (upstream_url,
-// default_model) are always stored; image_model is always stored (derived).
+  // default_model) are always stored; voice_model and image_model are always
+  // stored so enabling local voice can validate the active preset.
 function flagsToValues(flags) {
   const values = {};
 
@@ -167,6 +170,7 @@ function flagsToValues(flags) {
   // `switch ollama --model`). --text-model/--image-model override it per-field.
   const rawModels = flags.models || [
     flags.textModel,
+    flags.voiceModel,
     flags.imageModel,
   ].filter(Boolean).join(',');
   if (!rawModels) die('Error: preset add requires --models MODEL[,MODEL...].');
@@ -178,8 +182,10 @@ function flagsToValues(flags) {
   });
   if (!values.models.length) die('Error: --models must contain at least one model.');
   values.default_model = flags.defaultModel || values.models[0];
+  values.voice_model = flags.voiceModel || '';
   values.image_model = flags.imageModel || (flags.textModel ? flags.textModel : '');
   if (!values.models.includes(values.default_model)) die('Error: --default-model must occur in --models.');
+  if (values.voice_model && !values.models.includes(values.voice_model)) die('Error: --voice-model must occur in --models.');
   if (values.image_model && !values.models.includes(values.image_model)) die('Error: --image-model must occur in --models.');
 
   if (flags.apiKey === '') {
