@@ -50,6 +50,7 @@ const INLINE_IMAGE_CACHE_DIR = path.join(CODEX_DIR, 'attachments', branding.ATTA
 // src/route-config-schema.js). Adding a config toggle only needs a new schema
 // entry + CLI flag; the preset layer picks it up automatically.
 const routeSchema = require('./route-config-schema');
+const responseCache = require('./response-cache');
 const ROUTE_CFG = { ...routeSchema.ALL_ROUTE_KEYS };
 const activeModelTracker = createActiveModelTracker();
 function loadRouteConfig() {
@@ -1468,6 +1469,7 @@ function completeStream(clientRes, streamState, sourceEvent, output) {
   delete response.error;
   delete response.incomplete_details;
   normalizeResponseUsage(response);
+  responseCache.remember(response);
   return writeStreamTerminal(clientRes, streamState, 'response.completed', {
     type: 'response.completed',
     response,
@@ -1941,6 +1943,7 @@ function sendJsonResponse(clientRes, statusCode, response) {
 }
 
 function sendSseCompleted(clientRes, response) {
+  responseCache.remember(response);
   clientRes.writeHead(200, {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
@@ -2072,6 +2075,17 @@ const server = http.createServer((clientReq, clientRes) => {
         liftAdditionalToolsInput(body);
         info = collectCustomToolInfo(body.tools);
         translateRequestBody(body);
+    // Reconstruct conversation history from previous_response_id when the
+    // client (Codex with requires_openai_auth=true) sends only the new message.
+    // Ollama is stateless and ignores previous_response_id, so the proxy
+    // must replay the stored response output as input history.
+    if (isResponses && body) {
+      const historyItems = responseCache.reconstructHistory(body);
+      if (historyItems && Array.isArray(body.input)) {
+        body.input = [...historyItems, ...body.input];
+        debugLog('reconstructed history: prepended ' + historyItems.length + ' item(s) from previous_response_id=' + body.previous_response_id);
+      }
+    }
         {
           const byType = {};
           const nsNames = [];
@@ -2099,6 +2113,7 @@ const server = http.createServer((clientReq, clientRes) => {
         debugLog('native image endpoint bridge enabled for ' + nativeImageGeneration.nativeImageProvider(upstream.baseUrl));
         const response = await nativeImageGeneration.generateNativeImageResponse({ upstream, body });
         await appendVisibleGeneratedImageMessages(response, body);
+        responseCache.remember(response);
         if (originalStream) sendSseCompleted(clientRes, response);
         else sendJsonResponse(clientRes, 200, response);
       } catch (error) {
@@ -2152,6 +2167,7 @@ const server = http.createServer((clientReq, clientRes) => {
           });
           const response = result.response;
           translateFinalResponse(response, info);
+        responseCache.remember(response);
           if (originalStream) sendSseCompleted(clientRes, response);
           else sendJsonResponse(clientRes, 200, response);
           return;
@@ -2180,10 +2196,12 @@ const server = http.createServer((clientReq, clientRes) => {
         translateFinalResponse(response, info);
         if (!result.fulfilledWebSearch) {
           debugLog('native web_search proxy loop: no web_search call fulfilled; returning model response');
+        responseCache.remember(response);
           if (originalStream) sendSseCompleted(clientRes, response);
           else sendJsonResponse(clientRes, 200, response);
           return;
         } else {
+        responseCache.remember(response);
           if (originalStream) sendSseCompleted(clientRes, response);
           else sendJsonResponse(clientRes, 200, response);
           return;
@@ -2213,6 +2231,7 @@ const server = http.createServer((clientReq, clientRes) => {
         const result = await skillFind.runFindSkillLoop(upstream, body, { log: (...a) => debugLog(...a) });
         const response = result.response;
         translateFinalResponse(response, info);
+        responseCache.remember(response);
         if (originalStream) sendSseCompleted(clientRes, response);
         else sendJsonResponse(clientRes, 200, response);
         return;
@@ -2255,6 +2274,7 @@ const server = http.createServer((clientReq, clientRes) => {
             const response = JSON.parse(raw);
             translateFinalResponse(response, info);
             await appendVisibleGeneratedImageMessages(response, body);
+            responseCache.remember(response);
             sendJsonResponse(clientRes, upstreamRes.statusCode || 200, response);
           } catch (e) {
             clientRes.writeHead(upstreamRes.statusCode, upstreamRes.headers);
