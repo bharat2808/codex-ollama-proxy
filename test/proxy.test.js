@@ -116,7 +116,7 @@ test('voice handoff requests receive spoken-turn guidance before provider transl
   assert.equal(guidance.length, 1);
 });
 
-test('voice handoffs replace a stale Codex model with the active preset default', () => {
+test('voice handoffs preserve the model selected by Codex', () => {
   withRouteConfig([
     'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
     'default_model = "glm-5.2:cloud"',
@@ -135,48 +135,48 @@ test('voice handoffs replace a stale Codex model with the active preset default'
 
     translateRequestBody(body);
 
-    assert.equal(body.model, 'glm-5.2:cloud');
+    assert.equal(body.model, 'gpt-5.6-luna');
   });
 });
 
-test('active presets replace stale models on internal Codex turns', () => {
+test('model picker selections pass through outside the preset model list', () => {
   withRouteConfig([
     'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
     'default_model = "glm-5.2:cloud"',
   ], ({ translateRequestBody }) => {
     const body = {
-      model: 'gpt-5.6-luna',
-      input: 'Generate a concise title for the completed voice thread.',
+      model: '~deepseek/deepseek-v4-flash-latest',
+      input: 'Inspect the repository.',
     };
 
     translateRequestBody(body);
 
-    assert.equal(body.model, 'glm-5.2:cloud');
+    assert.equal(body.model, '~deepseek/deepseek-v4-flash-latest');
   });
 });
 
-test('request translation records the final routed model for the Codex thread', () => {
+test('request translation records the model selected by Codex for the thread', () => {
   withRouteConfig([
     'models = ["current-model"]',
     'default_model = "current-model"',
   ], ({ activeModelTracker, translateRequestBody }) => {
     const body = {
-      model: 'stale-client-model',
-      metadata: { thread_id: 'voice-fallback-thread' },
+      model: 'picker-selected-model',
+      metadata: { thread_id: 'picker-model-thread' },
       input: [],
     };
 
     translateRequestBody(body);
 
-    assert.equal(body.model, 'current-model');
+    assert.equal(body.model, 'picker-selected-model');
     assert.equal(
-      activeModelTracker.resolve({ metadata: { thread_id: 'voice-fallback-thread' } }),
-      'current-model',
+      activeModelTracker.resolve({ metadata: { thread_id: 'picker-model-thread' } }),
+      'picker-selected-model',
     );
   });
 });
 
-test('replayed voice handoffs with existing guidance still use the preset default', () => {
+test('replayed voice handoffs with existing guidance preserve the selected model', () => {
   withRouteConfig([
     'models = ["glm-5.2:cloud", "kimi-k2.7-code:cloud"]',
     'default_model = "glm-5.2:cloud"',
@@ -202,7 +202,7 @@ test('replayed voice handoffs with existing guidance still use the preset defaul
 
     translateRequestBody(body);
 
-    assert.equal(body.model, 'glm-5.2:cloud');
+    assert.equal(body.model, 'gpt-5.6-luna');
     assert.equal(
       body.input.filter((item) => (
         Array.isArray(item.content)
