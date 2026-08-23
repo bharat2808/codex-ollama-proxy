@@ -806,25 +806,12 @@ async function appendVisibleGeneratedImageMessages(response, requestBody) {
   return messages;
 }
 
-// Keep requests inside the active preset, then apply image routing.
-// Models outside a configured allowlist are stale client selections and use
-// the preset default before any image-specific decision is made.
+// Preserve the model selected by Codex, then apply image routing.
 // Vision-capable models always pass through with images, regardless of auto_route_image.
 // Text-only models pass through when auto_route_image is off.
 // Text-only models get rewritten to image_model when auto_route_image is on.
 function applyModelRouting(body) {
   if (!body || typeof body !== 'object') return body;
-  if (
-    ROUTE_CFG.default_model
-    && ROUTE_CFG.models.length > 0
-    && !ROUTE_CFG.models.includes(body.model)
-  ) {
-    debugLog(
-      'preset route: model "' + body.model
-      + '" is outside the active preset -> rewrite to "' + ROUTE_CFG.default_model + '"',
-    );
-    body.model = ROUTE_CFG.default_model;
-  }
   const hasImage = activeTurnHasImage(body);
   if (!hasImage) return body;
   // Model has vision — let it through regardless of auto_route setting
